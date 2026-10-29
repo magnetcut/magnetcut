@@ -5,7 +5,8 @@ import rule from "../prefer-object-params.mjs";
 
 RuleTester.describe = describe;
 RuleTester.it = it;
-RuleTester.itOnly = it.only;
+// Bun throws on reading `it.only` when CI is set, so read it only for a case with `only: true`.
+RuleTester.itOnly = (...args) => it.only(...args);
 RuleTester.afterAll = afterAll;
 
 const ruleTester = new RuleTester({
