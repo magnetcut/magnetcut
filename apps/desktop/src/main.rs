@@ -1,41 +1,34 @@
-use gpui::{
-    div, prelude::*, px, rgb, size, App, Application, Bounds, Context, SharedString, Window,
-    WindowBounds, WindowOptions,
-};
+// The desktop app: the editor (apps/web, exported as static files) in a window.
 
-struct AppWindow {
-    title: SharedString,
-}
+// No console window on Windows in release builds.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-impl Render for AppWindow {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .size_full()
-            .bg(rgb(0x0f0f0f))
-            .flex()
-            .justify_center()
-            .items_center()
-            .text_xl()
-            .text_color(rgb(0xffffff))
-            .child(self.title.clone())
-    }
+use tauri::webview::PageLoadEvent;
+
+/// With MAGNETCUT_PROBE set, each page reports what the system's web view can
+/// do (src/probe.js), the report is printed as one JSON line, and the app quits.
+const PROBE_ENV: &str = "MAGNETCUT_PROBE";
+
+#[tauri::command]
+fn probe_report(app: tauri::AppHandle, report: String) {
+    println!("MAGNETCUT_PROBE {report}");
+    app.exit(0);
 }
 
 fn main() {
-    Application::new().run(|cx: &mut App| {
-        let bounds = Bounds::centered(None, size(px(1280.), px(720.)), cx);
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                ..Default::default()
-            },
-            |_, cx| {
-                cx.new(|_| AppWindow {
-                    title: "OpenCut".into(),
-                })
-            },
-        )
-        .unwrap();
-        cx.activate(true);
-    });
+    let mut builder = tauri::Builder::default();
+    if std::env::var_os(PROBE_ENV).is_some() {
+        builder = builder
+            .invoke_handler(tauri::generate_handler![probe_report])
+            .on_page_load(|webview, payload| {
+                if payload.event() == PageLoadEvent::Finished
+                    && let Err(error) = webview.eval(include_str!("probe.js"))
+                {
+                    eprintln!("probe: {error}");
+                }
+            });
+    }
+    builder
+        .run(tauri::generate_context!())
+        .expect("error while running MagnetCut");
 }

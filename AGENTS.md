@@ -12,8 +12,8 @@ The single source of truth for all non-UI code. Everything platform-agnostic bel
 
 Each app is a frontend that calls into Rust. Logic is never duplicated between apps — only UI is, because each platform may use an entirely different framework and language to build it.
 
-- `web/` — Next.js
-- `desktop/` — GPUI
+- `web/` — Next.js, exported as static files
+- `desktop/` — Tauri: `web/`'s static export in a native window, plus what only native code can do. `MAGNETCUT_PROBE=1` makes it print what the system's web view supports, then quit
 
 ## Web
 

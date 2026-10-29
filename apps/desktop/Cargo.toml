@@ -1,11 +1,13 @@
 [package]
-name = "opencut-desktop"
+name = "magnetcut"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+description = "MagnetCut's desktop app: the editor in apps/web, in a Tauri window"
+license = "AGPL-3.0-only"
+publish = false
 
-[[bin]]
-name = "opencut"
-path = "src/main.rs"
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
 
 [dependencies]
-gpui = "0.2.2"
+tauri = { version = "2", features = [] }
