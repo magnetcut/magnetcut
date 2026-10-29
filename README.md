@@ -1,162 +1,78 @@
-# OpenCut (Legacy)
+# MagnetCut
 
-This is the original OpenCut codebase. It's archived and no longer maintained.
+A video editor for macOS, Windows and Linux that keeps everything on your computer. Free and
+open source: no account, no ads, no telemetry.
 
-The rewrite is happening at [opencut-app/opencut](https://github.com/opencut-app/opencut).
+> **Early days.** MagnetCut is being built. Today the editor runs in a browser; the desktop app
+> is next. [docs/PLAN.md](docs/PLAN.md) has the decisions and the order.
 
-## Sponsors
+## What it does
 
-Thanks to [Vercel](https://vercel.com?utm_source=github-opencut&utm_campaign=oss) and [fal.ai](https://fal.ai?utm_source=github-opencut&utm_campaign=oss) for their support of open-source software.
+Today, from OpenCut:
 
-<a href="https://vercel.com/oss">
-  <img alt="Vercel OSS Program" src="https://vercel.com/oss/program-badge.svg" />
-</a>
+- A timeline for video, audio, images, text and stickers, with effects, masks, keyframes and
+  speed changes.
+- Captions from speech, transcribed on your computer (Whisper).
+- Export to MP4 or WebM.
 
-<a href="https://fal.ai">
-  <img alt="Powered by fal.ai" src="https://img.shields.io/badge/Powered%20by-fal.ai-000000?style=flat&logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTEyIDJMMTMuMDkgOC4yNkwyMCAxMEwxMy4wOSAxNS43NEwxMiAyMkwxMC45MSAxNS43NEw0IDEwTDEwLjkxIDguMjZMMTIgMloiIGZpbGw9IndoaXRlIi8+Cjwvc3ZnPgo=" />
-</a>
+Planned:
 
-## Why?
+- The desktop app (Tauri), signed and updating itself, and a Mac App Store edition.
+- HandBrake's export settings: formats and codecs, size presets, quality, frame rate, and
+  subtitles embedded as a track or burned in.
+- A subtitle editor, with subtitles synced to the speech in one click.
+- GPU from decoding to encoding.
 
-- **Privacy**: Your videos stay on your device
-- **Free features**: Most basic CapCut features are now paywalled 
-- **Simple**: People want editors that are easy to use - CapCut proved that
+## Privacy
 
-## Project Structure
+Your projects and media stay on your computer, in the app's own storage. MagnetCut has no
+servers and sends nothing about you anywhere. It goes online only when you use something that
+needs a download: a font from Google Fonts, a transcription model from Hugging Face (once), the
+platform logos in the safe-area guides.
 
-- `apps/web/`: Next.js web application
-- `apps/desktop/`: Native desktop app built with GPUI (in progress)
-- `rust/`: Platform-agnostic core: GPU compositor, effects, masks, and WASM bindings. We're actively migrating business logic here from TypeScript.
-- `docs/`: Architecture and subsystem documentation
+## Run it from source
 
-## Getting Started
+You need [Bun](https://bun.sh).
 
-### Prerequisites
-
-- [Bun](https://bun.sh/docs/installation)
-- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/)
-
-> **Note:** Docker is optional but recommended for running the local database and Redis. If you only want to work on frontend features, you can skip it.
-
-### Setup
-
-1. Fork and clone the repository
-
-2. Copy the environment file:
-
-   ```bash
-   # Unix/Linux/Mac
-   cp apps/web/.env.example apps/web/.env.local
-
-   # Windows PowerShell
-   Copy-Item apps/web/.env.example apps/web/.env.local
-   ```
-
-3. Start the database and Redis:
-
-   ```bash
-   docker compose up -d db redis serverless-redis-http
-   ```
-
-4. Install dependencies and start the dev server:
-
-   ```bash
-   bun install
-   bun dev:web
-   ```
-
-The application will be available at [http://localhost:3000](http://localhost:3000).
-
-The `.env.example` has sensible defaults that match the Docker Compose config — it should work out of the box.
-
-### Desktop setup
-
-Desktop is opt-in. If you're only working on the web app, skip this entirely.
-
-If you want to get ready for `apps/desktop`, see [`apps/desktop/README.md`](apps/desktop/README.md). It's a two-step setup: Rust toolchain first, then desktop native dependencies.
-
-### Local WASM development
-
-Only needed if you're editing `rust/wasm` and want the web app to use your local build instead of the published package.
-
-**Prerequisites** — install these once before anything else:
-
-```bash
-# Rust toolchain
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# build the WASM package
-cargo install wasm-pack
-
-# reruns the build on file changes, used by bun dev:wasm
-cargo install cargo-watch
+```sh
+bun install
+bun dev:web        # the editor at http://localhost:3000
+bun test
+bun run build:web  # the static app, in apps/web/out
 ```
 
-1. Build the package once from the repo root:
+The desktop app needs [Rust](https://rustup.rs) and the Tauri CLI (`cargo install tauri-cli`):
 
-   ```bash
-   bun run build:wasm
-   ```
-
-2. Register the generated package for linking:
-
-   ```bash
-   cd rust/wasm/pkg
-   bun link
-   ```
-
-3. Link `apps/web` to the local package:
-
-   ```bash
-   cd apps/web
-   bun link opencut-wasm
-   ```
-
-4. Rebuild on changes while you work:
-
-   ```bash
-   bun dev:wasm
-   ```
-
-To switch `apps/web` back to the published package, run:
-
-```bash
-cd apps/web
-bun add opencut-wasm
+```sh
+cd apps/desktop
+cargo tauri dev     # the editor in a window, reloading as you edit
+cargo tauri build   # the installers, in target/release/bundle
 ```
 
-### Self-Hosting with Docker
+### The Rust core
 
-To run everything (including a production build of the app) in Docker:
+`rust/` holds the platform-independent core (GPU compositor, effects, masks, time), which the
+web app uses as WebAssembly through the published `opencut-wasm` package. Only if you're editing
+`rust/wasm`, build it and link it instead:
 
-```bash
-docker compose up -d
+```sh
+cargo install wasm-pack cargo-watch   # once
+bun run build:wasm
+cd rust/wasm/pkg && bun link
+cd ../../../apps/web && bun link opencut-wasm
+bun dev:wasm                          # rebuilds on changes
 ```
 
-The app will be available at [http://localhost:3100](http://localhost:3100).
+`bun add opencut-wasm` in `apps/web` goes back to the published package.
 
 ## Contributing
 
-We welcome contributions! While we're actively developing and refactoring certain areas, there are plenty of opportunities to contribute effectively.
+See [CONTRIBUTING.md](.github/CONTRIBUTING.md).
 
-**🎯 Focus areas:** Timeline functionality, project management, performance, bug fixes, and UI improvements outside the preview panel.
+## Licence
 
-**⚠️ Avoid for now:** Preview panel enhancements (fonts, stickers, effects) and export functionality - we're refactoring these with a new binary rendering approach.
+MagnetCut is licensed under the [GNU AGPL 3.0](LICENSE).
 
-See our [Contributing Guide](.github/CONTRIBUTING.md) for detailed setup instructions, development guidelines, and complete focus area guidance.
-
-**Quick start for contributors:**
-
-- Fork the repo and clone locally
-- Follow the setup instructions in CONTRIBUTING.md
-- Working on `apps/desktop`? See [`apps/desktop/README.md`](apps/desktop/README.md) for setup
-- Create a feature branch and submit a PR
-
-## License
-
-[MIT LICENSE](LICENSE)
-
----
-
-![Star History Chart](https://api.star-history.com/svg?repos=opencut-app/opencut&type=Date)
-
+It's based on [OpenCut](https://github.com/OpenCut-app/opencut-classic), copyright 2025-2026
+OpenCut, under the MIT licence ([licenses/OpenCut.txt](licenses/OpenCut.txt)). MagnetCut isn't made,
+sponsored or endorsed by OpenCut.

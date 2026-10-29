@@ -1,0 +1,6 @@
+<svg width="400" height="400" viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- A horseshoe magnet; the gaps under its poles are the cut. White: the UI inverts it on light themes. -->
+<path d="M65 124V218A135 135 0 0 0 335 218V124H245V218A45 45 0 0 1 155 218V124Z" fill="white"/>
+<rect x="65" y="48" width="90" height="60" rx="10" fill="white"/>
+<rect x="245" y="48" width="90" height="60" rx="10" fill="white"/>
+</svg>

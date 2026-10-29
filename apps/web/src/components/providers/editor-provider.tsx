@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { EditorCore } from "@/core";
+import { getEditorUrl } from "@/project/editor-url";
 import { useEditor } from "@/editor/use-editor";
 import { useKeybindingsListener } from "@/actions/use-keybindings";
 import { useKeybindingsStore } from "@/actions/keybindings-store";
@@ -59,7 +60,7 @@ export function EditorProvider({ projectId, children }: EditorProviderProps) {
 						const newProjectId = await editor.project.createNewProject({
 							name: "Untitled Project",
 						});
-						router.replace(`/editor/${newProjectId}`);
+						router.replace(getEditorUrl({ projectId: newProjectId }));
 					} catch (_createErr) {
 						setError("Failed to create project");
 						setIsLoading(false);

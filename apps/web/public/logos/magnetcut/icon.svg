@@ -1,0 +1,19 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- The app icon: the symbol on a dark tile, on Apple's 824 px grid inside 1024. -->
+<defs>
+<linearGradient id="tile" x1="512" y1="100" x2="512" y2="924" gradientUnits="userSpaceOnUse">
+<stop stop-color="#2B2D42"/>
+<stop offset="1" stop-color="#14151F"/>
+</linearGradient>
+<linearGradient id="body" x1="200" y1="124" x2="200" y2="353" gradientUnits="userSpaceOnUse">
+<stop stop-color="#FF6B5B"/>
+<stop offset="1" stop-color="#E0314B"/>
+</linearGradient>
+</defs>
+<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)"/>
+<g transform="translate(188 187) scale(1.62)">
+<path d="M65 124V218A135 135 0 0 0 335 218V124H245V218A45 45 0 0 1 155 218V124Z" fill="url(#body)"/>
+<rect x="65" y="48" width="90" height="60" rx="10" fill="#F1F3F5"/>
+<rect x="245" y="48" width="90" height="60" rx="10" fill="#F1F3F5"/>
+</g>
+</svg>

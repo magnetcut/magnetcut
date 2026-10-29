@@ -12,3 +12,5 @@
 next-env.d.ts
 
 *.tsbuildinfo
+# Static export
+out/

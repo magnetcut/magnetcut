@@ -1,28 +1,20 @@
-# Security Policy
+# Security
 
-## Supported Versions
+MagnetCut opens files you give it and writes the ones you export, so a bug that reads or writes
+anything else matters. So does any network traffic you didn't ask for.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 1.x.x   | :white_check_mark: |
+## Reporting
 
-## Reporting a Vulnerability
+Please report vulnerabilities privately through GitHub: **Security → Report a vulnerability** on
+this repository. Don't open a public issue.
 
-We take security vulnerabilities seriously. If you discover a security vulnerability within OpenCut, please send an email to security@opencut.app. All security vulnerabilities will be promptly addressed.
+Include what you did, on which system and version, and what happened. You'll get a reply within
+a few days. Only the latest release gets fixes.
 
-Please do not report security vulnerabilities through public GitHub issues.
+## Scope
 
-### What to include in your report
-
-- Description of the vulnerability
-- Steps to reproduce
-- Potential impact
-- Any suggested fixes
-
-### Response timeline
-
-- We will acknowledge receipt within 48 hours
-- We will provide a detailed response within 5 business days
-- We will keep you updated on our progress
-
-Thank you for helping keep OpenCut secure!
+- Reading, writing or deleting files the user didn't choose.
+- Network traffic (downloads or uploads) the user didn't ask for. The app has no telemetry; any
+  outbound data about the user or their media is a bug.
+- An update installing anything not signed with the project's key.
+- Media files that crash the app or run code when opened.

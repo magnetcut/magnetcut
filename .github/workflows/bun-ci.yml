@@ -22,16 +22,10 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     env:
-      DATABASE_URL: "postgresql://opencut:opencut@localhost:5432/opencut"
-      BETTER_AUTH_SECRET: "supersecret"
-      NEXT_PUBLIC_SITE_URL: "http://localhost:3000"
-      UPSTASH_REDIS_REST_URL: "https://your-upstash-redis-url"
-      UPSTASH_REDIS_REST_TOKEN: "your-upstash-redis-token"
-      NEXT_PUBLIC_MARBLE_API_URL: "https://placeholder.example.com"
-      MARBLE_WORKSPACE_KEY: "placeholder"
-      FREESOUND_CLIENT_ID: "placeholder"
-      FREESOUND_API_KEY: "placeholder"
-    
+      # The tools' own usage reporting, off.
+      NEXT_TELEMETRY_DISABLED: 1
+      TURBO_TELEMETRY_DISABLED: 1
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -59,23 +53,24 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
         with:
-          bun-version: 1.2.18
+          bun-version: 1.4.4
 
       - name: Cache Bun modules
         uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-1.2.18-${{ hashFiles('apps/web/bun.lock') }}
+          key: ${{ runner.os }}-bun-1.4.4-${{ hashFiles('bun.lock') }}
 
       - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Type check
         working-directory: apps/web
-        run: bun install
+        run: bunx tsc --noEmit
+
+      - name: Run tests
+        run: bun test
 
       - name: Build
         working-directory: apps/web
         run: bun run build
-
-      - name: Run tests
-        working-directory: apps/web
-        run: echo "No tests implemented yet"
-        continue-on-error: true
