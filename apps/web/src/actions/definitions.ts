@@ -152,6 +152,25 @@ export const ACTIONS = {
 
 export type TAction = keyof typeof ACTIONS;
 
+// The actions that can't run without arguments. Typed as a Record so that a
+// new one with required args doesn't compile until it's listed here.
+const ACTIONS_WITH_REQUIRED_ARGS: Record<
+	Exclude<TAction, TActionWithOptionalArgs>,
+	true
+> = {
+	"remove-media-asset": true,
+	"remove-media-assets": true,
+};
+
+export function isActionWithOptionalArgs(
+	value: string,
+): value is TActionWithOptionalArgs {
+	return (
+		Object.hasOwn(ACTIONS, value) &&
+		!Object.hasOwn(ACTIONS_WITH_REQUIRED_ARGS, value)
+	);
+}
+
 const ACTION_DEFAULT_SHORTCUTS = [
 	["toggle-play", ["space", "k"]],
 	["seek-forward", ["l"]],

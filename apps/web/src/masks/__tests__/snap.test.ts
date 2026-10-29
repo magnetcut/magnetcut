@@ -346,7 +346,8 @@ describe("mask snapping", () => {
 		// bounds.width=200 → localCanvasSize.width/2=100 is the right snap target.
 		// width=0.4, scale=1 → aabbHalfW = (0.4*200)/2 * 1 = 40.
 		// At scale=2.48 → rightEdge=0+40*2.48=99.2; |99.2-100|=0.8 < threshold(8)
-		// → snaps to scale=1*(100/40)=2.5; line at position 100.
+		// → snaps to scale=1*(100/40)=2.5. Scaling is about the centre, so the
+		// left edge lands on -100 too: a line at each edge.
 		const result = snapBoxMaskInteraction({
 			handleId: { kind: "scale" },
 			startParams: buildRectangleParams({ scale: 1 }),
@@ -357,30 +358,37 @@ describe("mask snapping", () => {
 		});
 
 		expect(result.params.scale).toBe(2.5);
-		expect(result.activeLines).toEqual([{ type: "vertical", position: 100 }]);
-	});
-
-	test("snaps text mask movement using intrinsic text bounds", () => {
-		const params = buildTextMaskParams({
-			centerX: 0.03,
-			centerY: -0.04,
-		});
-		const result = textMaskDefinition.interaction.snap?.({
-			handleId: { kind: "position" },
-			startParams: params,
-			proposedParams: params,
-			bounds,
-			canvasSize,
-			snapThreshold,
-		});
-
-		expect(result?.params.centerX).toBe(0);
-		expect(result?.params.centerY).toBe(0);
-		expect(result?.activeLines).toEqual([
-			{ type: "vertical", position: 0 },
-			{ type: "horizontal", position: 0 },
+		expect(result.activeLines).toEqual([
+			{ type: "vertical", position: -100 },
+			{ type: "vertical", position: 100 },
 		]);
 	});
+
+	// Measuring text needs a canvas, which bun test doesn't have.
+	test.skipIf(typeof OffscreenCanvas === "undefined")(
+		"snaps text mask movement using intrinsic text bounds",
+		() => {
+			const params = buildTextMaskParams({
+				centerX: 0.03,
+				centerY: -0.04,
+			});
+			const result = textMaskDefinition.interaction.snap?.({
+				handleId: { kind: "position" },
+				startParams: params,
+				proposedParams: params,
+				bounds,
+				canvasSize,
+				snapThreshold,
+			});
+
+			expect(result?.params.centerX).toBe(0);
+			expect(result?.params.centerY).toBe(0);
+			expect(result?.activeLines).toEqual([
+				{ type: "vertical", position: 0 },
+				{ type: "horizontal", position: 0 },
+			]);
+		},
+	);
 
 	test("snaps custom mask movement using path geometry bounds", () => {
 		const params = buildFreeformPathMaskParams({
@@ -495,13 +503,15 @@ describe("custom mask point insertion", () => {
 		});
 
 		expect(nextPoints.map((point) => point.id)).toEqual(["a", "new", "b", "c"]);
+		// An exact split of the cubic: on a straight segment the new handles lie
+		// along it, half way to each neighbour's split point.
 		expect(nextPoints[1]).toMatchObject({
 			id: "new",
 			x: 0,
 			y: -0.1,
-			inX: 0,
+			inX: -0.1,
 			inY: 0,
-			outX: 0,
+			outX: 0.1,
 			outY: 0,
 		});
 	});
