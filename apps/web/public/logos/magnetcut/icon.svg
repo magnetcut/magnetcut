@@ -1,19 +1,101 @@
-<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
-<!-- The app icon: the symbol on a dark tile, on Apple's 824 px grid inside 1024. -->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+<!-- Drawn by apps/web/scripts/make-icons.ts. -->
 <defs>
-<linearGradient id="tile" x1="512" y1="100" x2="512" y2="924" gradientUnits="userSpaceOnUse">
-<stop stop-color="#2B2D42"/>
-<stop offset="1" stop-color="#14151F"/>
+<linearGradient id="indigo" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="#34386A"/>
+<stop offset="1" stop-color="#121427"/>
 </linearGradient>
-<linearGradient id="body" x1="200" y1="124" x2="200" y2="353" gradientUnits="userSpaceOnUse">
-<stop stop-color="#FF6B5B"/>
-<stop offset="1" stop-color="#E0314B"/>
-</linearGradient>
+<radialGradient id="glow" cx="512" cy="430" r="453.2" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="#6F78D8" stop-opacity="0.45"/>
+<stop offset="1" stop-color="#6F78D8" stop-opacity="0"/>
+</radialGradient>
+<filter id="tile-shadow"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity="0.3"/></filter>
 </defs>
-<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)"/>
-<g transform="translate(188 187) scale(1.62)">
-<path d="M65 124V218A135 135 0 0 0 335 218V124H245V218A45 45 0 0 1 155 218V124Z" fill="url(#body)"/>
-<rect x="65" y="48" width="90" height="60" rx="10" fill="#F1F3F5"/>
-<rect x="245" y="48" width="90" height="60" rx="10" fill="#F1F3F5"/>
+<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#indigo)" filter="url(#tile-shadow)"/>
+<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#glow)"/>
+<defs>
+<linearGradient id="red" x1="-250" y1="-235" x2="250" y2="250" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="#FF7B63"/>
+<stop offset="0.45" stop-color="#F23F4E"/>
+<stop offset="1" stop-color="#B8193D"/>
+</linearGradient>
+<radialGradient id="tube-bend" cx="0" cy="0" r="250" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="#000" stop-opacity="0.2"/>
+<stop offset="0.4" stop-color="#000" stop-opacity="0.2"/>
+<stop offset="0.58" stop-color="#fff" stop-opacity="0"/>
+<stop offset="0.772" stop-color="#fff" stop-opacity="0.26"/>
+<stop offset="0.892" stop-color="#fff" stop-opacity="0"/>
+<stop offset="1" stop-color="#000" stop-opacity="0.22"/>
+</radialGradient>
+<linearGradient id="tube-arms" x1="0" y1="0" x2="250" y2="0" spreadMethod="reflect" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="#000" stop-opacity="0.2"/>
+<stop offset="0.4" stop-color="#000" stop-opacity="0.2"/>
+<stop offset="0.58" stop-color="#fff" stop-opacity="0"/>
+<stop offset="0.772" stop-color="#fff" stop-opacity="0.26"/>
+<stop offset="0.892" stop-color="#fff" stop-opacity="0"/>
+<stop offset="1" stop-color="#000" stop-opacity="0.22"/>
+</linearGradient>
+<linearGradient id="metal" x1="0" y1="0" x2="150" y2="0" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="#B4BCC8"/>
+<stop offset="0.3" stop-color="#FFFFFF"/>
+<stop offset="0.55" stop-color="#E6EAF0"/>
+<stop offset="1" stop-color="#A3ACB9"/>
+</linearGradient>
+<linearGradient id="steel" x1="0" y1="0" x2="0" y2="112" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="#FFFFFF"/>
+<stop offset="0.55" stop-color="#E4E8EE"/>
+<stop offset="1" stop-color="#B9C1CC"/>
+</linearGradient>
+<clipPath id="bend"><rect x="-400" y="0" width="800" height="400"/></clipPath>
+<clipPath id="arms"><rect x="-400" y="-400" width="800" height="400"/></clipPath>
+<mask id="film" maskUnits="userSpaceOnUse" x="-400" y="-400" width="800" height="800">
+<rect x="-400" y="-400" width="800" height="800" fill="white"/>
+<g fill="black">
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(-221 0) rotate(270)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(-216.2 45.9) rotate(258)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(-201.9 89.9) rotate(246)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(-178.8 129.9) rotate(234)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(-147.9 164.2) rotate(222)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(-110.5 191.4) rotate(210)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(-68.3 210.2) rotate(198)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(-23.1 219.8) rotate(186)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(23.1 219.8) rotate(174)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(68.3 210.2) rotate(162)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(110.5 191.4) rotate(150)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(147.9 164.2) rotate(138)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(178.8 129.9) rotate(126)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(201.9 89.9) rotate(114)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(216.2 45.9) rotate(102)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(221 0) rotate(90)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(-221 -46) rotate(90)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(221 -46) rotate(90)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(-221 -92) rotate(90)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(221 -92) rotate(90)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(-129 0) rotate(270)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(-121.2 44.1) rotate(250)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(-98.8 82.9) rotate(230)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(-64.5 111.7) rotate(210)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(-22.4 127) rotate(190)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(22.4 127) rotate(170)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(64.5 111.7) rotate(150)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(98.8 82.9) rotate(130)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(121.2 44.1) rotate(110)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(129 0) rotate(90)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(-129 -46) rotate(90)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(129 -46) rotate(90)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(-129 -92) rotate(90)"/>
+<rect x="-11" y="-11" width="22" height="22" rx="4.5" transform="translate(129 -92) rotate(90)"/>
+</g>
+</mask>
+<filter id="magnet-shadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#05060F" flood-opacity="0.55"/></filter>
+</defs>
+<g transform="translate(466 548) rotate(40)" filter="url(#magnet-shadow)">
+<g mask="url(#film)">
+<path d="M -250 -123 L -250 0 A 250 250 0 0 0 250 0 L 250 -123 L 100 -123 L 100 0 A 100 100 0 0 1 -100 0 L -100 -123 Z" fill="url(#red)"/>
+<path d="M -250 -123 L -250 0 A 250 250 0 0 0 250 0 L 250 -123 L 100 -123 L 100 0 A 100 100 0 0 1 -100 0 L -100 -123 Z" fill="url(#tube-bend)" clip-path="url(#bend)"/>
+<path d="M -250 -123 L -250 0 A 250 250 0 0 0 250 0 L 250 -123 L 100 -123 L 100 0 A 100 100 0 0 1 -100 0 L -100 -123 Z" fill="url(#tube-arms)" clip-path="url(#arms)"/>
+</g>
+<g transform="translate(-250 -235)"><rect width="150" height="98" rx="14" fill="url(#metal)"/><rect width="150" height="98" rx="14" fill="url(#steel)" opacity="0.35"/></g>
+<g transform="translate(100 -235)"><rect width="150" height="98" rx="14" fill="url(#metal)"/><rect width="150" height="98" rx="14" fill="url(#steel)" opacity="0.35"/></g>
 </g>
 </svg>
