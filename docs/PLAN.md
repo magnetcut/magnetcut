@@ -29,15 +29,19 @@ telemetry: everything stays on the computer. Not for iOS or Android.
   `github.com/magnetcut/magnetcut/releases/latest/download/latest.json` once a day (Tauri's
   updater plugin, the cross-platform counterpart of Sparkle). The feed is a hint: an update
   installs only if it's signed with the project's Ed25519 key, whose public half is in the app.
-  Only publishing a release ships it. Linux auto-updates the AppImage; .deb/.rpm update through
-  the package manager. Settings has the daily-check switch; About has "Check Now".
+  Only publishing a release ships it. Each copy updates from the kind of installer it came from
+  (NSIS, MSI, AppImage, deb, rpm; the deb and rpm ask for the administrator password). Settings
+  has the daily-check switch, on by default; Settings, About and the macOS menu have Check Now.
+  It's the one request made without a feature being used. The key stays on the maintainer's
+  Mac: CI builds the Windows and Linux installers with no secrets, and
+  `apps/desktop/scripts/release.sh` signs them (docs/RELEASING.md).
 - **App Store edition.** `--app-store` builds a sandboxed Mac App Store app (user-selected
   files read-write, network client for model and font downloads), its own bundle id, no
   updater compiled in. Same features otherwise, so no "Lite". Microsoft Store and Flathub can
   follow from the same builds.
 - **About box, as in MyDiskIsFull.** Icon, name, version, the update line (direct download
-  only), one sentence on what it does, a card with what it keeps on this computer (projects,
-  media, cache size), "Completely free and open source, under the GNU AGPL 3.0 licence. No
+  only), one sentence on what it does, a card with what it keeps on this computer (the storage
+  its projects and media take, of what the web view lets it keep), "Completely free and open source, under the GNU AGPL 3.0 licence. No
   ads, no telemetry, no account.", Source, Acknowledgements (third-party notices) and "Based on OpenCut".
 - **Export does HandBrake's job.** No separate converter and no queue: open a video and Export
   is the conversion. Its settings: container (MP4, MOV, MKV, WebM) and codec; quality
@@ -91,7 +95,8 @@ telemetry: everything stays on the computer. Not for iOS or Android.
 
 ## Order
 
-Done: 1, 2, 3, and 4 on macOS.
+Done: 1, 2, 3, 4 on macOS, and 5 but for making the first release (and About's
+Acknowledgements, which wait for step 7's notices).
 
 1. Strip the server, accounts, analytics and website; static export; editor works in a browser.
 2. Rebrand: names, package scopes, storage keys, logo and icon.

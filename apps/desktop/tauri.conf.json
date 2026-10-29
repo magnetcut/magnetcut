@@ -38,6 +38,18 @@
     ],
     "macOS": {
       "minimumSystemVersion": "13.0"
+    },
+    "windows": {
+      "nsis": { "installMode": "currentUser" }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVEQURCRjVCQTNBNTU5ODUKUldTRldhV2pXNyt0N2Q2Wm50cHRVWXQ3UVJEaVJweHYxUUhGK3YzZ0IweWZOd2tUL0UwUWRJMEEK",
+      "endpoints": [
+        "https://github.com/magnetcut/magnetcut/releases/latest/download/latest.json"
+      ],
+      "windows": { "installMode": "passive" }
     }
   }
 }

@@ -105,6 +105,11 @@
 			}),
 	);
 
+	// The app's own command: its version, and whether it updates itself.
+	report.appInfo = await attempt(() =>
+		window.__TAURI_INTERNALS__.invoke("app_info"),
+	);
+
 	window.__TAURI_INTERNALS__.invoke("probe_report", {
 		report: JSON.stringify(report),
 	});

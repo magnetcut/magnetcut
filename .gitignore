@@ -31,3 +31,6 @@ apps/desktop/gen/
 
 # Notes for coding agents: local, never committed
 CLAUDE.md
+
+# Release signing configuration: local, never committed (release.env.example)
+apps/desktop/release.env

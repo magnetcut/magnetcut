@@ -3,8 +3,8 @@
 A video editor for macOS, Windows and Linux that keeps everything on your computer. Free and
 open source: no account, no ads, no telemetry.
 
-> **Early days.** MagnetCut is being built. Today the editor runs in a browser; the desktop app
-> is next. [docs/PLAN.md](docs/PLAN.md) has the decisions and the order.
+> **Early days.** MagnetCut is being built: the desktop app runs from source, and the first
+> release is next. [docs/PLAN.md](docs/PLAN.md) has the decisions and the order.
 
 ## What it does
 
@@ -17,7 +17,8 @@ Today, from OpenCut:
 
 Planned:
 
-- The desktop app (Tauri), signed and updating itself, and a Mac App Store edition.
+- Signed releases for macOS, Windows and Linux, which update themselves, and a Mac App Store
+  edition.
 - HandBrake's export settings: formats and codecs, size presets, quality, frame rate, and
   subtitles embedded as a track or burned in.
 - A subtitle editor, with subtitles synced to the speech in one click.
@@ -29,6 +30,10 @@ Your projects and media stay on your computer, in the app's own storage. MagnetC
 servers and sends nothing about you anywhere. It goes online only when you use something that
 needs a download: a font from Google Fonts, a transcription model from Hugging Face (once), the
 platform logos in the safe-area guides.
+
+The desktop app also checks once a day whether there's a new version, by downloading a small file
+from GitHub; Settings turns that off. An update installs only when you say so, and only if it's
+signed with MagnetCut's key.
 
 ## Run it from source
 
@@ -48,6 +53,8 @@ cd apps/desktop
 cargo tauri dev     # the editor in a window, reloading as you edit
 cargo tauri build   # the installers, in target/release/bundle
 ```
+
+Releases are made as [docs/RELEASING.md](docs/RELEASING.md) says.
 
 ### The Rust core
 

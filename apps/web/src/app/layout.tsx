@@ -3,6 +3,7 @@ import Script from "next/script";
 import "./globals.css";
 import { Toaster } from "../components/ui/sonner";
 import { TooltipProvider } from "../components/ui/tooltip";
+import { AppDialogs } from "../desktop/components/app-dialogs";
 import { baseMetaData } from "./metadata";
 import { Inter } from "next/font/google";
 
@@ -37,6 +38,7 @@ export default function RootLayout({
 					<TooltipProvider>
 						<Toaster />
 						{children}
+						<AppDialogs />
 					</TooltipProvider>
 				</ThemeProvider>
 			</body>

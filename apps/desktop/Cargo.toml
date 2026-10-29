@@ -9,5 +9,23 @@ publish = false
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+default = ["updater"]
+# Updates from the GitHub releases. The App Store edition builds without it
+# (--no-default-features): the App Store updates its own apps.
+updater = ["dep:tauri-plugin-updater", "dep:tauri-plugin-process"]
+
 [dependencies]
 tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+# generate_context! writes the plugins' configuration as serde_json values.
+serde_json = "1"
+# `native-tls`, not rustls, as in SecretCloud: ring and rustls fight the
+# Windows cross-build. No `zip`: it only unpacks the old zip-wrapped bundles,
+# and these updates are the installers themselves. `process` relaunches into
+# the new version after a macOS or Linux install.
+tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls"], optional = true }
+tauri-plugin-process = { version = "2", optional = true }
+# Opens web links (the About box's, the release notes') in the browser:
+# the window itself only ever shows the editor.
+tauri-plugin-opener = "2"
