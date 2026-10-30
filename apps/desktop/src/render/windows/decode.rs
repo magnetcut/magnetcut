@@ -133,20 +133,28 @@ impl Source {
         // Clockwise, as the content is stored turned counter-clockwise by as
         // much (MFVideoRotationFormat).
         let rotation = unsafe { native.GetUINT32(&MF_MT_VIDEO_ROTATION) }.unwrap_or(0) % 360;
-        let wanted = unsafe { MFCreateMediaType() }.map_err(text)?;
-        unsafe {
-            wanted
-                .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)
-                .map_err(text)?;
-            wanted
-                .SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32)
-                .map_err(text)?;
-            // HD's colours, which the compositor works in.
-            hd_colors(&wanted, MFNominalRange_0_255)?;
-            reader
-                .SetCurrentMediaType(VIDEO, None, &wanted)
-                .map_err(text)?;
+        // In HD's colours, which the compositor works in, where the source
+        // reader's converter takes them; as it likes, where not.
+        let mut result = Ok(());
+        for colors in [true, false] {
+            let wanted = unsafe { MFCreateMediaType() }.map_err(text)?;
+            unsafe {
+                wanted
+                    .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)
+                    .map_err(text)?;
+                wanted
+                    .SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32)
+                    .map_err(text)?;
+            }
+            if colors {
+                hd_colors(&wanted, MFNominalRange_0_255)?;
+            }
+            result = unsafe { reader.SetCurrentMediaType(VIDEO, None, &wanted) }.map_err(text);
+            if result.is_ok() {
+                break;
+            }
         }
+        result?;
         let format = Format::of(&unsafe { reader.GetCurrentMediaType(VIDEO) }.map_err(text)?)?;
         let duration = unsafe {
             reader.GetPresentationAttribute(MF_SOURCE_READER_MEDIASOURCE.0 as u32, &MF_PD_DURATION)
