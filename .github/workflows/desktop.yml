@@ -73,4 +73,4 @@ jobs:
       # What Media Foundation has to encode with on the runner, for phase 5.
       - name: Windows's encoders
         if: runner.os == 'Windows'
-        run: cargo test -p magnetcut lists_the_encoders -- --nocapture
+        run: cargo test -p magnetcut media_foundation -- --nocapture
