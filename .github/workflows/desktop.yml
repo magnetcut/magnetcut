@@ -89,9 +89,10 @@ jobs:
           sudo sysctl -w kernel.core_pattern="$PWD/core.%p"
           tests=$(cargo test -p magnetcut --no-run --message-format=json \
             | jq -r 'select(.profile.test == true and .executable != null) | .executable' | tail -1)
-          # Three times, to catch it.
+          # Three times, to catch it: through cargo, which crashed twice in
+          # four, where the binary run by itself passed four times.
           for attempt in 1 2 3; do
-            "$tests" || break
+            cargo test -p magnetcut || break
             [ "$attempt" = 3 ] && exit 0
           done
           core=$(ls core.* 2>/dev/null | head -1)
