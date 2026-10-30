@@ -13,6 +13,7 @@ import { DiagnosticsManager } from "./managers/diagnostics-manager";
 import { registerDefaultEffects } from "@/effects";
 import { registerDefaultMasks } from "@/masks";
 import { registerTranscriptionDiagnostics } from "@/transcription/diagnostics";
+import { dropBrokenTransitions } from "@/transitions";
 
 export class EditorCore {
 	private static instance: EditorCore | null = null;
@@ -63,6 +64,18 @@ export class EditorCore {
 				prunedTracks.audio.length !== tracks.audio.length
 			) {
 				this.timeline.updateTracks(prunedTracks);
+			}
+		});
+		// Transitions whose clips no longer touch go; undo brings them back.
+		this.command.registerReactor(() => {
+			const activeScene = this.scenes.getActiveSceneOrNull();
+			if (!activeScene) {
+				return;
+			}
+
+			const tracks = dropBrokenTransitions({ tracks: activeScene.tracks });
+			if (tracks !== activeScene.tracks) {
+				this.timeline.updateTracks(tracks);
 			}
 		});
 		this.save.start();

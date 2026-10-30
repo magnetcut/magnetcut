@@ -28,6 +28,9 @@ export const TRANSITIONS: TransitionDefinition[] = [
 
 export const DEFAULT_TRANSITION_TYPE = "cross-dissolve";
 
+/** How long a new transition lasts, before rounding to frames. */
+export const DEFAULT_TRANSITION_SECONDS = 0.5;
+
 /** A transition type: the cross-dissolve for one this version doesn't know. */
 export function getTransitionDefinition({
 	type,

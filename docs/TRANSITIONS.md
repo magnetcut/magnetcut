@@ -153,14 +153,21 @@ interface Transition {
 
 ### Edits
 - Commands to add, update and remove a transition (`commands/timeline/transition/`), on
-  `TimelineManager`; the `add-transition` action (T) puts the default at the cut nearest the
-  playhead, beside the selected clips if any.
-- A second reactor after every command drops a transition whose pair is gone or no longer touching
-  and clamps its duration to the handles left (trims, speed changes). It never moves clips.
-- Split: when the split element is a transition's `from`, it points to the new right half (the
-  left keeps the id); `retainSide: "right"` re-points both sides. In the split command.
-- Trimming A's end or B's start uses up handle, and the reactor clamps. Later: resize limits that
-  keep the transition's handle.
+  `TimelineManager`. The `add-transition` action (T) puts the default at the cut nearest the
+  playhead, beside the selected clips if any: centred where both clips have media past the cut,
+  else ending or starting at it; with none, it says why.
+- A second reactor after every command (`dropBrokenTransitions`, `transitions/edits.ts`) drops a
+  transition whose clips are gone or no longer touch, or that another at the same cut replaced.
+  It never moves clips, and undo brings a dropped transition back: every timeline command
+  restores its snapshot of the tracks.
+- Durations stay as set. With less handle than it needs (after a trim or a speed change) a
+  transition plays shortened, and whole again when the handle comes back; the inspector will say
+  so.
+- Split: a transition at the split clip's end moves to the half that now ends there
+  (`followSplitEnds`, from the split command); one at its start stays with the left half, which
+  keeps the id. With `retainSide` "left" or "right", the side cut away loses its transition
+  through the reactor.
+- Later: resize limits that keep the transition's handle.
 
 ### Interface
 - Transitions tab: the catalogue as a searchable grid, each thumbnail animated by the same
@@ -194,7 +201,7 @@ About 27 to 36 days; phases 3 and 4 can run side by side after phase 2.
 Done: 0, with the frame tests in Rust (`rust/crates/compositor/src/tests.rs`: the compositor's
 own pixels, on Metal here and Mesa's software Vulkan in CI) rather than Playwright; and 1, checked
 in Chrome between two files and between two times of one file. Export builds the same scene but
-hasn't been checked by eye yet.
+hasn't been checked by eye yet. And 2, checked in Chrome too (split, delete, undo).
 
 ## Risks
 - **Two streams at once** (4K, or one file at two times) may not hold frame rate on weak

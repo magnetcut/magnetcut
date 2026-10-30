@@ -8,6 +8,7 @@ import type {
 	TimelineElement,
 	RetimeConfig,
 	Transition,
+	TransitionAlignment,
 } from "@/timeline";
 import { calculateTotalDuration } from "@/timeline";
 import { TimelineDragSource } from "@/timeline/drag-source";
@@ -19,7 +20,10 @@ import {
 	roundFrameTime,
 	ZERO_MEDIA_TIME,
 } from "@/wasm";
-import { DEFAULT_TRANSITION_TYPE } from "@/transitions";
+import {
+	DEFAULT_TRANSITION_SECONDS,
+	DEFAULT_TRANSITION_TYPE,
+} from "@/transitions";
 import {
 	canElementBeHidden,
 	canElementHaveAudio,
@@ -213,22 +217,26 @@ export class TimelineManager {
 		return command.getRightSideElements();
 	}
 
-	/** Adds a transition at a cut, half a second long by default; its id. */
+	/** Adds a transition at a cut, with the default length unless given; its id. */
 	addTransition({
 		trackId,
 		fromElementId,
 		toElementId,
 		type = DEFAULT_TRANSITION_TYPE,
 		duration,
+		alignment = "center",
 	}: {
 		trackId: string;
 		fromElementId: string;
 		toElementId: string;
 		type?: string;
 		duration?: MediaTime;
+		alignment?: TransitionAlignment;
 	}): string {
 		const fps = this.editor.project.getActive()?.settings.fps;
-		const halfSecond = mediaTimeFromSeconds({ seconds: 0.5 });
+		const seconds = mediaTimeFromSeconds({
+			seconds: DEFAULT_TRANSITION_SECONDS,
+		});
 		const command = new AddTransitionCommand({
 			trackId,
 			transition: {
@@ -236,9 +244,8 @@ export class TimelineManager {
 				toElementId,
 				type,
 				duration:
-					duration ??
-					(fps ? roundFrameTime({ time: halfSecond, fps }) : halfSecond),
-				alignment: "center",
+					duration ?? (fps ? roundFrameTime({ time: seconds, fps }) : seconds),
+				alignment,
 				params: {},
 				crossfadeAudio: true,
 			},

@@ -48,7 +48,7 @@ export function getTransitionWindow({
 	from,
 	to,
 }: {
-	transition: Transition;
+	transition: Pick<Transition, "duration" | "alignment">;
 	from: VideoElement | ImageElement;
 	to: VideoElement | ImageElement;
 }): TransitionWindow | null {

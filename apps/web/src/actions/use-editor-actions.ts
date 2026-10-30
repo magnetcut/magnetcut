@@ -17,7 +17,12 @@ import {
 } from "@/wasm";
 import { useKeyframeSelection } from "@/timeline/hooks/element/use-keyframe-selection";
 import { getElementsAtTime, hasMediaId } from "@/timeline";
-import { findNearestCut } from "@/transitions";
+import {
+	DEFAULT_TRANSITION_SECONDS,
+	findNearestCut,
+	getTransitionWindow,
+} from "@/transitions";
+import { toast } from "sonner";
 import { cancelInteraction } from "@/editor/cancel-interaction";
 import { invokeAction } from "@/actions";
 import { canToggleSourceAudio } from "@/timeline/audio-separation";
@@ -254,10 +259,32 @@ export function useEditorActions() {
 			});
 			if (!cut) return;
 
+			// It plays media past the cut: centred if both clips have some,
+			// else on the side that does.
+			const duration = mediaTimeFromSeconds({
+				seconds: DEFAULT_TRANSITION_SECONDS,
+			});
+			const alignment = (["center", "end", "start"] as const).find(
+				(candidate) =>
+					getTransitionWindow({
+						transition: { duration, alignment: candidate },
+						from: cut.from,
+						to: cut.to,
+					}) !== null,
+			);
+			if (!alignment) {
+				toast.error("No room for a transition at this cut", {
+					description:
+						"A transition shows what's trimmed off the clips past the cut. Trim the end of the first clip or the start of the second, then try again.",
+				});
+				return;
+			}
+
 			editor.timeline.addTransition({
 				trackId: cut.trackId,
 				fromElementId: cut.from.id,
 				toElementId: cut.to.id,
+				alignment,
 			});
 		},
 		undefined,

@@ -9,6 +9,7 @@ import { EditorCore } from "@/core";
 import { isRetimableElement } from "@/timeline";
 import { splitAnimationsAtTime } from "@/animation";
 import { getSourceSpanAtClipTime } from "@/retime";
+import { followSplitEnds } from "@/transitions";
 import {
 	addMediaTime,
 	type MediaTime,
@@ -46,6 +47,8 @@ export class SplitElementsCommand extends Command {
 		const editor = EditorCore.getInstance();
 		this.savedState = editor.scenes.getActiveScene().tracks;
 		this.rightSideElements = [];
+		// Each split clip's id, to its right half's: the half that ends where it did.
+		const ends = new Map<string, string>();
 
 		const splitTrack = <
 			TTrack extends { id: string; elements: TimelineElement[] },
@@ -141,6 +144,7 @@ export class SplitElementsCommand extends Command {
 					];
 				} else if (this.retainSide === "right") {
 					const newId = generateUUID();
+					ends.set(element.id, newId);
 					this.rightSideElements.push({
 						trackId: track.id,
 						elementId: newId,
@@ -159,6 +163,7 @@ export class SplitElementsCommand extends Command {
 					];
 				} else {
 					const secondElementId = generateUUID();
+					ends.set(element.id, secondElementId);
 					this.rightSideElements.push({
 						trackId: track.id,
 						elementId: secondElementId,
@@ -191,11 +196,14 @@ export class SplitElementsCommand extends Command {
 			return { ...track, elements } as TTrack;
 		};
 
-		const updatedTracks: SceneTracks = {
-			overlay: this.savedState.overlay.map((track) => splitTrack(track)),
-			main: splitTrack(this.savedState.main),
-			audio: this.savedState.audio.map((track) => splitTrack(track)),
-		};
+		const updatedTracks = followSplitEnds({
+			tracks: {
+				overlay: this.savedState.overlay.map((track) => splitTrack(track)),
+				main: splitTrack(this.savedState.main),
+				audio: this.savedState.audio.map((track) => splitTrack(track)),
+			},
+			ends,
+		});
 
 		editor.timeline.updateTracks(updatedTracks);
 
