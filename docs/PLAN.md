@@ -107,7 +107,7 @@ telemetry: everything stays on the computer. Not for iOS or Android.
 ## Order
 
 Done: 1, 2, 3, 4, 5 but for making the first release, 6 but for the App Store Connect
-record and profile (docs/RELEASING.md), 7, and phases 0 to 4 of 8.
+record and profile (docs/RELEASING.md), 7 and 8.
 
 1. Strip the server, accounts, analytics and website; static export; editor works in a browser.
 2. Rebrand: names, package scopes, storage keys, logo and icon.

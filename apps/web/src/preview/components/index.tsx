@@ -7,6 +7,10 @@ import { useRafLoop } from "@/hooks/use-raf-loop";
 import { useContainerSize } from "@/hooks/use-container-size";
 import { useFullscreen } from "@/hooks/use-fullscreen";
 import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
+import {
+	incrementCounter,
+	onRenderPerfFrameComplete,
+} from "@/diagnostics/render-perf";
 import { TICKS_PER_SECOND } from "@/wasm";
 import type { RootNode } from "@/services/renderer/nodes/root-node";
 import { buildScene } from "@/services/renderer/scene-builder";
@@ -201,6 +205,15 @@ function PreviewCanvas({
 			return;
 		}
 
+		// Frames played past while the last one was still rendering.
+		const previousFrame = lastFrameRef.current;
+		if (previousFrame >= 0 && frame > previousFrame + 1) {
+			incrementCounter({
+				name: "framesSkipped",
+				by: frame - previousFrame - 1,
+			});
+		}
+
 		renderingRef.current = true;
 		lastSceneRef.current = renderTree;
 		lastFrameRef.current = frame;
@@ -208,6 +221,7 @@ function PreviewCanvas({
 			.render({ node: renderTree, time: renderTime })
 			.then(() => {
 				renderingRef.current = false;
+				onRenderPerfFrameComplete();
 			});
 	}, [renderer, renderTree, editor.playback, editor.timeline]);
 

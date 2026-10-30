@@ -219,12 +219,16 @@ in Chrome between two files and between two times of one file. Export builds the
 hasn't been checked by eye yet. And 2, checked in Chrome too (split, delete, undo). And 3: the
 export mix checked sample by sample in tests; in Chrome, the preview's gain ramps follow the
 curves. And 4, checked in Chrome: from the tab (add, change type), dropped on a cut, from a
-clip's menu, selected on the timeline, changed in the inspector and deleted. And 5 but for
-reusing upload textures and the playback measurements: the twelve shaders, in Chrome on WebGPU
-and WebGL2 (by hiding `navigator.gpu`), in the preview and the thumbnails. On WebGL the
-compositor's canvas is the one wgpu draws through, so a thumbnail, an effect preview or a mask
-feather left its drawing there, at its size; the compositor now shows its last frame again
-after each (`restore_compositor_canvas`).
+clip's menu, selected on the timeline, changed in the inspector and deleted. And 5: the twelve
+shaders, in Chrome on WebGPU and WebGL2 (by hiding `navigator.gpu`), in the preview and the
+thumbnails. On WebGL the compositor's canvas is the one wgpu draws through, so a thumbnail, an
+effect preview or a mask feather left its drawing there, at its size; the compositor now shows
+its last frame again after each (`restore_compositor_canvas`). An upload goes into the texture
+already under its id when the size matches. Playback, measured with `window.__renderPerf`
+(which now counts the preview's frames, and the frames it skips): a 1 s dissolve between two
+1080p30 files on an M1 in Chrome, 60 frames in 2.04 s with one skipped as the second decoder
+started; between two 4K30 files, 60 frames in 1.97 s, none skipped. The app's own web views
+weren't measured.
 
 ## Risks
 - **Two streams at once** (4K, or one file at two times) may not hold frame rate on weak

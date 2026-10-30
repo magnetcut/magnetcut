@@ -289,6 +289,11 @@ impl Compositor {
         self.textures.upsert(id, texture);
     }
 
+    /// The texture uploaded under that id, if there is one.
+    pub fn texture(&self, id: &str) -> Option<&wgpu::Texture> {
+        self.textures.get(id).map(|stored| stored.texture())
+    }
+
     pub fn release_texture(&mut self, id: &str) {
         self.textures.remove(id);
     }

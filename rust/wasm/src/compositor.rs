@@ -150,6 +150,17 @@ pub fn upload_texture(options: JsValue) -> Result<(), JsValue> {
                 ));
             };
 
+            // A video uploads a frame each time: into the same texture.
+            let reusable = runtime
+                .compositor
+                .texture(&id)
+                .filter(|texture| (texture.width(), texture.height()) == (width, height));
+            if let Some(texture) = reusable {
+                gpu_runtime
+                    .context
+                    .write_offscreen_canvas_to_texture(&source, texture, width, height);
+                return Ok(());
+            }
             let texture = import_canvas_texture(
                 &gpu_runtime.context,
                 &source,
