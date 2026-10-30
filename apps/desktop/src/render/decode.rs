@@ -6,7 +6,9 @@ use std::path::Path;
 use objc2::rc::Retained;
 use objc2_av_foundation::{
     AVAssetReader, AVAssetReaderStatus, AVAssetReaderTrackOutput, AVAssetTrack, AVMediaTypeVideo,
-    AVURLAsset,
+    AVURLAsset, AVVideoColorPrimaries_ITU_R_709_2, AVVideoColorPrimariesKey,
+    AVVideoColorPropertiesKey, AVVideoTransferFunction_ITU_R_709_2, AVVideoTransferFunctionKey,
+    AVVideoYCbCrMatrix_ITU_R_709_2, AVVideoYCbCrMatrixKey,
 };
 use objc2_core_foundation::CFRetained;
 use objc2_core_media::{CMTimeRange, kCMTimePositiveInfinity};
@@ -212,11 +214,28 @@ fn start_reading(
     let format = NSNumber::new_u32(kCVPixelFormatType_32BGRA);
     let yes = NSNumber::new_bool(true);
     let surface = NSDictionary::<NSString>::new();
+    // HD's colours, which the compositor works in: a source in others, HDR
+    // among them, is converted (and tone mapped) as it's decoded.
+    let colors = dictionary(&[
+        (
+            av!(AVVideoColorPrimariesKey),
+            any(av!(AVVideoColorPrimaries_ITU_R_709_2)),
+        ),
+        (
+            av!(AVVideoTransferFunctionKey),
+            any(av!(AVVideoTransferFunction_ITU_R_709_2)),
+        ),
+        (
+            av!(AVVideoYCbCrMatrixKey),
+            any(av!(AVVideoYCbCrMatrix_ITU_R_709_2)),
+        ),
+    ]);
     let settings = unsafe {
         dictionary(&[
             (bridged(kCVPixelBufferPixelFormatTypeKey), any(&format)),
             (bridged(kCVPixelBufferMetalCompatibilityKey), any(&yes)),
             (bridged(kCVPixelBufferIOSurfacePropertiesKey), any(&surface)),
+            (av!(AVVideoColorPropertiesKey), any(&colors)),
         ])
     };
     let output = unsafe {

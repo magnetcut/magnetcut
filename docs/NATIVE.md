@@ -200,7 +200,13 @@ and give it constant quality and the encoders the web views lack.
   above and below along whichever of three directions they match best. Denoise is a bilateral
   filter, sharpen an unsharp mask. Checked on the GPU in the compositor's tests (a combed
   picture made whole, grain smoothed with an edge kept, a soft edge steepened); not yet in the
-  app. HDR to SDR tone mapping is still to do.
+  app.
+- HDR to SDR, natively: the decoder is asked for HD's colours (BT.709), and AVFoundation
+  converts whatever a source is in, tone mapping HDR. An HDR10 test film (HEVC Main10, PQ)
+  comes out as SDR greys of 190, 231, 250 and 255 for 100, 203, 400 and 1000 nits, rolled off
+  rather than clipped; decoded as before, PQ's own values gave a flat 130 for 100 nits. SDR
+  sources decode as they did, at the same speed. The web view's export shows HDR as the web
+  view draws it.
 
 ## Risks
 - The App Store sandbox and bookmarks: a project made in the direct download and opened in the

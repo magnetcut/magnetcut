@@ -706,3 +706,159 @@ fn native_speed() {
         eprintln!("{name}: {:.0} frames a second", FRAMES as f64 / seconds);
     }
 }
+
+/// PQ's code value for a light level in nits (SMPTE ST 2084).
+fn pq(nits: f64) -> f64 {
+    let (m1, m2) = (0.159_301_757_812_5, 78.843_75);
+    let (c1, c2, c3) = (0.835_937_5, 18.851_562_5, 18.687_5);
+    let level = (nits / 10_000.0).powf(m1);
+    ((c1 + c2 * level) / (1.0 + c3 * level)).powf(m2)
+}
+
+/// A second of HDR10 (HEVC Main10, BT.2020, PQ), 64x32: four bands of grey,
+/// at 100, 203, 400 and 1000 nits from the left.
+fn make_hdr_source(path: &Path) -> Result<(), String> {
+    use super::av::{any, av, dictionary, file_url, fraction};
+    use objc2_av_foundation::{
+        AVAssetWriter, AVAssetWriterInput, AVAssetWriterInputPixelBufferAdaptor,
+        AVFileTypeQuickTimeMovie, AVMediaTypeVideo, AVVideoCodecKey, AVVideoCodecTypeHEVC,
+        AVVideoColorPrimaries_ITU_R_2020, AVVideoColorPrimariesKey, AVVideoColorPropertiesKey,
+        AVVideoCompressionPropertiesKey, AVVideoHeightKey, AVVideoProfileLevelKey,
+        AVVideoTransferFunction_SMPTE_ST_2084_PQ, AVVideoTransferFunctionKey, AVVideoWidthKey,
+        AVVideoYCbCrMatrix_ITU_R_2020, AVVideoYCbCrMatrixKey,
+    };
+    use objc2_core_video::{
+        CVPixelBufferGetBaseAddressOfPlane, CVPixelBufferGetBytesPerRowOfPlane, CVPixelBufferPool,
+        kCVPixelBufferHeightKey, kCVPixelBufferIOSurfacePropertiesKey,
+        kCVPixelBufferPixelFormatTypeKey, kCVPixelBufferWidthKey,
+        kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange,
+    };
+    use objc2_foundation::{NSDictionary, NSNumber, NSString};
+
+    let _ = std::fs::remove_file(path);
+    let url = file_url(path)?;
+    let writer = unsafe {
+        AVAssetWriter::assetWriterWithURL_fileType_error(&url, av!(AVFileTypeQuickTimeMovie))
+    }
+    .map_err(|error| error.to_string())?;
+    let colors = dictionary(&[
+        (
+            av!(AVVideoColorPrimariesKey),
+            any(av!(AVVideoColorPrimaries_ITU_R_2020)),
+        ),
+        (
+            av!(AVVideoTransferFunctionKey),
+            any(av!(AVVideoTransferFunction_SMPTE_ST_2084_PQ)),
+        ),
+        (
+            av!(AVVideoYCbCrMatrixKey),
+            any(av!(AVVideoYCbCrMatrix_ITU_R_2020)),
+        ),
+    ]);
+    let main10 = NSString::from_str("HEVC_Main10_AutoLevel");
+    let compression = dictionary(&[(av!(AVVideoProfileLevelKey), any(&main10))]);
+    let (width, height) = (NSNumber::new_u32(64), NSNumber::new_u32(32));
+    let settings = dictionary(&[
+        (av!(AVVideoCodecKey), any(av!(AVVideoCodecTypeHEVC))),
+        (av!(AVVideoWidthKey), any(&width)),
+        (av!(AVVideoHeightKey), any(&height)),
+        (av!(AVVideoColorPropertiesKey), any(&colors)),
+        (av!(AVVideoCompressionPropertiesKey), any(&compression)),
+    ]);
+    let input = unsafe {
+        AVAssetWriterInput::assetWriterInputWithMediaType_outputSettings(
+            av!(AVMediaTypeVideo),
+            Some(&settings),
+        )
+    };
+    let format = NSNumber::new_u32(kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange);
+    let surface = NSDictionary::<NSString>::new();
+    let attributes = unsafe {
+        dictionary(&[
+            (
+                super::av::bridged(kCVPixelBufferPixelFormatTypeKey),
+                any(&format),
+            ),
+            (super::av::bridged(kCVPixelBufferWidthKey), any(&width)),
+            (super::av::bridged(kCVPixelBufferHeightKey), any(&height)),
+            (
+                super::av::bridged(kCVPixelBufferIOSurfacePropertiesKey),
+                any(&surface),
+            ),
+        ])
+    };
+    let adaptor = unsafe {
+        AVAssetWriterInputPixelBufferAdaptor::assetWriterInputPixelBufferAdaptorWithAssetWriterInput_sourcePixelBufferAttributes(&input, Some(&attributes))
+    };
+    unsafe {
+        writer.addInput(&input);
+        assert!(writer.startWriting(), "{:?}", writer.error());
+        writer.startSessionAtSourceTime(objc2_core_media::kCMTimeZero);
+    }
+    let luma = |nits: f64| ((64.0 + 876.0 * pq(nits)).round() as u16) << 6;
+    for i in 0..30 {
+        while !unsafe { input.isReadyForMoreMediaData() } {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let pool: objc2::rc::Retained<CVPixelBufferPool> =
+            unsafe { adaptor.pixelBufferPool() }.ok_or("no pool")?;
+        let mut raw = std::ptr::null_mut();
+        unsafe {
+            CVPixelBufferPool::create_pixel_buffer(None, &pool, std::ptr::NonNull::from(&mut raw))
+        };
+        let buffer = unsafe {
+            objc2_core_foundation::CFRetained::from_raw(
+                std::ptr::NonNull::new(raw).ok_or("no buffer")?,
+            )
+        };
+        let lock = objc2_core_video::CVPixelBufferLockFlags(0);
+        unsafe { objc2_core_video::CVPixelBufferLockBaseAddress(&buffer, lock) };
+        for plane in 0..2 {
+            let row = CVPixelBufferGetBytesPerRowOfPlane(&buffer, plane);
+            let rows = if plane == 0 { 32 } else { 16 };
+            let base = CVPixelBufferGetBaseAddressOfPlane(&buffer, plane).cast::<u16>();
+            for y in 0..rows {
+                let line = unsafe { std::slice::from_raw_parts_mut(base.byte_add(y * row), 64) };
+                for (x, sample) in line.iter_mut().enumerate() {
+                    *sample = if plane == 0 {
+                        luma([100.0, 203.0, 400.0, 1000.0][x / 16])
+                    } else {
+                        512 << 6
+                    };
+                }
+            }
+        }
+        unsafe { objc2_core_video::CVPixelBufferUnlockBaseAddress(&buffer, lock) };
+        assert!(unsafe {
+            adaptor.appendPixelBuffer_withPresentationTime(&buffer, fraction(i, 30))
+        });
+    }
+    unsafe { input.markAsFinished() };
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let done = block2::RcBlock::new(move || {
+        let _ = sender.send(());
+    });
+    unsafe { writer.finishWritingWithCompletionHandler(&done) };
+    receiver.recv().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[test]
+fn tone_maps_an_hdr_source() {
+    let path = temporary("hdr.mov");
+    make_hdr_source(&path).unwrap();
+    let mut reader = VideoReader::open(&path, 0.0).unwrap();
+    let (_, pixels) = reader.frame_at(0.5).unwrap().unwrap();
+    let levels = with_pixels(pixels, |pixels, row| {
+        [8, 24, 40, 56].map(|x: usize| pixels[16 * row + x * 4])
+    });
+    // Brighter each band, as SDR: not PQ's own values (130 for 100 nits), and
+    // rolled off rather than clipped at HDR's reference white (203 nits).
+    let [hundred, reference, four_hundred, thousand] = levels;
+    assert!(levels.is_sorted() && hundred < reference, "{levels:?}");
+    assert!((160..=215).contains(&hundred), "{levels:?}");
+    assert!(
+        reference < 245 && four_hundred < 255 && thousand >= 245,
+        "{levels:?}"
+    );
+}
