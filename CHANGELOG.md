@@ -14,9 +14,13 @@ All notable changes to this project are documented here. The format is based on
 - Export in the desktop app asks where to save, starting in your footage's folder, and writes
   the file as it's made instead of keeping the whole film in memory first. When it's done, Show
   in Finder (or Explorer, or the file manager) takes you to it.
+- Export mixes the sound as it goes, a few seconds at a time, instead of decoding every file
+  whole first, so a long film's soundtrack no longer has to fit in memory. It also goes through
+  the same limiter as playback, so it sounds as it did in the editor.
 
 ### Fixed
-- Exporting to MP4 on macOS stopped after a few frames and never finished.
+- Exporting to MP4 on macOS stopped after a few frames and never finished. MP4 from the macOS
+  app is now H.264 in its Baseline profile, the one the system's web view encodes properly.
 
 ## [0.1.0] - 2026-10-30
 

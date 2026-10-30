@@ -5,7 +5,7 @@ import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import { SceneExporter } from "@/services/renderer/scene-exporter";
 import { openExportFile } from "@/export/disk-target";
 import { buildScene } from "@/services/renderer/scene-builder";
-import { createTimelineAudioBuffer } from "@/media/audio";
+import { mixTimelineAudio } from "@/media/audio-mix";
 import { formatTimecode } from "magnetcut-wasm";
 import { frameRateToFloat } from "@/fps/utils";
 import { downloadBlob } from "@/utils/browser";
@@ -167,16 +167,6 @@ export class RendererManager {
 			const exportFps = fps ?? activeProject.settings.fps;
 			const canvasSize = activeProject.settings.canvasSize;
 
-			let audioBuffer: AudioBuffer | null = null;
-			if (includeAudio) {
-				onProgress?.({ progress: 0.05 });
-				audioBuffer = await createTimelineAudioBuffer({
-					tracks,
-					mediaAssets,
-					duration,
-				});
-			}
-
 			const scene = buildScene({
 				tracks,
 				mediaAssets,
@@ -191,16 +181,15 @@ export class RendererManager {
 				fps: exportFps,
 				format,
 				quality,
-				shouldIncludeAudio: !!includeAudio,
-				audioBuffer: audioBuffer || undefined,
+				// Mixed as the frames go, a window ahead.
+				audio: includeAudio
+					? (mixTimelineAudio({ tracks, mediaAssets, duration }) ?? undefined)
+					: undefined,
 				file: path ? await openExportFile({ path }) : undefined,
 			});
 
 			exporter.on("progress", (progress) => {
-				const adjustedProgress = includeAudio
-					? 0.05 + progress * 0.95
-					: progress;
-				onProgress?.({ progress: adjustedProgress });
+				onProgress?.({ progress });
 			});
 
 			let cancelled = false;

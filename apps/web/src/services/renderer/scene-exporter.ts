@@ -20,6 +20,7 @@ import { frameRateToFloat } from "@/fps/utils";
 import type { RootNode } from "./nodes/root-node";
 import type { ExportFormat, ExportQuality } from "@/export";
 import type { ExportFile } from "@/export/disk-target";
+import { EXPORT_SAMPLE_RATE, MIX_CHANNELS } from "@/media/audio-mix";
 import { CanvasRenderer } from "./canvas-renderer";
 
 type ExportParams = {
@@ -28,8 +29,8 @@ type ExportParams = {
 	fps: FrameRate;
 	format: ExportFormat;
 	quality: ExportQuality;
-	shouldIncludeAudio?: boolean;
-	audioBuffer?: AudioBuffer;
+	/** The soundtrack, a window at a time (`mixTimelineAudio`). */
+	audio?: AsyncGenerator<AudioBuffer, void, undefined>;
 	/** Where it's written as it's made; otherwise it's kept in memory. */
 	file?: ExportFile;
 };
@@ -48,15 +49,50 @@ const qualityMap = {
 };
 
 /**
- * WebKit's H.264 encoder (macOS, and Safari) keeps a few frames before it lets
- * any go, while mediabunny waits for one to go before it sends a fifth: the
- * export stops after a few frames. In real time it lets each go at once.
+ * WebKit's H.264 encoder (macOS, and Safari) puts out nothing in the High and
+ * Main profiles, which mediabunny asks for, so the export stopped after a few
+ * frames; in real time it drops frames after each key frame. Baseline it
+ * encodes, at the level mediabunny chose. (Phase 4 encodes natively.)
  */
-function isWebKit() {
+function preferBaselineInWebKit({ config }: { config: VideoEncoderConfig }) {
 	const { userAgent } = navigator;
-	return (
-		/AppleWebKit/.test(userAgent) && !/Chrome|Chromium|Edg/.test(userAgent)
-	);
+	const isWebKit =
+		/AppleWebKit/.test(userAgent) && !/Chrome|Chromium|Edg/.test(userAgent);
+	if (!isWebKit) return;
+	config.codec = config.codec.replace(/^avc1\.(64|4d)/, "avc1.42");
+}
+
+/** The soundtrack, handed to the encoder a window at a time ahead of the frames. */
+class SoundtrackFeed {
+	private readonly windows: AsyncGenerator<AudioBuffer, void, undefined>;
+	private readonly source: AudioBufferSource;
+	private time = 0;
+	private isDone = false;
+
+	constructor({
+		windows,
+		source,
+	}: {
+		windows: AsyncGenerator<AudioBuffer, void, undefined>;
+		source: AudioBufferSource;
+	}) {
+		this.windows = windows;
+		this.source = source;
+	}
+
+	/** Adds windows until the soundtrack is past `time` seconds, or all in. */
+	async addUntil({ time }: { time: number }) {
+		while (!this.isDone && this.time <= time) {
+			const next = await this.windows.next();
+			if (next.done) {
+				this.isDone = true;
+				this.source.close();
+				return;
+			}
+			await this.source.add(next.value);
+			this.time += next.value.duration;
+		}
+	}
 }
 
 export type SceneExporterEvents = {
@@ -70,8 +106,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 	private renderer: CanvasRenderer;
 	private format: ExportFormat;
 	private quality: ExportQuality;
-	private shouldIncludeAudio: boolean;
-	private audioBuffer?: AudioBuffer;
+	private audio?: AsyncGenerator<AudioBuffer, void, undefined>;
 	private file?: ExportFile;
 
 	private isCancelled = false;
@@ -82,8 +117,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		fps,
 		format,
 		quality,
-		shouldIncludeAudio,
-		audioBuffer,
+		audio,
 		file,
 	}: ExportParams) {
 		super();
@@ -95,8 +129,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 
 		this.format = format;
 		this.quality = quality;
-		this.shouldIncludeAudio = shouldIncludeAudio ?? false;
-		this.audioBuffer = audioBuffer;
+		this.audio = audio;
 		this.file = file;
 	}
 
@@ -114,6 +147,9 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		} catch (error) {
 			await this.file?.discard();
 			throw error;
+		} finally {
+			// Stops the mix where it got to, closing its files.
+			await this.audio?.return(undefined);
 		}
 	}
 
@@ -143,24 +179,23 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 			: new BufferTarget();
 		const output = new Output({ format: outputFormat, target });
 
-		const codec = this.format === "webm" ? "vp9" : "avc";
 		const videoSource = new CanvasSource(this.renderer.getOutputCanvas(), {
-			codec,
+			codec: this.format === "webm" ? "vp9" : "avc",
 			bitrate: qualityMap[this.quality],
-			...(codec === "avc" && isWebKit() ? { latencyMode: "realtime" } : {}),
+			onEncoderConfig: (config) => preferBaselineInWebKit({ config }),
 		});
 
 		output.addVideoTrack(videoSource, { frameRate: fpsFloat });
 
 		let audioSource: AudioBufferSource | null = null;
-		if (this.shouldIncludeAudio && this.audioBuffer) {
+		if (this.audio) {
 			let audioCodec: "aac" | "opus" = this.format === "webm" ? "opus" : "aac";
 
 			if (audioCodec === "aac" && typeof AudioEncoder !== "undefined") {
 				const { supported } = await AudioEncoder.isConfigSupported({
 					codec: "mp4a.40.2",
-					sampleRate: this.audioBuffer.sampleRate,
-					numberOfChannels: this.audioBuffer.numberOfChannels,
+					sampleRate: EXPORT_SAMPLE_RATE,
+					numberOfChannels: MIX_CHANNELS,
 					bitrate: 192000,
 				});
 				if (!supported) audioCodec = "opus";
@@ -175,10 +210,10 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 
 		await output.start();
 
-		if (audioSource && this.audioBuffer) {
-			await audioSource.add(this.audioBuffer);
-			audioSource.close();
-		}
+		const soundtrack =
+			audioSource && this.audio
+				? new SoundtrackFeed({ windows: this.audio, source: audioSource })
+				: null;
 
 		for (let i = 0; i < frameCount; i++) {
 			if (this.isCancelled) {
@@ -190,6 +225,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 
 			const timeTicks = i * ticksPerFrame;
 			const timeSeconds = mediaTimeToSeconds({ time: timeTicks });
+			await soundtrack?.addUntil({ time: timeSeconds });
 			await this.renderer.render({ node: rootNode, time: timeTicks });
 			await videoSource.add(timeSeconds, 1 / fpsFloat);
 
@@ -203,6 +239,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 			return null;
 		}
 
+		await soundtrack?.addUntil({ time: Infinity });
 		videoSource.close();
 		await output.finalize();
 		this.emit("progress", 1);

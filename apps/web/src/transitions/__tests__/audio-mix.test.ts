@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type CollectedAudioElement, mixAudioChannels } from "@/media/audio";
+import { type MixedAudioClip, mixAudioChannels } from "@/media/audio";
 import type { VideoElement } from "@/timeline";
 import type { AudioCrossfade } from "@/transitions";
 import { mediaTime } from "@/wasm";
@@ -14,6 +14,15 @@ class TestAudioBuffer implements AudioBuffer {
 
 	constructor({ length, value }: { length: number; value: number }) {
 		this.channels = [0, 1].map(() => new Float32Array(length).fill(value));
+	}
+
+	/** Each sample its index, so where it came from shows. */
+	static ramp({ length }: { length: number }) {
+		const buffer = new TestAudioBuffer({ length, value: 0 });
+		for (const channel of buffer.channels) {
+			for (let i = 0; i < length; i++) channel[i] = i;
+		}
+		return buffer;
 	}
 
 	get length() {
@@ -64,15 +73,13 @@ function mix({
 	// Ten seconds of source, so the handles have audio in them.
 	const buffer = new TestAudioBuffer({ length: 10 * RATE, value: 1 });
 	const outputBuffer = new TestAudioBuffer({ length: 10 * RATE, value: 0 });
-	const collected: CollectedAudioElement = {
+	const collected: MixedAudioClip = {
 		timelineElement: element,
-		buffer,
 		startTime,
 		duration,
 		trimStart: 2,
 		trimEnd: 2,
 		volume: 1,
-		muted: false,
 		crossfade,
 	};
 	mixAudioChannels({
@@ -118,5 +125,60 @@ describe("the export mix across a crossfade", () => {
 		expect(at({ samples, time: 4 })).toBeCloseTo(Math.SQRT1_2);
 		expect(at({ samples, time: 4.5 })).toBeCloseTo(1);
 		expect(at({ samples, time: 6 })).toBeCloseTo(1);
+	});
+});
+
+describe("the export mix in windows", () => {
+	const clip: MixedAudioClip = {
+		timelineElement: element,
+		startTime: 1.23,
+		duration: 6,
+		trimStart: 0.5,
+		trimEnd: 0,
+		volume: 0.5,
+		retime: { rate: 1.5 },
+	};
+	const source = TestAudioBuffer.ramp({ length: 20 * RATE });
+
+	test("is the mix made whole, from parts of the source", () => {
+		const whole = new TestAudioBuffer({ length: 10 * RATE, value: 0 });
+		mixAudioChannels({
+			element: clip,
+			buffer: source,
+			trimStart: clip.trimStart,
+			retime: clip.retime,
+			outputBuffer: whole,
+			outputLength: whole.length,
+			sampleRate: RATE,
+		});
+
+		const windowed: number[] = [];
+		const windowLength = 3 * RATE;
+		for (let start = 0; start < whole.length; start += windowLength) {
+			const window = new TestAudioBuffer({ length: windowLength, value: 0 });
+			// The part of the source this window needs, and a little more.
+			const sourceStart = 0.25;
+			const part = TestAudioBuffer.ramp({ length: 15 * RATE });
+			for (const channel of [0, 1]) {
+				const data = part.getChannelData(channel);
+				for (let i = 0; i < data.length; i++) data[i] += sourceStart * RATE;
+			}
+			mixAudioChannels({
+				element: clip,
+				buffer: part,
+				trimStart: clip.trimStart,
+				retime: clip.retime,
+				sourceStart,
+				outputBuffer: window,
+				outputStart: start,
+				outputLength: Math.min(windowLength, whole.length - start),
+				sampleRate: RATE,
+			});
+			windowed.push(...window.getChannelData(0).subarray(0, windowLength));
+		}
+
+		const expected = [...whole.getChannelData(0)];
+		expect(windowed.slice(0, expected.length)).toEqual(expected);
+		expect(expected.some((sample) => sample > 0)).toBe(true);
 	});
 });

@@ -97,12 +97,20 @@ and give it constant quality and the encoders the web views lack.
   puts its index at the end (`fastStart: false`), so nothing is held back. A cancelled or failed
   export deletes its file; a finished one gets a toast with Show in Finder. The web build keeps
   `BufferTarget` and the download.
-- H.264 in WebKit (macOS, and Safari) is encoded in real-time mode. In quality mode
-  VideoToolbox holds frames back until it has several, while mediabunny waits for one to come
-  out once four are queued: every MP4 export stopped after about seven frames, 0.1.0's too.
-  HEVC and VP9 don't stall.
-- Audio mixed per stretch (a few seconds at a time) through the same mixer, fed to an
-  `AudioSampleSource`.
+- H.264 in WebKit (macOS, and Safari) is Baseline. Measured in the app's web view: in the
+  High and Main profiles, which mediabunny asks for, the encoder puts out nothing, even when
+  flushed, so every MP4 export stopped after a few frames, 0.1.0's too; in real time it
+  encodes High but drops frames after each key frame. Baseline puts out every frame, at 4K
+  too. `onEncoderConfig` swaps the profile and keeps mediabunny's level.
+- The soundtrack is mixed ten seconds at a time (`media/audio-mix.ts`), a window ahead of the
+  frames, and handed to the encoder as it goes. Each clip's source is decoded by mediabunny
+  as the windows reach it, through one iterator from its first window to its last, and
+  resampled with a little either side; the mixer is the one the whole mix used, given an
+  offset into the output and the source. Each window goes through playback's limiter after
+  the last second of the window before, which the limiter hears and drops, so windows join
+  as if mastered whole. Decoded whole as before: library sounds, audio files WebCodecs
+  doesn't decode, and clips whose speed changes with their pitch kept (the stretcher takes a
+  clip at once). Transcription's mix is built from the same windows.
 
 ### 3. HandBrake's settings
 - Container: MP4, MOV, MKV, WebM. Codec: H.264, HEVC, VP9, AV1, as the web view can encode
@@ -144,8 +152,11 @@ and give it constant quality and the encoders the web views lack.
 - Whether a file dropped on the App Store edition can be read: the sandbox grants a dropped
   file to whoever reads it from the drag pasteboard, which WebKit does in the app's process; not
   tried yet (no store profile).
-- The waveform and the audio still read a whole file into memory (`arrayBuffer`), as they did
-  from OPFS: phase 2's audio in pieces fixes both.
+- The waveform still reads a whole file into memory (`arrayBuffer`), as it did from OPFS.
+- Export's sound now always goes through the limiter, as playback's does: before, only a mix
+  that peaked over 0.98 did. A quiet mix comes out about 0.5 dB louder (the limiter's makeup
+  gain) and 6 ms later (its lookahead), as it plays in the editor.
+- H.264 Baseline gives less quality for its bitrate than High, until phase 4 encodes natively.
 - Constant quality waits for phase 4: until then quality is a bitrate.
 - What the editor may read is decided in Rust, but a script running in the web view could still
   ask for the files of the last drag made anywhere, or read files given to other projects. Only
@@ -160,6 +171,9 @@ and give it constant quality and the encoders the web views lack.
   disk, imported with its thumbnail in 0.1 s, saved by path and reopened from it, frames
   decoded at 1.8 ms each through IPC reads; other paths refused; the list and the bookmark
   surviving a relaunch and a rename.
-- Phase 2's file writing: in the app on macOS, a save dialog opening in the folder given, and
-  an H.264 MP4 written to the file picked as it was encoded, which mediabunny then read back
-  whole (2 s, 60 frames).
+- Phase 2. In the app on macOS: a save dialog opening in the folder given, and an MP4 written
+  to the file picked as it was encoded, which mediabunny then read back whole. A 25 s timeline
+  of two AAC tones at 48 kHz, one over the other, mixed in three windows: as long as the
+  timeline to the sample, the joins as smooth as the tone, the limiter holding the peak under
+  0.98 across them. Exported at 320x180 and 1920x1080 with that soundtrack: every frame
+  (750), the sound whole, 1080p at 2.2 times real time.

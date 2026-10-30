@@ -4,7 +4,7 @@ import {
 	VideoSampleSink,
 	type VideoCodec,
 } from "mediabunny";
-import { createTimelineAudioBuffer } from "@/media/audio";
+import { createTimelineAudioBuffer } from "@/media/audio-mix";
 import type { SceneTracks } from "@/timeline";
 import type { MediaAsset } from "@/media/types";
 import { createMediaSource, type MediaFile } from "@/media/disk-file";

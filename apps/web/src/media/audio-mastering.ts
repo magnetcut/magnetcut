@@ -5,26 +5,6 @@ const MASTER_LIMITER_ATTACK_SECONDS = 0.001;
 const MASTER_LIMITER_RELEASE_SECONDS = 0.12;
 const MASTER_OUTPUT_HEADROOM = 0.98;
 
-export function getAudioBufferPeak({
-	audioBuffer,
-}: {
-	audioBuffer: AudioBuffer;
-}): number {
-	let peak = 0;
-
-	for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
-		const channelData = audioBuffer.getChannelData(channel);
-		for (let index = 0; index < channelData.length; index++) {
-			const magnitude = Math.abs(channelData[index]);
-			if (magnitude > peak) {
-				peak = magnitude;
-			}
-		}
-	}
-
-	return peak;
-}
-
 export function createAudioMasteringChain({
 	audioContext,
 	destination,
@@ -52,18 +32,22 @@ export function createAudioMasteringChain({
 	return { input };
 }
 
-export async function applyAudioMasteringToBuffer({
+/**
+ * Masters part of a mix as playback does, through the limiter. Its first
+ * `prerollLength` frames are the mix just before it, heard by the limiter but
+ * not returned, so that parts mastered one after another join up as if the mix
+ * had been mastered whole.
+ */
+export async function masterAudioStretch({
 	audioBuffer,
+	prerollLength,
 }: {
 	audioBuffer: AudioBuffer;
+	prerollLength: number;
 }): Promise<AudioBuffer> {
-	if (getAudioBufferPeak({ audioBuffer }) <= MASTER_OUTPUT_HEADROOM) {
-		return audioBuffer;
-	}
-
 	const offlineContext = new OfflineAudioContext(
 		audioBuffer.numberOfChannels,
-		Math.max(1, audioBuffer.length),
+		audioBuffer.length,
 		audioBuffer.sampleRate,
 	);
 	const source = offlineContext.createBufferSource();
@@ -77,11 +61,22 @@ export async function applyAudioMasteringToBuffer({
 	source.start(0);
 
 	const renderedBuffer = await offlineContext.startRendering();
+	const stretch = new AudioBuffer({
+		numberOfChannels: renderedBuffer.numberOfChannels,
+		length: renderedBuffer.length - prerollLength,
+		sampleRate: renderedBuffer.sampleRate,
+	});
+	for (let channel = 0; channel < stretch.numberOfChannels; channel++) {
+		stretch.copyToChannel(
+			renderedBuffer.getChannelData(channel).subarray(prerollLength),
+			channel,
+		);
+	}
 	clampAudioBufferPeak({
-		audioBuffer: renderedBuffer,
+		audioBuffer: stretch,
 		maxPeak: MASTER_OUTPUT_HEADROOM,
 	});
-	return renderedBuffer;
+	return stretch;
 }
 
 function clampAudioBufferPeak({
