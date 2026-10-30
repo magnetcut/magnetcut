@@ -109,7 +109,7 @@ telemetry: everything stays on the computer. Not for iOS or Android.
 
 Done: 1, 2, 3, 4, 5 (0.1.0 is a draft release on GitHub, for the author to publish), 6 but for
 the App Store Connect record and profile (docs/RELEASING.md), 7 and 8. 9 but for Windows and
-Linux natively (docs/NATIVE.md, phase 5). 10 but for Whisper's word timings (docs/SUBTITLES.md).
+Linux natively (docs/NATIVE.md, phase 5). 10 (docs/SUBTITLES.md).
 What's been done since 0.1.0 without the app open (the native export's panel, the subtitle
 editor) is tested in code but not yet tried in the app.
 

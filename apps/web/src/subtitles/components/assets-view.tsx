@@ -122,8 +122,16 @@ export function Captions() {
 		return trackId !== null;
 	};
 
-	/** What Whisper hears on the timeline. */
-	const transcribeTimeline = async (): Promise<TranscriptionSegment[]> => {
+	/** What Whisper hears on the timeline: each word's time too, if asked
+	 * and it can. */
+	const transcribeTimeline = async ({
+		words = false,
+	}: {
+		words?: boolean;
+	} = {}): Promise<{
+		segments: TranscriptionSegment[];
+		words?: TranscriptionSegment[];
+	}> => {
 		const audioBlob = await extractTimelineAudio({
 			tracks: editor.scenes.getActiveScene().tracks,
 			mediaAssets: editor.media.getAssets(),
@@ -139,18 +147,19 @@ export function Captions() {
 		const result = await transcriptionService.transcribe({
 			audioData: samples,
 			language: selectedLanguage === "auto" ? undefined : selectedLanguage,
+			words,
 			onProgress: handleProgress,
 		});
-		return result.segments;
+		return { segments: result.segments, words: result.words };
 	};
 
 	// A script pasted in, timed to the speech (auto-sync).
 	const handleSyncScript = async () => {
 		dispatch({ type: "start", step: "Extracting audio..." });
 		try {
-			const segments = await transcribeTimeline();
+			const { segments, words } = await transcribeTimeline({ words: true });
 			dispatch({ type: "update_step", step: "Timing the script..." });
-			const captions = syncLinesToSpeech({ text: script, segments });
+			const captions = syncLinesToSpeech({ text: script, segments, words });
 			if (!captions) {
 				dispatch({
 					type: "fail",
@@ -179,7 +188,7 @@ export function Captions() {
 	const handleGenerateTranscript = async () => {
 		dispatch({ type: "start", step: "Extracting audio..." });
 		try {
-			const segments = await transcribeTimeline();
+			const { segments } = await transcribeTimeline();
 
 			dispatch({ type: "update_step", step: "Generating captions..." });
 			const captionChunks = buildCaptionChunks({ segments });

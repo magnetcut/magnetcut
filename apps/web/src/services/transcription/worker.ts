@@ -11,7 +11,13 @@ import {
 
 export type WorkerMessage =
 	| { type: "init"; modelId: string }
-	| { type: "transcribe"; audio: Float32Array; language: string }
+	| {
+			type: "transcribe";
+			audio: Float32Array;
+			language: string;
+			/** Each word's time too, where the model can (docs/SUBTITLES.md). */
+			words?: boolean;
+	  }
 	| { type: "cancel" };
 
 export type WorkerResponse =
@@ -23,6 +29,7 @@ export type WorkerResponse =
 			type: "transcribe-complete";
 			text: string;
 			segments: TranscriptionSegment[];
+			words?: TranscriptionSegment[];
 	  }
 	| { type: "transcribe-error"; error: string }
 	| { type: "cancelled" };
@@ -43,6 +50,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
 			await handleTranscribe({
 				audio: message.audio,
 				language: message.language,
+				words: message.words ?? false,
 			});
 			break;
 		case "cancel":
@@ -116,12 +124,51 @@ async function handleInit({ modelId }: { modelId: string }) {
 	}
 }
 
-async function handleTranscribe({
+/** Each word's time, where the model has what it takes to time words:
+ * none otherwise, or if it fails. */
+async function transcribeWords({
 	audio,
 	language,
 }: {
 	audio: Float32Array;
 	language: string;
+}): Promise<TranscriptionSegment[] | null> {
+	if (!transcriber) return null;
+	try {
+		const rawResult = await transcriber(audio, {
+			chunk_length_s: DEFAULT_CHUNK_LENGTH_SECONDS,
+			stride_length_s: DEFAULT_STRIDE_SECONDS,
+			language: language === "auto" ? undefined : language,
+			return_timestamps: "word",
+		});
+		const result: AutomaticSpeechRecognitionOutput = Array.isArray(rawResult)
+			? rawResult[0]
+			: rawResult;
+		const words: TranscriptionSegment[] = [];
+		for (const chunk of result.chunks ?? []) {
+			if (chunk.timestamp && chunk.timestamp.length >= 2) {
+				words.push({
+					text: chunk.text,
+					start: chunk.timestamp[0] ?? 0,
+					end: chunk.timestamp[1] ?? chunk.timestamp[0] ?? 0,
+				});
+			}
+		}
+		return words.length > 0 ? words : null;
+	} catch (error) {
+		console.warn("Whisper couldn't time words, using its segments:", error);
+		return null;
+	}
+}
+
+async function handleTranscribe({
+	audio,
+	language,
+	words: wantsWords,
+}: {
+	audio: Float32Array;
+	language: string;
+	words: boolean;
 }) {
 	if (!transcriber) {
 		self.postMessage({
@@ -132,6 +179,9 @@ async function handleTranscribe({
 	}
 
 	cancelled = false;
+
+	const words = wantsWords ? await transcribeWords({ audio, language }) : null;
+	if (cancelled) return;
 
 	try {
 		const rawResult = await transcriber(audio, {
@@ -165,6 +215,7 @@ async function handleTranscribe({
 			type: "transcribe-complete",
 			text: result.text,
 			segments,
+			...(words ? { words } : {}),
 		} satisfies WorkerResponse);
 	} catch (error) {
 		if (cancelled) return;

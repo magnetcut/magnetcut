@@ -48,20 +48,27 @@ export function getWordsFromSegments({
 }
 
 /** Lines of text timed to the speech heard: as captions, or none if no
- * word matched. Blank lines are left out. */
+ * word matched. Blank lines are left out. To Whisper's words where it timed
+ * them, else to its segments' words, spread over each. */
 export function syncLinesToSpeech({
 	text,
 	segments,
+	words,
 }: {
 	text: string;
 	segments: TranscriptionSegment[];
+	words?: TranscriptionSegment[];
 }): CaptionChunk[] | null {
 	const lines = text
 		.split(/\n\s*\n|\n/)
 		.map((line) => line.trim())
 		.filter(Boolean);
 	if (lines.length === 0) return null;
-	const cues = timeLinesToWords(lines, getWordsFromSegments({ segments }));
+	const heard =
+		words && words.length > 0
+			? words.map(({ text: word, start, end }) => ({ text: word, start, end }))
+			: getWordsFromSegments({ segments });
+	const cues = timeLinesToWords(lines, heard);
 	if (!cues) return null;
 	return cues.map((cue) => ({
 		text: cue.text,

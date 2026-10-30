@@ -71,8 +71,9 @@ made by Whisper, which runs on the computer (`apps/web/src/transcription`).
   - Lined up with the speech in one click: the timeline's sound mixed down to 16 kHz, speech
     found by its loudness (`speech_spans`: 12 dB above its quiet, music counting too), and the
     core's fit applied. Two-point sync: "Spoken now" on two lines, then sync on them. A script
-    pasted in, timed to Whisper's segments (their words spread over each by length, until
-    Whisper gives words).
+    pasted in, timed to the words Whisper heard: it's asked for each word's time
+    (`return_timestamps: "word"`), and where the model can't, its segments' words are spread
+    over each by length.
   - Shift, another frame rate, overlaps and durations fixed; saved as any of the six formats
     (in the desktop app through its save dialog).
   - Export puts the subtitle tracks in the picture (as before), in tracks a player turns on and
@@ -90,5 +91,5 @@ made by Whisper, which runs on the computer (`apps/web/src/transcription`).
     line edited with the original it overlaps most shown above it.
   - Timed by holding a key: lines pasted in, T held while each is spoken (pressed where it
     starts, let go where it ends), taken before the editor's own shortcuts see the key.
-  - Still to do: Whisper's own word timings for auto-sync; the subtitles' styles in timed text
-    (white, at the foot, for now).
+  - Still to do: the subtitles' styles in timed text (white, at the foot, for now); whether the
+    app's Whisper models give word times, to be seen in the app.

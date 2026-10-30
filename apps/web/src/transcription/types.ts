@@ -12,6 +12,8 @@ export interface TranscriptionResult {
 	text: string;
 	segments: TranscriptionSegment[];
 	language: string;
+	/** Each word heard, when asked for and the model can time them. */
+	words?: TranscriptionSegment[];
 }
 
 export type TranscriptionStatus =

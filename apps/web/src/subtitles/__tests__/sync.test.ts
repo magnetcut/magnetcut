@@ -38,6 +38,22 @@ describe("syncing", () => {
 		expect(syncLinesToSpeech({ text: "", segments: [] })).toBeNull();
 	});
 
+	test("uses Whisper's own word times when it has them", () => {
+		const captions = syncLinesToSpeech({
+			text: "Hello there.\nHow are you?",
+			segments: [{ text: " Hello there. How are you?", start: 0, end: 10 }],
+			words: [
+				{ text: " Hello", start: 1, end: 1.4 },
+				{ text: " there.", start: 1.5, end: 2 },
+				{ text: " How", start: 7, end: 7.2 },
+				{ text: " are", start: 7.2, end: 7.4 },
+				{ text: " you?", start: 7.4, end: 8 },
+			],
+		});
+		expect(captions?.map(({ startTime }) => startTime)).toEqual([1, 7]);
+		expect(captions?.[1].duration).toBeCloseTo(1, 6);
+	});
+
 	test("lines a late track up with the speech", () => {
 		// Speech every 3 s for 2 s; the lines 1.5 s late.
 		const speech = Array.from({ length: 40 }, (_, index) => ({
