@@ -107,11 +107,12 @@ telemetry: everything stays on the computer. Not for iOS or Android.
 
 ## Order
 
-Done: 1, 2, 3, 4, 5 (0.1.0 is a draft release on GitHub, for the author to publish), 6 but for
-the App Store Connect record and profile (docs/RELEASING.md), 7 and 8. 9 but for Windows and
-Linux natively (docs/NATIVE.md, phase 5). 10 (docs/SUBTITLES.md).
+Done: 1, 2, 3, 4, 5 (0.1.0 is a draft release on GitHub, for the author to publish), 6 (build
+0.1.0 is in App Store Connect; its listing and submitting it are the author's, docs/RELEASING.md),
+7 and 8. 9 (docs/NATIVE.md; on Windows and Linux checked on CI, not yet in the app there). 10
+(docs/SUBTITLES.md).
 What's been done since 0.1.0 without the app open (the native export's panel, the subtitle
-editor) is tested in code but not yet tried in the app.
+editor, the native export on Windows and Linux) is tested in code but not yet tried in the app.
 
 1. Strip the server, accounts, analytics and website; static export; editor works in a browser.
 2. Rebrand: names, package scopes, storage keys, logo and icon.

@@ -167,7 +167,7 @@ and give it constant quality and the encoders the web views lack.
   won't take, which would end the app.
 - While an export runs, on either road, the app holds a user-initiated activity
   (`activity.rs`): hidden behind other windows, App Nap would otherwise slow it, and idle sleep
-  would stop it. Windows and Linux have no equivalent yet.
+  would stop it. On Windows a power request keeps the computer awake; Linux has nothing yet.
 - The panel offers ProRes 422 and 422 HQ in QuickTime where the native export is, its size
   reckoned from Apple's rates (147 and 220 Mbit/s at 1080p and 29.97); and Constant quality,
   1 to 100, on Apple silicon. Where the native export can't make the film, ProRes fails with
@@ -186,11 +186,37 @@ and give it constant quality and the encoders the web views lack.
   it.
 
 ### 5. Windows and Linux
-- Windows: Media Foundation through the `windows` crate (MIT/Apache): source reader with D3D11
-  for decode, sink writer with the hardware encoders (NVENC, AMF, QSV behind MF).
-- Linux: GStreamer, the system's (LGPL, not shipped, as with WebKitGTK; bindings MIT/Apache):
-  VA-API decode and encode where the plugins are, else software decode.
-- Checked only on CI and the probe: no local Windows or Linux machine.
+- One export on every system (`render/mod.rs`): the editor's messages, the frames on the GPU
+  (`frames.rs`), the turn and the tests are shared, and each system brings a decoder and a
+  writer, through two traits: a decoded `Picture` and an encoder's `FrameBuffer`. The app says
+  what its export makes there (`native_export_capabilities`: formats, codecs, copied sound,
+  subtitle tracks, constant quality), and the editor routes each export by that; what it
+  can't make, the web view's export does, as before.
+- Windows (`render/windows/`): Media Foundation through the `windows` crate (MIT/Apache). The
+  source reader decodes and its video processing turns each picture into BGRA; the sink writer
+  makes H.264 or HEVC where the system has an encoder (Microsoft's own, or NVENC, AMF and
+  Quick Sync, which are Media Foundation transforms), with AAC, in MP4. BT.709 is said on
+  every media type: RGB left unsaid is taken as sRGB's curve and converted, which darkened a
+  mid grey by 5 levels. The index stays at the end of the file: put first
+  (`MF_MPEG4SINK_MOOV_BEFORE_MDAT`), files finished at the same time were refused. A power
+  request keeps the computer awake while it exports.
+- Linux (`render/linux/`): GStreamer, the system's (LGPL, not shipped, as WebKitGTK plays video
+  with it), through the bindings that share Tauri's glib (0.21; two glibs can't be linked).
+  decodebin turns each source into BGRA, through VA-API's decoders where there are some; the
+  film goes through appsrc to the best encoder there is (VA-API's, then x264, x265 or
+  OpenH264) and an AAC one (fdk-aac, FFmpeg's, VisualOn's or FAAC), into mp4mux. The packages
+  recommend the plugins with the encoders.
+- Both writers hold the mix until the frames are near (half a second ahead): the muxer
+  interleaves the two, and sound far ahead would wait in it for frames still to come.
+- The portrait fixture (`apps/desktop/fixtures/turned.mp4`, made by ffmpeg) turns the same way
+  on all three: AVFoundation's transform, Media Foundation's `MF_MT_VIDEO_ROTATION` and
+  GStreamer's `rotate-90` all mean a quarter turn clockwise.
+- Not yet on Windows and Linux: copied sound, subtitle tracks (the web view's export makes
+  those, WebVTT in MP4), constant quality, ProRes and AV1, HDR's tone mapping, and decoding
+  into the GPU's memory (D3D11, VA-API) without the copy out.
+- Checked on CI and, for GStreamer, on a Mac against Homebrew's: no Windows or Linux machine
+  here, so not in the app on those systems. The Windows runner has Microsoft's H.264 and AAC
+  encoders and no HEVC; WARP stands in for its GPU, and Mesa's software Vulkan for Linux's.
 
 ### 6. Software encoders and filters
 - AV1 with rav1e (BSD-2), on macOS, where no Mac encodes it in hardware and WebKit doesn't at
@@ -243,6 +269,8 @@ and give it constant quality and the encoders the web views lack.
   and a content security policy (none today: it would have to allow the fonts and models the
   editor fetches).
 - Native code for Windows and Linux written without the machines to try it on.
+- On Linux the tests once ended in a segmentation fault, run side by side; one at a time they
+  passed, and side by side again since. CI runs them under gdb should it happen again.
 - Speed measured in the app is unreliable while its window is hidden: a release build ran
   slower than a debug one behind other windows. WebKit throttles a hidden page, and App Nap a
   hidden app; the activity above answers App Nap, and `backgroundThrottling` in the window's
@@ -279,3 +307,8 @@ and give it constant quality and the encoders the web views lack.
   AVFoundation; the frame at 2 s is the source's, with the image over it; the colour bars
   within 3 levels of the source's; the sound 4.000 s long like the timeline, at 440 Hz like the
   source. In a debug build, 1080p at 63 frames a second and 4K at 22.
+- Phase 5, on CI: the shared tests pass on the Windows and Linux runners as on macOS, on their
+  own decoders and encoders and a software GPU. A film encoded and decoded in each grey from 16
+  to 235, back within 3 levels; frames at their times, x264's B-frames included; a phone's
+  portrait film turned upright; a film cut, scaled and drawn with its sound; a size that isn't a
+  multiple of 16; a cancelled export leaving no file.
