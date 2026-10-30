@@ -6,7 +6,12 @@ edition = "2024"
 [dependencies]
 bytemuck = { version = "1.25.0", features = ["derive"] }
 effects = { version = "0.1.0", path = "../effects" }
+gl-transitions = { version = "=1.0.0", default-features = false, features = ["wgsl"] }
 gpu = { version = "0.1.0", path = "../gpu" }
 masks = { version = "0.1.0", path = "../masks" }
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.18"
+
+[dev-dependencies]
+# The tests wait for the GPU.
+futures-executor = "0.3"

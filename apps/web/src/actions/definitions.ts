@@ -78,6 +78,10 @@ export const ACTIONS = {
 		description: "Split and remove right",
 		category: "editing",
 	},
+	"add-transition": {
+		description: "Add a cross-dissolve at the cut nearest the playhead",
+		category: "editing",
+	},
 	"delete-selected": {
 		description: "Delete current selection",
 		category: "editing",
@@ -184,6 +188,7 @@ const ACTION_DEFAULT_SHORTCUTS = [
 	["split", ["s"]],
 	["split-left", ["q"]],
 	["split-right", ["w"]],
+	["add-transition", ["t"]],
 	["delete-selected", ["backspace", "delete"]],
 	["copy-selected", ["ctrl+c"]],
 	["paste-copied", ["ctrl+v"]],

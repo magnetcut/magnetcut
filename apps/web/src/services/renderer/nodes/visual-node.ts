@@ -16,6 +16,11 @@ export interface VisualNodeParams {
 	blendMode?: BlendMode;
 	effects?: Effect[];
 	masks?: Mask[];
+	/**
+	 * When it shows, on the timeline, if not throughout its clip: a
+	 * transition's window, or its clip less the transitions at its ends.
+	 */
+	activeRange?: { start: number; end: number };
 }
 
 export interface ResolvedVisualNodeState {

@@ -7,6 +7,7 @@ import {
 } from "mediabunny";
 
 interface VideoSinkData {
+	mediaId: string;
 	input: Input;
 	sink: CanvasSink;
 	iterator: AsyncGenerator<WrappedCanvas, void, unknown> | null;
@@ -15,6 +16,20 @@ interface VideoSinkData {
 	lastTime: number;
 	prefetching: boolean;
 	prefetchPromise: Promise<void> | null;
+}
+
+/**
+ * A file's decoder, by the stream it serves: one per file, and more for clips
+ * that show side by side (`streamKey`).
+ */
+function getSinkKey({
+	mediaId,
+	streamKey,
+}: {
+	mediaId: string;
+	streamKey?: string;
+}): string {
+	return streamKey ? `${mediaId}#${streamKey}` : mediaId;
 }
 
 export class VideoCache {
@@ -27,28 +42,31 @@ export class VideoCache {
 		mediaId,
 		file,
 		time,
+		streamKey,
 	}: {
 		mediaId: string;
 		file: File;
 		time: number;
+		streamKey?: string;
 	}): Promise<WrappedCanvas | null> {
-		await this.ensureSink({ mediaId, file });
+		const key = getSinkKey({ mediaId, streamKey });
+		await this.ensureSink({ key, mediaId, file });
 
-		const sinkData = this.sinks.get(mediaId);
+		const sinkData = this.sinks.get(key);
 		if (!sinkData) return null;
 
-		const generation = (this.seekGenerations.get(mediaId) ?? 0) + 1;
-		this.seekGenerations.set(mediaId, generation);
+		const generation = (this.seekGenerations.get(key) ?? 0) + 1;
+		this.seekGenerations.set(key, generation);
 
-		const previous = this.frameChain.get(mediaId) ?? Promise.resolve();
+		const previous = this.frameChain.get(key) ?? Promise.resolve();
 		const current = previous.then(() => {
-			if (this.seekGenerations.get(mediaId) !== generation) {
+			if (this.seekGenerations.get(key) !== generation) {
 				return sinkData.currentFrame ?? null;
 			}
 			return this.resolveFrame({ sinkData, time });
 		});
 		this.frameChain.set(
-			mediaId,
+			key,
 			current.catch(() => {}),
 		);
 		return current;
@@ -233,32 +251,36 @@ export class VideoCache {
 		}
 	}
 	private async ensureSink({
+		key,
 		mediaId,
 		file,
 	}: {
+		key: string;
 		mediaId: string;
 		file: File;
 	}): Promise<void> {
-		if (this.sinks.has(mediaId)) return;
+		if (this.sinks.has(key)) return;
 
-		if (this.initPromises.has(mediaId)) {
-			await this.initPromises.get(mediaId);
+		if (this.initPromises.has(key)) {
+			await this.initPromises.get(key);
 			return;
 		}
 
-		const initPromise = this.initializeSink({ mediaId, file });
-		this.initPromises.set(mediaId, initPromise);
+		const initPromise = this.initializeSink({ key, mediaId, file });
+		this.initPromises.set(key, initPromise);
 
 		try {
 			await initPromise;
 		} finally {
-			this.initPromises.delete(mediaId);
+			this.initPromises.delete(key);
 		}
 	}
 	private async initializeSink({
+		key,
 		mediaId,
 		file,
 	}: {
+		key: string;
 		mediaId: string;
 		file: File;
 	}): Promise<void> {
@@ -283,7 +305,8 @@ export class VideoCache {
 				fit: "contain",
 			});
 
-			this.sinks.set(mediaId, {
+			this.sinks.set(key, {
+				mediaId,
 				input,
 				sink,
 				iterator: null,
@@ -300,24 +323,35 @@ export class VideoCache {
 		}
 	}
 
+	/** All of a file's decoders. */
 	clearVideo({ mediaId }: { mediaId: string }): void {
-		const sinkData = this.sinks.get(mediaId);
-		if (sinkData) {
+		const isOfFile = (key: string) =>
+			key === mediaId || key.startsWith(`${mediaId}#`);
+		for (const [key, sinkData] of this.sinks) {
+			if (sinkData.mediaId !== mediaId) continue;
 			if (sinkData.iterator) {
 				void sinkData.iterator.return();
 			}
 
 			sinkData.input.dispose();
-			this.sinks.delete(mediaId);
+			this.sinks.delete(key);
 		}
 
-		this.initPromises.delete(mediaId);
-		this.frameChain.delete(mediaId);
-		this.seekGenerations.delete(mediaId);
+		for (const map of [
+			this.initPromises,
+			this.frameChain,
+			this.seekGenerations,
+		]) {
+			for (const key of [...map.keys()]) {
+				if (isOfFile(key)) map.delete(key);
+			}
+		}
 	}
 
 	clearAll(): void {
-		for (const [mediaId] of this.sinks) {
+		for (const mediaId of new Set(
+			[...this.sinks.values()].map((s) => s.mediaId),
+		)) {
 			this.clearVideo({ mediaId });
 		}
 	}

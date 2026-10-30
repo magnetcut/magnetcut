@@ -7,11 +7,19 @@ import type {
 	TimelineTrack,
 	TimelineElement,
 	RetimeConfig,
+	Transition,
 } from "@/timeline";
 import { calculateTotalDuration } from "@/timeline";
 import { TimelineDragSource } from "@/timeline/drag-source";
 import { findTrackInSceneTracks } from "@/timeline/track-element-update";
-import { lastFrameMediaTime, type MediaTime, ZERO_MEDIA_TIME } from "@/wasm";
+import {
+	lastFrameMediaTime,
+	type MediaTime,
+	mediaTimeFromSeconds,
+	roundFrameTime,
+	ZERO_MEDIA_TIME,
+} from "@/wasm";
+import { DEFAULT_TRANSITION_TYPE } from "@/transitions";
 import {
 	canElementBeHidden,
 	canElementHaveAudio,
@@ -57,6 +65,9 @@ import {
 	UpsertEffectParamKeyframeCommand,
 	RemoveEffectParamKeyframeCommand,
 	ToggleSourceAudioSeparationCommand,
+	AddTransitionCommand,
+	UpdateTransitionCommand,
+	RemoveTransitionCommand,
 } from "@/commands/timeline";
 import type { InsertElementParams } from "@/commands/timeline/element/insert-element";
 import type {
@@ -200,6 +211,68 @@ export class TimelineManager {
 		});
 		this.editor.command.execute({ command });
 		return command.getRightSideElements();
+	}
+
+	/** Adds a transition at a cut, half a second long by default; its id. */
+	addTransition({
+		trackId,
+		fromElementId,
+		toElementId,
+		type = DEFAULT_TRANSITION_TYPE,
+		duration,
+	}: {
+		trackId: string;
+		fromElementId: string;
+		toElementId: string;
+		type?: string;
+		duration?: MediaTime;
+	}): string {
+		const fps = this.editor.project.getActive()?.settings.fps;
+		const halfSecond = mediaTimeFromSeconds({ seconds: 0.5 });
+		const command = new AddTransitionCommand({
+			trackId,
+			transition: {
+				fromElementId,
+				toElementId,
+				type,
+				duration:
+					duration ??
+					(fps ? roundFrameTime({ time: halfSecond, fps }) : halfSecond),
+				alignment: "center",
+				params: {},
+				crossfadeAudio: true,
+			},
+		});
+		this.editor.command.execute({ command });
+		return command.transition.id;
+	}
+
+	updateTransition({
+		trackId,
+		transitionId,
+		changes,
+	}: {
+		trackId: string;
+		transitionId: string;
+		changes: Partial<Omit<Transition, "id">>;
+	}): void {
+		const command = new UpdateTransitionCommand({
+			trackId,
+			transitionId,
+			changes,
+		});
+		this.editor.command.execute({ command });
+	}
+
+	removeTransition({
+		trackId,
+		transitionId,
+	}: {
+		trackId: string;
+		transitionId: string;
+	}): void {
+		const command = new RemoveTransitionCommand({ trackId, transitionId });
+		this.editor.command.execute({ command });
 	}
 
 	getTotalDuration(): MediaTime {

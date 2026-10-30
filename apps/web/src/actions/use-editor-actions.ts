@@ -17,6 +17,7 @@ import {
 } from "@/wasm";
 import { useKeyframeSelection } from "@/timeline/hooks/element/use-keyframe-selection";
 import { getElementsAtTime, hasMediaId } from "@/timeline";
+import { findNearestCut } from "@/transitions";
 import { cancelInteraction } from "@/editor/cancel-interaction";
 import { invokeAction } from "@/actions";
 import { canToggleSourceAudio } from "@/timeline/audio-separation";
@@ -235,6 +236,28 @@ export function useEditorActions() {
 			editor.timeline.splitElements({
 				elements: elementsToSplit,
 				splitTime: currentTime,
+			});
+		},
+		undefined,
+	);
+
+	useActionHandler(
+		"add-transition",
+		() => {
+			const cut = findNearestCut({
+				tracks: editor.scenes.getActiveScene().tracks,
+				time: editor.playback.getCurrentTime(),
+				elementIds:
+					selectedElements.length > 0
+						? selectedElements.map(({ elementId }) => elementId)
+						: undefined,
+			});
+			if (!cut) return;
+
+			editor.timeline.addTransition({
+				trackId: cut.trackId,
+				fromElementId: cut.from.id,
+				toElementId: cut.to.id,
 			});
 		},
 		undefined,

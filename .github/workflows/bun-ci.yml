@@ -74,8 +74,14 @@ jobs:
       - name: Run tests
         run: bun test
 
+      # The compositor's tests draw on the GPU, and pass saying so without one:
+      # Linux runners have none, so Mesa's software Vulkan stands in.
+      - name: Install a software GPU
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
+
       - name: Run the Rust core's tests
-        run: cargo test -p audio -p time
+        run: cargo test -p audio -p time -p transitions -p compositor
 
       # Nothing under a licence MagnetCut can't ship, and About's notices
       # current (apps/web/scripts/licenses.ts). The same on every system.

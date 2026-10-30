@@ -186,7 +186,31 @@ function covers({ file, licenses }: { file: string; licenses: string[] }) {
 	);
 }
 
+// Notices a package keeps away from its top level: gl-transitions lists the
+// transitions under other licences than its own, with their conditions.
+const OTHER_NOTICES: Record<string, string[]> = {
+	"gl-transitions": ["generated/LICENSES.md"],
+};
+
+function otherNotices({ pkg }: { pkg: Package }): string[] {
+	return (OTHER_NOTICES[pkg.name] ?? []).map((path) => {
+		const file = join(pkg.dir, path);
+		if (!existsSync(file)) throw new Error(`${pkg.name}: no ${path}`);
+		return readFileSync(file, "utf8");
+	});
+}
+
 function licenseTexts({
+	pkg,
+	licenses,
+}: {
+	pkg: Package;
+	licenses: string[];
+}): string[] {
+	return [...packageLicenseTexts({ pkg, licenses }), ...otherNotices({ pkg })];
+}
+
+function packageLicenseTexts({
 	pkg,
 	licenses,
 }: {

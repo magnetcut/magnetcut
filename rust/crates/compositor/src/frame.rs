@@ -26,6 +26,33 @@ pub enum FrameItemDescriptor {
     SceneEffect {
         effect_pass_groups: Vec<Vec<EffectPassDescriptor>>,
     },
+    Transition(TransitionDescriptor),
+}
+
+/// Two layers, drawn into one by a transition, then blended into the scene.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransitionDescriptor {
+    /// The outgoing clip: none when it has nothing to show (transparent).
+    pub from: Option<LayerDescriptor>,
+    /// The incoming clip.
+    pub to: Option<LayerDescriptor>,
+    /// Its gl-transitions name, e.g. "Fade".
+    pub transition: String,
+    /// Its parameters, by name: the defaults for those not given.
+    #[serde(default)]
+    pub params: HashMap<String, TransitionParamValue>,
+    /// From 0, the outgoing clip, to 1, the incoming one.
+    pub progress: f32,
+    pub blend_mode: BlendMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum TransitionParamValue {
+    Bool(bool),
+    Number(f32),
+    Vector(Vec<f32>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

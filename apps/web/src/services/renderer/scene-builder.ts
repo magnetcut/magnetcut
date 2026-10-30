@@ -1,4 +1,15 @@
-import type { SceneTracks, TimelineTrack } from "@/timeline";
+import type {
+	ImageElement,
+	SceneTracks,
+	TimelineElement,
+	TimelineTrack,
+	VideoElement,
+} from "@/timeline";
+import {
+	getTransitionDefinition,
+	resolveTrackTransitions,
+	type ResolvedTransition,
+} from "@/transitions";
 import type { MediaAsset } from "@/media/types";
 import { RootNode } from "./nodes/root-node";
 import { VideoNode } from "./nodes/video-node";
@@ -9,6 +20,7 @@ import { GraphicNode } from "./nodes/graphic-node";
 import { ColorNode } from "./nodes/color-node";
 import { BlurBackgroundNode } from "./nodes/blur-background-node";
 import { EffectLayerNode } from "./nodes/effect-layer-node";
+import { TransitionNode } from "./nodes/transition-node";
 import type { AnyBaseNode } from "./nodes/base-node";
 import type { TBackground, TCanvasSize } from "@/project/types";
 import { DEFAULT_BACKGROUND_BLUR_INTENSITY } from "@/background/blur";
@@ -30,6 +42,182 @@ function getVisibleSortedElements({ track }: { track: TimelineTrack }) {
 		});
 }
 
+type ActiveRange = { start: number; end: number };
+
+function buildElementNode({
+	element,
+	mediaMap,
+	canvasSize,
+	isPreview,
+	activeRange,
+	streamKey,
+}: {
+	element: TimelineElement;
+	mediaMap: Map<string, MediaAsset>;
+	canvasSize: TCanvasSize;
+	isPreview?: boolean;
+	activeRange?: ActiveRange;
+	streamKey?: string;
+}): AnyBaseNode | null {
+	if (element.type === "effect") {
+		return new EffectLayerNode({
+			effectType: element.effectType,
+			effectParams: element.params,
+			timeOffset: element.startTime,
+			duration: element.duration,
+		});
+	}
+
+	if (element.type === "video" || element.type === "image") {
+		const mediaAsset = mediaMap.get(element.mediaId);
+		if (!mediaAsset?.file || !mediaAsset?.url) {
+			return null;
+		}
+
+		if (element.type === "video" && mediaAsset.type === "video") {
+			return new VideoNode({
+				mediaId: mediaAsset.id,
+				url: mediaAsset.url,
+				file: mediaAsset.file,
+				duration: element.duration,
+				timeOffset: element.startTime,
+				trimStart: element.trimStart,
+				trimEnd: element.trimEnd,
+				retime: element.retime,
+				transform: buildTransformFromParams({ params: element.params }),
+				animations: element.animations,
+				opacity: readOpacityFromParams({ params: element.params }),
+				blendMode: readBlendModeFromParams({ params: element.params }),
+				effects: element.effects ?? [],
+				masks: element.masks ?? [],
+				activeRange,
+				streamKey,
+			});
+		}
+		if (element.type === "image" && mediaAsset.type === "image") {
+			return new ImageNode({
+				url: mediaAsset.url,
+				duration: element.duration,
+				timeOffset: element.startTime,
+				trimStart: element.trimStart,
+				trimEnd: element.trimEnd,
+				transform: buildTransformFromParams({ params: element.params }),
+				animations: element.animations,
+				opacity: readOpacityFromParams({ params: element.params }),
+				blendMode: readBlendModeFromParams({ params: element.params }),
+				effects: element.effects ?? [],
+				masks: element.masks ?? [],
+				activeRange,
+				...(isPreview && {
+					maxSourceSize: PREVIEW_MAX_IMAGE_SIZE,
+				}),
+			});
+		}
+		return null;
+	}
+
+	if (element.type === "text") {
+		return new TextNode({
+			...element,
+			transform: buildTransformFromParams({ params: element.params }),
+			opacity: readOpacityFromParams({ params: element.params }),
+			blendMode: readBlendModeFromParams({ params: element.params }),
+			canvasCenter: { x: canvasSize.width / 2, y: canvasSize.height / 2 },
+			canvasHeight: canvasSize.height,
+			textBaseline: "middle",
+			effects: element.effects ?? [],
+		});
+	}
+
+	if (element.type === "sticker") {
+		return new StickerNode({
+			stickerId: element.stickerId,
+			intrinsicWidth: element.intrinsicWidth,
+			intrinsicHeight: element.intrinsicHeight,
+			duration: element.duration,
+			timeOffset: element.startTime,
+			trimStart: element.trimStart,
+			trimEnd: element.trimEnd,
+			transform: buildTransformFromParams({ params: element.params }),
+			animations: element.animations,
+			opacity: readOpacityFromParams({ params: element.params }),
+			blendMode: readBlendModeFromParams({ params: element.params }),
+			effects: element.effects ?? [],
+		});
+	}
+
+	if (element.type === "graphic") {
+		return new GraphicNode({
+			definitionId: element.definitionId,
+			params: element.params,
+			duration: element.duration,
+			timeOffset: element.startTime,
+			trimStart: element.trimStart,
+			trimEnd: element.trimEnd,
+			transform: buildTransformFromParams({ params: element.params }),
+			animations: element.animations,
+			opacity: readOpacityFromParams({ params: element.params }),
+			blendMode: readBlendModeFromParams({ params: element.params }),
+			effects: element.effects ?? [],
+			masks: element.masks ?? [],
+		});
+	}
+
+	return null;
+}
+
+/**
+ * When each clip in a transition shows by itself: its clip less the
+ * transitions' windows at its ends.
+ */
+function getStandaloneRanges({
+	transitions,
+}: {
+	transitions: ResolvedTransition[];
+}): Map<string, ActiveRange> {
+	const ranges = new Map<string, ActiveRange>();
+	const rangeOf = (element: VideoElement | ImageElement) => {
+		let range = ranges.get(element.id);
+		if (!range) {
+			range = {
+				start: element.startTime,
+				end: element.startTime + element.duration,
+			};
+			ranges.set(element.id, range);
+		}
+		return range;
+	};
+	for (const { from, to, window } of transitions) {
+		rangeOf(from).end = Math.min(rangeOf(from).end, window.start);
+		rangeOf(to).start = Math.max(rangeOf(to).start, window.end);
+	}
+	return ranges;
+}
+
+/**
+ * Decoders for the clips in transitions: two in turn, so that the clips on
+ * either side of a cut, even of one file, decode side by side, and each goes
+ * on from its own frames into the transition.
+ */
+function getStreamKeys({
+	elements,
+	transitions,
+}: {
+	elements: TimelineElement[];
+	transitions: ResolvedTransition[];
+}): Map<string, string> {
+	const inTransitions = new Set(
+		transitions.flatMap(({ from, to }) => [from.id, to.id]),
+	);
+	const keys = new Map<string, string>();
+	elements.forEach((element, index) => {
+		if (inTransitions.has(element.id)) {
+			keys.set(element.id, `transition-${index % 2}`);
+		}
+	});
+	return keys;
+}
+
 function buildTrackNodes({
 	tracks,
 	mediaMap,
@@ -45,120 +233,45 @@ function buildTrackNodes({
 
 	for (const track of tracks) {
 		const elements = getVisibleSortedElements({ track });
+		const transitions =
+			track.type === "video" ? resolveTrackTransitions({ track }) : [];
+		const ranges = getStandaloneRanges({ transitions });
+		const streamKeys = getStreamKeys({ elements, transitions });
 
 		for (const element of elements) {
-			if (element.type === "effect") {
-				nodes.push(
-					new EffectLayerNode({
-						effectType: element.effectType,
-						effectParams: element.params,
-						timeOffset: element.startTime,
-						duration: element.duration,
-					}),
-				);
-				continue;
+			const node = buildElementNode({
+				element,
+				mediaMap,
+				canvasSize,
+				isPreview,
+				activeRange: ranges.get(element.id),
+				streamKey: streamKeys.get(element.id),
+			});
+			if (node) {
+				nodes.push(node);
 			}
+		}
 
-			if (element.type === "video" || element.type === "image") {
-				const mediaAsset = mediaMap.get(element.mediaId);
-				if (!mediaAsset?.file || !mediaAsset?.url) {
-					continue;
-				}
-
-				if (element.type === "video" && mediaAsset.type === "video") {
-					nodes.push(
-						new VideoNode({
-							mediaId: mediaAsset.id,
-							url: mediaAsset.url,
-							file: mediaAsset.file,
-							duration: element.duration,
-							timeOffset: element.startTime,
-							trimStart: element.trimStart,
-							trimEnd: element.trimEnd,
-							retime: element.retime,
-							transform: buildTransformFromParams({ params: element.params }),
-							animations: element.animations,
-							opacity: readOpacityFromParams({ params: element.params }),
-							blendMode: readBlendModeFromParams({ params: element.params }),
-							effects: element.effects ?? [],
-							masks: element.masks ?? [],
-						}),
-					);
-				}
-				if (element.type === "image" && mediaAsset.type === "image") {
-					nodes.push(
-						new ImageNode({
-							url: mediaAsset.url,
-							duration: element.duration,
-							timeOffset: element.startTime,
-							trimStart: element.trimStart,
-							trimEnd: element.trimEnd,
-							transform: buildTransformFromParams({ params: element.params }),
-							animations: element.animations,
-							opacity: readOpacityFromParams({ params: element.params }),
-							blendMode: readBlendModeFromParams({ params: element.params }),
-							effects: element.effects ?? [],
-							masks: element.masks ?? [],
-							...(isPreview && {
-								maxSourceSize: PREVIEW_MAX_IMAGE_SIZE,
-							}),
-						}),
-					);
-				}
-			}
-
-			if (element.type === "text") {
-				nodes.push(
-					new TextNode({
-						...element,
-						transform: buildTransformFromParams({ params: element.params }),
-						opacity: readOpacityFromParams({ params: element.params }),
-						blendMode: readBlendModeFromParams({ params: element.params }),
-						canvasCenter: { x: canvasSize.width / 2, y: canvasSize.height / 2 },
-						canvasHeight: canvasSize.height,
-						textBaseline: "middle",
-						effects: element.effects ?? [],
-					}),
-				);
-			}
-
-			if (element.type === "sticker") {
-				nodes.push(
-					new StickerNode({
-						stickerId: element.stickerId,
-						intrinsicWidth: element.intrinsicWidth,
-						intrinsicHeight: element.intrinsicHeight,
-						duration: element.duration,
-						timeOffset: element.startTime,
-						trimStart: element.trimStart,
-						trimEnd: element.trimEnd,
-						transform: buildTransformFromParams({ params: element.params }),
-						animations: element.animations,
-						opacity: readOpacityFromParams({ params: element.params }),
-						blendMode: readBlendModeFromParams({ params: element.params }),
-						effects: element.effects ?? [],
-					}),
-				);
-			}
-
-			if (element.type === "graphic") {
-				nodes.push(
-					new GraphicNode({
-						definitionId: element.definitionId,
-						params: element.params,
-						duration: element.duration,
-						timeOffset: element.startTime,
-						trimStart: element.trimStart,
-						trimEnd: element.trimEnd,
-						transform: buildTransformFromParams({ params: element.params }),
-						animations: element.animations,
-						opacity: readOpacityFromParams({ params: element.params }),
-						blendMode: readBlendModeFromParams({ params: element.params }),
-						effects: element.effects ?? [],
-						masks: element.masks ?? [],
-					}),
-				);
-			}
+		for (const { transition, from, to, window } of transitions) {
+			const side = (element: VideoElement | ImageElement) =>
+				buildElementNode({
+					element,
+					mediaMap,
+					canvasSize,
+					isPreview,
+					activeRange: window,
+					streamKey: streamKeys.get(element.id),
+				});
+			const definition = getTransitionDefinition({ type: transition.type });
+			nodes.push(
+				new TransitionNode({
+					from: side(from),
+					to: side(to),
+					shader: definition.shader,
+					params: { ...definition.params, ...transition.params },
+					window,
+				}),
+			);
 		}
 	}
 

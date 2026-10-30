@@ -9,6 +9,7 @@ members = [
     "rust/crates/masks",
     "rust/wasm", "rust/crates/compositor",
     "rust/crates/audio",
+    "rust/crates/transitions",
 ]
 
 # Proc macros and build scripts run only while building: unstripped. Xcode 27's

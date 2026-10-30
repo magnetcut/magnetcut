@@ -1,0 +1,21 @@
+[package]
+name = "transitions"
+version = "0.1.0"
+edition = "2024"
+description = "When a transition between two clips plays: its window on the timeline, within the clips' handles, and its progress"
+license = "AGPL-3.0-only"
+publish = false
+
+[lib]
+path = "src/transitions.rs"
+crate-type = ["rlib"]
+
+[dependencies]
+bridge = { version = "0.1.0", path = "../bridge" }
+serde = { version = "1", features = ["derive"] }
+time = { version = "0.1.0", path = "../time" }
+tsify-next = { version = "0.5", optional = true }
+wasm-bindgen = { version = "0.2.115", optional = true }
+
+[features]
+wasm = ["dep:wasm-bindgen", "dep:tsify-next", "tsify-next/js", "time/wasm"]

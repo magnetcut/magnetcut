@@ -38,6 +38,33 @@ export interface VideoTrack extends BaseTrack {
 	elements: (VideoElement | ImageElement)[];
 	muted: boolean;
 	hidden: boolean;
+	transitions?: Transition[];
+}
+
+/** Where a transition sits: centred on the cut, ending at it or starting at it. */
+export type TransitionAlignment = "center" | "end" | "start";
+
+export type TransitionParamValue = number | boolean | number[];
+
+/**
+ * A transition between two touching clips of a video track, at the cut where
+ * one ends and the other starts. It shows the media past the cut (the clips'
+ * handles), so the clips stay where they are.
+ */
+export interface Transition {
+	id: string;
+	/** The outgoing clip, ending at the cut. */
+	fromElementId: string;
+	/** The incoming clip, starting at the cut. */
+	toElementId: string;
+	/** Its catalogue id (`@/transitions`), e.g. "cross-dissolve". */
+	type: string;
+	duration: MediaTime;
+	alignment: TransitionAlignment;
+	/** Its own parameters, over the catalogue's: direction, colour… */
+	params: Record<string, TransitionParamValue>;
+	/** Whether the clips' sound crossfades too. */
+	crossfadeAudio: boolean;
 }
 
 export interface TextTrack extends BaseTrack {

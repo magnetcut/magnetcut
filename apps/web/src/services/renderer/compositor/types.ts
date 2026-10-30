@@ -1,5 +1,6 @@
 import type { BlendMode } from "@/rendering";
 import type { EffectPass } from "@/effects/types";
+import type { TransitionParamValue } from "@/timeline";
 
 export type FrameDescriptor = {
 	width: number;
@@ -10,19 +11,33 @@ export type FrameDescriptor = {
 	items: FrameItemDescriptor[];
 };
 
+export type LayerItemDescriptor = {
+	type: "layer";
+	textureId: string;
+	transform: QuadTransformDescriptor;
+	opacity: number;
+	blendMode: BlendMode;
+	effectPassGroups: EffectPass[][];
+	mask: LayerMaskDescriptor | null;
+};
+
 export type FrameItemDescriptor =
-	| {
-			type: "layer";
-			textureId: string;
-			transform: QuadTransformDescriptor;
-			opacity: number;
-			blendMode: BlendMode;
-			effectPassGroups: EffectPass[][];
-			mask: LayerMaskDescriptor | null;
-	  }
+	| LayerItemDescriptor
 	| {
 			type: "sceneEffect";
 			effectPassGroups: EffectPass[][];
+	  }
+	| {
+			/** Two layers drawn into one (rust/crates/compositor/src/transition.rs). */
+			type: "transition";
+			/** The outgoing clip: null when it has nothing to show. */
+			from: LayerItemDescriptor | null;
+			to: LayerItemDescriptor | null;
+			/** The gl-transitions shader. */
+			transition: string;
+			params: Record<string, TransitionParamValue>;
+			progress: number;
+			blendMode: BlendMode;
 	  };
 
 export type QuadTransformDescriptor = {

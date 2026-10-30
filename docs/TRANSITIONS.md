@@ -101,10 +101,10 @@ interface Transition {
   id: string;
   fromElementId: string;      // A, ending at the cut
   toElementId: string;        // B, starting at the cut
-  type: string;               // a catalogue id: "fade", "directional-wipe"…
+  type: string;               // a catalogue id: "cross-dissolve", "dip-to-black"…
   duration: MediaTime;        // ticks, rounded to frames
   alignment: "center" | "end" | "start";   // centred on the cut, ending at it, starting at it
-  params: ParamValues;        // the transition's own: direction, smoothness, colour…
+  params: Record<string, TransitionParamValue>;  // number, boolean or vector: direction, colour…
   crossfadeAudio: boolean;
 }
 ```
@@ -129,16 +129,21 @@ interface Transition {
    through it.
 2. `resolve.ts` resolves both at their handle times (A past its end, B before its start) with the
    timing crate; outside windows nothing changes.
-3. `frame-descriptor.ts` emits `{ type: "transition", from, to, shader, uniforms }`, and Rust's
-   frame enum (`rust/crates/compositor/src/frame.rs`) gets the same variant.
+3. `frame-descriptor.ts` emits `{ type: "transition", from, to, transition, params, progress,
+   blendMode }` (`transition` is the gl-transitions name), and Rust's frame enum
+   (`rust/crates/compositor/src/frame.rs`) has the same variant.
 4. The compositor shares one item loop between `render_frame` and `render_frame_to_texture`. For
    a transition it renders both layers (each with its own transform, effects and mask), runs a
    new `TransitionPipeline` (the gl-transitions bindings, the bottom-left uv vertex shader,
-   uniforms padded to 16 bytes for WebGL), then blends the result into the scene. Pipelines are
-   compiled on first use and cached, not all 125 at start.
-5. Decoding: a sink per element (`mediaId + elementId`), or a small frame cache per file keyed by
-   timestamp, so two halves of one file each get their frames without seeking; and a check that
-   mediabunny's canvas pool doesn't reuse a canvas still being uploaded.
+   uniforms padded to 16 bytes for WebGL), then blends the result into the scene. Layers have
+   straight alpha, so both sides are premultiplied first and the result unpremultiplied after:
+   transparent areas don't darken. A missing side is transparent; an unknown transition, or one
+   needing extra textures, dissolves. Pipelines are compiled on first use and cached, not all 125
+   at start.
+5. Decoding: the clips in a transition decode on a stream of their own
+   (`transition-0`/`transition-1`, alternating along the track; the video cache keys its sinks
+   `mediaId#stream`), so two halves of one file each get their frames without seeking. Still to
+   check: that mediabunny's canvas pool doesn't reuse a canvas still being uploaded.
 
 ### Audio crossfade
 - Across the window, equal power. The gain goes in where `resolveEffectiveAudioGain`'s callers
@@ -147,9 +152,9 @@ interface Transition {
 - Each such clip's audio extends into its handle for the window.
 
 ### Edits
-- Commands `add-transition`, `update-transition` and `remove-transition`
-  (`commands/timeline/transition/`, after `commands/timeline/element/effects/add-effect.ts`), on
-  `TimelineManager` and as actions.
+- Commands to add, update and remove a transition (`commands/timeline/transition/`), on
+  `TimelineManager`; the `add-transition` action (T) puts the default at the cut nearest the
+  playhead, beside the selected clips if any.
 - A second reactor after every command drops a transition whose pair is gone or no longer touching
   and clamps its duration to the handles left (trims, speed changes). It never moves clips.
 - Split: when the split element is a transition's `from`, it points to the new right half (the
@@ -185,6 +190,11 @@ More are a catalogue entry each afterwards.
 | 5. The other eleven | Their parameters; WebGL2 and every system's web view; reusing upload textures (each upload makes a new one today); 4K two-stream playback | All twelve pass the frame tests on WebGPU and WebGL2; 1080p transitions play at frame rate on a mid-range laptop | 5–7 |
 
 About 27 to 36 days; phases 3 and 4 can run side by side after phase 2.
+
+Done: 0, with the frame tests in Rust (`rust/crates/compositor/src/tests.rs`: the compositor's
+own pixels, on Metal here and Mesa's software Vulkan in CI) rather than Playwright; and 1, checked
+in Chrome between two files and between two times of one file. Export builds the same scene but
+hasn't been checked by eye yet.
 
 ## Risks
 - **Two streams at once** (4K, or one file at two times) may not hold frame rate on weak

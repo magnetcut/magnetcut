@@ -15,11 +15,13 @@ import { ImageNode } from "../nodes/image-node";
 import { RootNode } from "../nodes/root-node";
 import { StickerNode } from "../nodes/sticker-node";
 import { renderTextToContext, TextNode } from "../nodes/text-node";
+import { TransitionNode } from "../nodes/transition-node";
 import { VideoNode } from "../nodes/video-node";
 import type { ResolvedVisualSourceNodeState } from "../nodes/visual-node";
 import type {
 	FrameDescriptor,
 	FrameItemDescriptor,
+	LayerItemDescriptor,
 	LayerMaskDescriptor,
 	QuadTransformDescriptor,
 	TextureCanvasDrawFn,
@@ -202,7 +204,67 @@ async function collectNode({
 			items,
 			textures,
 		});
+		return;
 	}
+
+	if (node instanceof TransitionNode) {
+		await collectTransitionNode({
+			node,
+			renderer,
+			path,
+			items,
+			textures,
+		});
+	}
+}
+
+async function collectTransitionNode({
+	node,
+	renderer,
+	path,
+	items,
+	textures,
+}: {
+	node: TransitionNode;
+	renderer: CanvasRenderer;
+	path: string;
+	items: FrameItemDescriptor[];
+	textures: Map<string, TextureUploadDescriptor>;
+}) {
+	if (!node.resolved) {
+		return;
+	}
+	// Each side as the layer it would be by itself.
+	const layerOf = async ({
+		side,
+		name,
+	}: {
+		side: AnyBaseNode | null;
+		name: string;
+	}): Promise<LayerItemDescriptor | null> => {
+		if (!side) {
+			return null;
+		}
+		const sideItems: FrameItemDescriptor[] = [];
+		await collectNode({
+			node: side,
+			renderer,
+			path: `${path}:${name}`,
+			items: sideItems,
+			textures,
+		});
+		const layer = sideItems[0];
+		return layer?.type === "layer" ? layer : null;
+	};
+	items.push({
+		type: "transition",
+		from: await layerOf({ side: node.from, name: "from" }),
+		to: await layerOf({ side: node.to, name: "to" }),
+		transition: node.params.shader,
+		params: node.params.params,
+		progress: node.resolved.progress,
+		blendMode: node.params.blendMode ?? "normal",
+	});
 }
 
 async function collectVisualSourceNode({

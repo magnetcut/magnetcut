@@ -20,6 +20,7 @@ import {
 import { resolveColorAtTime, resolveOpacityAtTime } from "@/animation/values";
 import { resolveTransformAtTime } from "@/rendering/animation-values";
 import { videoCache } from "@/services/video-cache/service";
+import { getTransitionProgress } from "@/transitions";
 import type { CanvasRenderer } from "./canvas-renderer";
 import type { AnyBaseNode } from "./nodes/base-node";
 import {
@@ -38,6 +39,10 @@ import {
 import { ImageNode, loadImageSource } from "./nodes/image-node";
 import { StickerNode, loadStickerSource } from "./nodes/sticker-node";
 import { TextNode, type ResolvedTextNodeState } from "./nodes/text-node";
+import {
+	TransitionNode,
+	type ResolvedTransitionNodeState,
+} from "./nodes/transition-node";
 import { VideoNode } from "./nodes/video-node";
 import type {
 	ResolvedVisualNodeState,
@@ -89,6 +94,8 @@ async function resolveNode({
 		node.resolved = await resolveBlurBackgroundNode({ node, context });
 	} else if (node instanceof EffectLayerNode) {
 		node.resolved = resolveEffectLayerNode({ node, context });
+	} else if (node instanceof TransitionNode) {
+		node.resolved = resolveTransitionNode({ node, context });
 	}
 
 	await Promise.all(
@@ -128,6 +135,22 @@ function resolveEffectPassGroups({
 		});
 }
 
+/**
+ * Whether it shows at this time: throughout its clip, or within the range it's
+ * given (in a transition, past the clip's ends).
+ */
+function isActiveAt({
+	params,
+	time,
+}: {
+	params: VisualNodeParams;
+	time: number;
+}): boolean {
+	const start = params.activeRange?.start ?? params.timeOffset;
+	const end = params.activeRange?.end ?? params.timeOffset + params.duration;
+	return time >= start && time < end;
+}
+
 function resolveVisualState({
 	params,
 	context,
@@ -139,8 +162,7 @@ function resolveVisualState({
 	sourceWidth: number;
 	sourceHeight: number;
 }): ResolvedVisualNodeState | null {
-	const clipTime = context.time - params.timeOffset;
-	if (clipTime < 0 || clipTime >= params.duration) {
+	if (!isActiveAt({ params, time: context.time })) {
 		return null;
 	}
 
@@ -191,21 +213,25 @@ async function resolveVideoNode({
 	node: VideoNode;
 	context: ResolveContext;
 }): Promise<ResolvedVisualSourceNodeState | null> {
-	const clipTime = context.time - node.params.timeOffset;
-	if (clipTime < 0 || clipTime >= node.params.duration) {
+	if (!isActiveAt({ params: node.params, time: context.time })) {
 		return null;
 	}
 
-	const sourceTimeTicks =
+	// Before its start or past its end in a transition: into its handles.
+	const clipTime = context.time - node.params.timeOffset;
+	const sourceTimeTicks = Math.max(
+		0,
 		node.params.trimStart +
-		getSourceTimeAtClipTime({
-			clipTime,
-			retime: node.params.retime,
-		});
+			getSourceTimeAtClipTime({
+				clipTime,
+				retime: node.params.retime,
+			}),
+	);
 	const frame = await videoCache.getFrameAt({
 		mediaId: node.params.mediaId,
 		file: node.params.file,
 		time: mediaTimeToSeconds({ time: roundMediaTime({ time: sourceTimeTicks }) }),
+		streamKey: node.params.streamKey,
 	});
 	if (!frame) {
 		return null;
@@ -444,6 +470,22 @@ async function resolveBackdropSource({
 		source: source.source,
 		width: source.width,
 		height: source.height,
+	};
+}
+
+function resolveTransitionNode({
+	node,
+	context,
+}: {
+	node: TransitionNode;
+	context: ResolveContext;
+}): ResolvedTransitionNodeState | null {
+	const { window } = node.params;
+	if (context.time < window.start || context.time >= window.end) {
+		return null;
+	}
+	return {
+		progress: getTransitionProgress({ window, time: context.time }),
 	};
 }
 

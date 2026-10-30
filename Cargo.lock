@@ -567,6 +567,8 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "effects",
+ "futures-executor",
+ "gl-transitions",
  "gpu",
  "masks",
  "serde",
@@ -1445,6 +1447,12 @@ dependencies = [
  "system-deps",
  "winapi",
 ]
+
+[[package]]
+name = "gl-transitions"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98451fef8e4d4cab918d961a927fc34998dd4b631664dbf372ff01863e399667"
 
 [[package]]
 name = "gl_generator"
@@ -2366,6 +2374,7 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "time 0.1.0",
+ "transitions",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -4693,6 +4702,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
+]
+
+[[package]]
+name = "transitions"
+version = "0.1.0"
+dependencies = [
+ "bridge",
+ "serde",
+ "time 0.1.0",
+ "tsify-next",
+ "wasm-bindgen",
 ]
 
 [[package]]
