@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { TransitionTopIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -12,6 +12,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { canEncodeVideo } from "mediabunny";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/utils/ui";
@@ -30,6 +39,8 @@ import {
 import {
 	Section,
 	SectionContent,
+	SectionField,
+	SectionFields,
 	SectionHeader,
 	SectionTitle,
 } from "@/components/section";
@@ -41,6 +52,26 @@ import {
 	revealExportFile,
 } from "@/export/disk-target";
 import { canReadDiskFiles } from "@/media/disk-file";
+import {
+	AUDIO_BITRATES,
+	AUDIO_CODEC_NAMES,
+	DEFAULT_AUDIO_KBPS,
+	FORMAT_CODECS,
+	FORMAT_NAMES,
+	FRAME_RATE_PRESETS,
+	SIZE_PRESETS,
+	VIDEO_CODEC_NAMES,
+	estimateExportBytes,
+	fitAudioCodec,
+	fitExportSize,
+	fitVideoCodec,
+	getVideoBitrate,
+	type ExportAudioCodec,
+	type ExportVideoCodec,
+	type ExportVideoQuality,
+} from "@/export/settings";
+import { frameRateToFloat } from "@/fps/utils";
+import { TICKS_PER_SECOND } from "@/wasm";
 
 function isExportFormat(value: string): value is ExportFormat {
 	return EXPORT_FORMAT_VALUES.some((formatValue) => formatValue === value);
@@ -99,6 +130,54 @@ export function ExportButton() {
 	);
 }
 
+type QualityMode = ExportVideoQuality["mode"];
+
+const QUALITY_MODES: { value: QualityMode; label: string }[] = [
+	{ value: "level", label: "Level" },
+	{ value: "bitrate", label: "Bitrate" },
+	{ value: "size", label: "File size" },
+];
+
+function isQualityMode(value: string): value is QualityMode {
+	return QUALITY_MODES.some((mode) => mode.value === value);
+}
+
+/** In decimal megabytes, as Finder and Explorer count them. */
+function formatMegabytes({ bytes }: { bytes: number }): string {
+	const megabytes = bytes / 1_000_000;
+	if (megabytes >= 1000) return `${(megabytes / 1000).toFixed(1)} GB`;
+	return `${megabytes < 10 ? megabytes.toFixed(1) : Math.round(megabytes)} MB`;
+}
+
+/** The codecs this computer encodes at the size chosen, asked of the web view. */
+function useEncodableCodecs({
+	width,
+	height,
+}: {
+	width: number;
+	height: number;
+}): Set<ExportVideoCodec> | null {
+	const [encodable, setEncodable] = useState<Set<ExportVideoCodec> | null>(
+		null,
+	);
+	useEffect(() => {
+		let isCurrent = true;
+		const codecs: ExportVideoCodec[] = ["avc", "hevc", "vp9", "av1"];
+		void Promise.all(
+			codecs.map((codec) =>
+				canEncodeVideo(codec, { width, height }).catch(() => false),
+			),
+		).then((results) => {
+			if (!isCurrent) return;
+			setEncodable(new Set(codecs.filter((_, index) => results[index])));
+		});
+		return () => {
+			isCurrent = false;
+		};
+	}, [width, height]);
+	return encodable;
+}
+
 function ExportPopover({
 	onOpenChange,
 }: {
@@ -108,15 +187,65 @@ function ExportPopover({
 	const activeProject = useEditor((e) => e.project.getActive());
 	const exportState = useEditor((e) => e.project.getExportState());
 	const { isExporting, progress, result: exportResult } = exportState;
-	const [format, setFormat] = useState<ExportFormat>(
-		DEFAULT_EXPORT_OPTIONS.format,
+	const defaults = DEFAULT_EXPORT_OPTIONS;
+	const [format, setFormat] = useState<ExportFormat>(defaults.format);
+	const [videoCodec, setVideoCodec] = useState<ExportVideoCodec>(
+		defaults.videoCodec,
 	);
-	const [quality, setQuality] = useState<ExportQuality>(
-		DEFAULT_EXPORT_OPTIONS.quality,
+	const [qualityMode, setQualityMode] = useState<QualityMode>("level");
+	const [level, setLevel] = useState<ExportQuality>(defaults.quality.level);
+	const [videoKbps, setVideoKbps] = useState(8000);
+	const [megabytes, setMegabytes] = useState(25);
+	// The shorter side; none for the project's size.
+	const [shortSide, setShortSide] = useState<number | undefined>();
+	const [fpsLabel, setFpsLabel] = useState<string | undefined>();
+	const [shouldIncludeAudio, setShouldIncludeAudio] = useState(true);
+	const [audioCodec, setAudioCodec] = useState<ExportAudioCodec>(
+		defaults.audio.codec,
 	);
-	const [shouldIncludeAudio, setShouldIncludeAudio] = useState<boolean>(
-		DEFAULT_EXPORT_OPTIONS.includeAudio ?? true,
-	);
+	const [audioKbps, setAudioKbps] = useState(defaults.audio.kbps);
+	const [channels, setChannels] = useState<1 | 2>(defaults.audio.channels);
+
+	const canvasSize = activeProject.settings.canvasSize;
+	const outputSize = fitExportSize({ canvas: canvasSize, shortSide });
+	const encodable = useEncodableCodecs(outputSize);
+	const fps =
+		FRAME_RATE_PRESETS.find((preset) => preset.label === fpsLabel)?.rate ??
+		activeProject.settings.fps;
+	const quality: ExportVideoQuality =
+		qualityMode === "level"
+			? { mode: "level", level }
+			: qualityMode === "bitrate"
+				? { mode: "bitrate", kbps: videoKbps }
+				: { mode: "size", megabytes };
+	const audio = shouldIncludeAudio
+		? { codec: audioCodec, kbps: audioKbps, channels }
+		: null;
+	const duration = editor.timeline.getTotalDuration() / TICKS_PER_SECOND;
+	const audioBitrate = audio ? audio.kbps * 1000 : 0;
+	const videoBitrate = getVideoBitrate({
+		quality,
+		codec: videoCodec,
+		...outputSize,
+		duration,
+		audioBitrate,
+	});
+	const estimatedBytes = estimateExportBytes({
+		videoBitrate,
+		audioBitrate,
+		duration,
+	});
+	const canEncode = !encodable || encodable.has(videoCodec);
+
+	const handleFormatChange = ({ value }: { value: ExportFormat }) => {
+		setFormat(value);
+		setVideoCodec(fitVideoCodec({ format: value, codec: videoCodec }));
+		const codec = fitAudioCodec({ format: value, codec: audioCodec });
+		if (codec !== audioCodec) {
+			setAudioCodec(codec);
+			setAudioKbps(DEFAULT_AUDIO_KBPS[codec]);
+		}
+	};
 
 	const handleExport = async () => {
 		if (!activeProject) return;
@@ -138,13 +267,14 @@ function ExportPopover({
 		const result = await editor.project.export({
 			options: {
 				format,
+				videoCodec,
 				quality,
-				fps: activeProject.settings.fps,
-				includeAudio: shouldIncludeAudio,
+				shortSide,
+				fps,
+				audio,
 				path,
 			},
 		});
-
 		if (result.cancelled) {
 			editor.project.clearExportState();
 			return;
@@ -183,8 +313,17 @@ function ExportPopover({
 		editor.project.cancelExport();
 	};
 
+	const projectFps = frameRateToFloat(activeProject.settings.fps);
+	const summary = [
+		`${VIDEO_CODEC_NAMES[videoCodec]}, ${outputSize.width}×${outputSize.height}, ${+frameRateToFloat(fps).toFixed(3)} fps`,
+		audio
+			? `${AUDIO_CODEC_NAMES[audio.codec]} ${audio.kbps} kbit/s${audio.channels === 1 ? " mono" : ""}`
+			: "no sound",
+		`about ${formatMegabytes({ bytes: estimatedBytes })}`,
+	].join(" · ");
+
 	return (
-		<PopoverContent className="bg-background mr-4 flex w-80 flex-col p-0">
+		<PopoverContent className="bg-background mr-4 flex max-h-(--radix-popover-content-available-height) w-96 flex-col overflow-y-auto p-0">
 			{exportResult && !exportResult.success ? (
 				<ExportError
 					error={exportResult.error || "Unknown error occurred"}
@@ -211,27 +350,58 @@ function ExportPopover({
 											<SectionTitle>Format</SectionTitle>
 										</SectionHeader>
 										<SectionContent>
-											<RadioGroup
-												value={format}
-												onValueChange={(value) => {
-													if (isExportFormat(value)) {
-														setFormat(value);
-													}
-												}}
-											>
-												<div className="flex items-center space-x-2">
-													<RadioGroupItem value="mp4" id="mp4" />
-													<Label htmlFor="mp4">
-														MP4 (H.264) - Better compatibility
-													</Label>
-												</div>
-												<div className="flex items-center space-x-2">
-													<RadioGroupItem value="webm" id="webm" />
-													<Label htmlFor="webm">
-														WebM (VP9) - Smaller file size
-													</Label>
-												</div>
-											</RadioGroup>
+											<SectionFields>
+												<SectionField label="Container">
+													<Select
+														value={format}
+														onValueChange={(value) => {
+															if (isExportFormat(value)) {
+																handleFormatChange({ value });
+															}
+														}}
+													>
+														<SelectTrigger variant="outline">
+															<SelectValue />
+														</SelectTrigger>
+														<SelectContent position="popper">
+															{EXPORT_FORMAT_VALUES.map((value) => (
+																<SelectItem key={value} value={value}>
+																	{FORMAT_NAMES[value]}
+																</SelectItem>
+															))}
+														</SelectContent>
+													</Select>
+												</SectionField>
+												<SectionField label="Video">
+													<Select
+														value={videoCodec}
+														onValueChange={(value) => {
+															const codec = FORMAT_CODECS[format].video.find(
+																(candidate) => candidate === value,
+															);
+															if (codec) setVideoCodec(codec);
+														}}
+													>
+														<SelectTrigger variant="outline">
+															<SelectValue />
+														</SelectTrigger>
+														<SelectContent position="popper">
+															{FORMAT_CODECS[format].video.map((codec) => (
+																<SelectItem
+																	key={codec}
+																	value={codec}
+																	disabled={!!encodable && !encodable.has(codec)}
+																>
+																	{VIDEO_CODEC_NAMES[codec]}
+																	{encodable && !encodable.has(codec)
+																		? " (not on this computer)"
+																		: ""}
+																</SelectItem>
+															))}
+														</SelectContent>
+													</Select>
+												</SectionField>
+											</SectionFields>
 										</SectionContent>
 									</Section>
 
@@ -240,33 +410,140 @@ function ExportPopover({
 											<SectionTitle>Quality</SectionTitle>
 										</SectionHeader>
 										<SectionContent>
-											<RadioGroup
-												value={quality}
-												onValueChange={(value) => {
-													if (isExportQuality(value)) {
-														setQuality(value);
-													}
-												}}
-											>
-												<div className="flex items-center space-x-2">
-													<RadioGroupItem value="low" id="low" />
-													<Label htmlFor="low">Low - Smallest file size</Label>
-												</div>
-												<div className="flex items-center space-x-2">
-													<RadioGroupItem value="medium" id="medium" />
-													<Label htmlFor="medium">Medium - Balanced</Label>
-												</div>
-												<div className="flex items-center space-x-2">
-													<RadioGroupItem value="high" id="high" />
-													<Label htmlFor="high">High - Recommended</Label>
-												</div>
-												<div className="flex items-center space-x-2">
-													<RadioGroupItem value="very_high" id="very_high" />
-													<Label htmlFor="very_high">
-														Very high - Largest file size
-													</Label>
-												</div>
-											</RadioGroup>
+											<SectionFields>
+												<RadioGroup
+													className="flex gap-4"
+													value={qualityMode}
+													onValueChange={(value) => {
+														if (isQualityMode(value)) setQualityMode(value);
+													}}
+												>
+													{QUALITY_MODES.map((mode) => (
+														<div
+															key={mode.value}
+															className="flex items-center space-x-2"
+														>
+															<RadioGroupItem
+																value={mode.value}
+																id={`quality-${mode.value}`}
+															/>
+															<Label htmlFor={`quality-${mode.value}`}>
+																{mode.label}
+															</Label>
+														</div>
+													))}
+												</RadioGroup>
+												{qualityMode === "level" && (
+													<Select
+														value={level}
+														onValueChange={(value) => {
+															if (isExportQuality(value)) setLevel(value);
+														}}
+													>
+														<SelectTrigger variant="outline">
+															<SelectValue />
+														</SelectTrigger>
+														<SelectContent position="popper">
+															<SelectItem value="low">Low - Smallest file</SelectItem>
+															<SelectItem value="medium">Medium</SelectItem>
+															<SelectItem value="high">High - Recommended</SelectItem>
+															<SelectItem value="very_high">
+																Very high - Largest file
+															</SelectItem>
+														</SelectContent>
+													</Select>
+												)}
+												{qualityMode === "bitrate" && (
+													<SectionField label="Average bitrate (kbit/s)">
+														<Input
+															type="number"
+															min={100}
+															step={100}
+															value={videoKbps}
+															onChange={(event) => {
+																const value = Number(event.target.value);
+																if (value > 0) setVideoKbps(value);
+															}}
+														/>
+													</SectionField>
+												)}
+												{qualityMode === "size" && (
+													<SectionField label="File size (MB)">
+														<Input
+															type="number"
+															min={1}
+															value={megabytes}
+															onChange={(event) => {
+																const value = Number(event.target.value);
+																if (value > 0) setMegabytes(value);
+															}}
+														/>
+													</SectionField>
+												)}
+											</SectionFields>
+										</SectionContent>
+									</Section>
+
+									<Section collapsible defaultOpen={false}>
+										<SectionHeader>
+											<SectionTitle>Size and frame rate</SectionTitle>
+										</SectionHeader>
+										<SectionContent>
+											<SectionFields>
+												<SectionField label="Size">
+													<Select
+														value={shortSide ? String(shortSide) : "project"}
+														onValueChange={(value) =>
+															setShortSide(
+																value === "project" ? undefined : Number(value),
+															)
+														}
+													>
+														<SelectTrigger variant="outline">
+															<SelectValue />
+														</SelectTrigger>
+														<SelectContent position="popper">
+															<SelectItem value="project">
+																{`The project's (${canvasSize.width}×${canvasSize.height})`}
+															</SelectItem>
+															{SIZE_PRESETS.filter(
+																(preset) =>
+																	preset.shortSide <
+																	Math.min(canvasSize.width, canvasSize.height),
+															).map((preset) => (
+																<SelectItem
+																	key={preset.shortSide}
+																	value={String(preset.shortSide)}
+																>
+																	{preset.label}
+																</SelectItem>
+															))}
+														</SelectContent>
+													</Select>
+												</SectionField>
+												<SectionField label="Frame rate">
+													<Select
+														value={fpsLabel ?? "project"}
+														onValueChange={(value) =>
+															setFpsLabel(value === "project" ? undefined : value)
+														}
+													>
+														<SelectTrigger variant="outline">
+															<SelectValue />
+														</SelectTrigger>
+														<SelectContent position="popper">
+															<SelectItem value="project">
+																{`The project's (${+projectFps.toFixed(3)} fps)`}
+															</SelectItem>
+															{FRAME_RATE_PRESETS.map((preset) => (
+																<SelectItem key={preset.label} value={preset.label}>
+																	{`${preset.label} fps`}
+																</SelectItem>
+															))}
+														</SelectContent>
+													</Select>
+												</SectionField>
+											</SectionFields>
 										</SectionContent>
 									</Section>
 
@@ -275,24 +552,86 @@ function ExportPopover({
 											<SectionTitle>Audio</SectionTitle>
 										</SectionHeader>
 										<SectionContent>
-											<div className="flex items-center space-x-2">
-												<Checkbox
-													id="include-audio"
-													checked={shouldIncludeAudio}
-													onCheckedChange={(checked) =>
-														setShouldIncludeAudio(!!checked)
-													}
-												/>
-												<Label htmlFor="include-audio">
-													Include audio in export
-												</Label>
-											</div>
+											<SectionFields>
+												<div className="flex items-center space-x-2">
+													<Checkbox
+														id="include-audio"
+														checked={shouldIncludeAudio}
+														onCheckedChange={(checked) =>
+															setShouldIncludeAudio(!!checked)
+														}
+													/>
+													<Label htmlFor="include-audio">
+														Include audio in export
+													</Label>
+												</div>
+												{shouldIncludeAudio && (
+													<div className="grid grid-cols-3 gap-2">
+														<Select
+															value={audioCodec}
+															onValueChange={(value) => {
+																const codec = FORMAT_CODECS[format].audio.find(
+																	(candidate) => candidate === value,
+																);
+																if (!codec) return;
+																setAudioCodec(codec);
+																setAudioKbps(DEFAULT_AUDIO_KBPS[codec]);
+															}}
+														>
+															<SelectTrigger variant="outline" className="w-full">
+																<SelectValue />
+															</SelectTrigger>
+															<SelectContent position="popper">
+																{FORMAT_CODECS[format].audio.map((codec) => (
+																	<SelectItem key={codec} value={codec}>
+																		{AUDIO_CODEC_NAMES[codec]}
+																	</SelectItem>
+																))}
+															</SelectContent>
+														</Select>
+														<Select
+															value={String(audioKbps)}
+															onValueChange={(value) => setAudioKbps(Number(value))}
+														>
+															<SelectTrigger variant="outline" className="w-full">
+																<SelectValue />
+															</SelectTrigger>
+															<SelectContent position="popper">
+																{AUDIO_BITRATES[audioCodec].map((kbps) => (
+																	<SelectItem key={kbps} value={String(kbps)}>
+																		{`${kbps} kbit/s`}
+																	</SelectItem>
+																))}
+															</SelectContent>
+														</Select>
+														<Select
+															value={String(channels)}
+															onValueChange={(value) =>
+																setChannels(value === "1" ? 1 : 2)
+															}
+														>
+															<SelectTrigger variant="outline" className="w-full">
+																<SelectValue />
+															</SelectTrigger>
+															<SelectContent position="popper">
+																<SelectItem value="2">Stereo</SelectItem>
+																<SelectItem value="1">Mono</SelectItem>
+															</SelectContent>
+														</Select>
+													</div>
+												)}
+											</SectionFields>
 										</SectionContent>
 									</Section>
 								</div>
 
-								<div className="p-3 pt-0">
-									<Button onClick={handleExport} className="w-full gap-2">
+								<div className="flex flex-col gap-2 p-3 pt-0">
+									<p className="text-muted-foreground text-xs">{summary}</p>
+									<Button
+										onClick={handleExport}
+										className="w-full gap-2"
+										disabled={!canEncode}
+									>
 										<Download className="size-4" />
 										Export
 									</Button>

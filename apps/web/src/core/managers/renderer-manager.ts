@@ -6,7 +6,9 @@ import { SceneExporter } from "@/services/renderer/scene-exporter";
 import { openExportFile } from "@/export/disk-target";
 import { buildScene } from "@/services/renderer/scene-builder";
 import { mixTimelineAudio } from "@/media/audio-mix";
+import { fitExportSize, getVideoBitrate } from "@/export/settings";
 import { formatTimecode } from "magnetcut-wasm";
+import { TICKS_PER_SECOND } from "@/wasm";
 import { frameRateToFloat } from "@/fps/utils";
 import { downloadBlob } from "@/utils/browser";
 
@@ -148,7 +150,8 @@ export class RendererManager {
 		onProgress?: ({ progress }: { progress: number }) => void;
 		onCancel?: () => boolean;
 	}): Promise<ExportResult> {
-		const { format, quality, fps, includeAudio, path } = options;
+		const { format, videoCodec, quality, shortSide, fps, audio, path } =
+			options;
 
 		try {
 			const tracks = this.editor.scenes.getActiveScene().tracks;
@@ -167,6 +170,19 @@ export class RendererManager {
 			const exportFps = fps ?? activeProject.settings.fps;
 			const canvasSize = activeProject.settings.canvasSize;
 
+			const outputSize = fitExportSize({ canvas: canvasSize, shortSide });
+			const isScaled =
+				outputSize.width !== canvasSize.width ||
+				outputSize.height !== canvasSize.height;
+			const audioBitrate = audio ? audio.kbps * 1000 : 0;
+			const videoBitrate = getVideoBitrate({
+				quality,
+				codec: videoCodec,
+				...outputSize,
+				duration: duration / TICKS_PER_SECOND,
+				audioBitrate,
+			});
+
 			const scene = buildScene({
 				tracks,
 				mediaAssets,
@@ -178,13 +194,18 @@ export class RendererManager {
 			const exporter = new SceneExporter({
 				width: canvasSize.width,
 				height: canvasSize.height,
+				outputSize: isScaled ? outputSize : undefined,
 				fps: exportFps,
 				format,
-				quality,
+				videoCodec,
+				videoBitrate,
+				// A file size is kept to only at a constant bitrate.
+				bitrateMode: quality.mode === "size" ? "constant" : undefined,
 				// Mixed as the frames go, a window ahead.
-				audio: includeAudio
+				audio: audio
 					? (mixTimelineAudio({ tracks, mediaAssets, duration }) ?? undefined)
 					: undefined,
+				audioSettings: audio ?? undefined,
 				file: path ? await openExportFile({ path }) : undefined,
 			});
 

@@ -3,34 +3,47 @@ import EventEmitter from "eventemitter3";
 import {
 	Output,
 	Mp4OutputFormat,
+	MovOutputFormat,
+	MkvOutputFormat,
 	WebMOutputFormat,
 	BufferTarget,
 	StreamTarget,
 	CanvasSource,
 	AudioBufferSource,
-	QUALITY_LOW,
-	QUALITY_MEDIUM,
-	QUALITY_HIGH,
-	QUALITY_VERY_HIGH,
+	canEncodeAudio,
+	type OutputFormat,
 } from "mediabunny";
 import type { FrameRate } from "magnetcut-wasm";
 import { mediaTimeToSeconds } from "magnetcut-wasm";
 import { TICKS_PER_SECOND } from "@/wasm";
 import { frameRateToFloat } from "@/fps/utils";
 import type { RootNode } from "./nodes/root-node";
-import type { ExportFormat, ExportQuality } from "@/export";
+import type { ExportFormat } from "@/export";
 import type { ExportFile } from "@/export/disk-target";
-import { EXPORT_SAMPLE_RATE, MIX_CHANNELS } from "@/media/audio-mix";
+import {
+	FORMAT_CODECS,
+	type ExportAudioSettings,
+	type ExportVideoCodec,
+} from "@/export/settings";
+import { EXPORT_SAMPLE_RATE } from "@/media/audio-mix";
 import { CanvasRenderer } from "./canvas-renderer";
 
 type ExportParams = {
+	/** The project's size, which the scene is drawn at. */
 	width: number;
 	height: number;
+	/** The size encoded, if not the project's: the picture is scaled to it. */
+	outputSize?: { width: number; height: number };
 	fps: FrameRate;
 	format: ExportFormat;
-	quality: ExportQuality;
-	/** The soundtrack, a window at a time (`mixTimelineAudio`). */
+	videoCodec: ExportVideoCodec;
+	/** In bits a second. */
+	videoBitrate: number;
+	/** Constant for a file size to keep to; otherwise the encoder's choice. */
+	bitrateMode?: "constant" | "variable";
+	/** The soundtrack, a window at a time (`mixTimelineAudio`), and how it's encoded. */
 	audio?: AsyncGenerator<AudioBuffer, void, undefined>;
+	audioSettings?: ExportAudioSettings;
 	/** Where it's written as it's made; otherwise it's kept in memory. */
 	file?: ExportFile;
 };
@@ -41,12 +54,43 @@ export type ExportOutput = { buffer: ArrayBuffer } | { file: ExportFile };
 // What's handed to the file at a time.
 const FILE_CHUNK_SIZE = 16 * 1024 * 1024;
 
-const qualityMap = {
-	low: QUALITY_LOW,
-	medium: QUALITY_MEDIUM,
-	high: QUALITY_HIGH,
-	very_high: QUALITY_VERY_HIGH,
-};
+/** The container, with MP4's and MOV's index at the end when written to a file as it goes. */
+function createOutputFormat({
+	format,
+	isStreamed,
+}: {
+	format: ExportFormat;
+	isStreamed: boolean;
+}): OutputFormat {
+	const fastStart = isStreamed ? false : "in-memory";
+	switch (format) {
+		case "mp4":
+			return new Mp4OutputFormat({ fastStart });
+		case "mov":
+			return new MovOutputFormat({ fastStart });
+		case "mkv":
+			return new MkvOutputFormat();
+		case "webm":
+			return new WebMOutputFormat();
+	}
+}
+
+/** A window of the stereo mix, as one channel. */
+function downmix({ buffer }: { buffer: AudioBuffer }): AudioBuffer {
+	const mono = new AudioBuffer({
+		numberOfChannels: 1,
+		length: buffer.length,
+		sampleRate: buffer.sampleRate,
+	});
+	const data = mono.getChannelData(0);
+	for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+		const source = buffer.getChannelData(channel);
+		for (let i = 0; i < data.length; i++) {
+			data[i] += source[i] / buffer.numberOfChannels;
+		}
+	}
+	return mono;
+}
 
 /**
  * WebKit's H.264 encoder (macOS, and Safari) puts out nothing in the High and
@@ -66,18 +110,22 @@ function preferBaselineInWebKit({ config }: { config: VideoEncoderConfig }) {
 class SoundtrackFeed {
 	private readonly windows: AsyncGenerator<AudioBuffer, void, undefined>;
 	private readonly source: AudioBufferSource;
+	private readonly isMono: boolean;
 	private time = 0;
 	private isDone = false;
 
 	constructor({
 		windows,
 		source,
+		isMono,
 	}: {
 		windows: AsyncGenerator<AudioBuffer, void, undefined>;
 		source: AudioBufferSource;
+		isMono: boolean;
 	}) {
 		this.windows = windows;
 		this.source = source;
+		this.isMono = isMono;
 	}
 
 	/** Adds windows until the soundtrack is past `time` seconds, or all in. */
@@ -89,8 +137,9 @@ class SoundtrackFeed {
 				this.source.close();
 				return;
 			}
-			await this.source.add(next.value);
-			this.time += next.value.duration;
+			const buffer = next.value;
+			await this.source.add(this.isMono ? downmix({ buffer }) : buffer);
+			this.time += buffer.duration;
 		}
 	}
 }
@@ -104,9 +153,13 @@ export type SceneExporterEvents = {
 
 export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 	private renderer: CanvasRenderer;
+	private outputSize?: { width: number; height: number };
 	private format: ExportFormat;
-	private quality: ExportQuality;
+	private videoCodec: ExportVideoCodec;
+	private videoBitrate: number;
+	private bitrateMode?: "constant" | "variable";
 	private audio?: AsyncGenerator<AudioBuffer, void, undefined>;
+	private audioSettings?: ExportAudioSettings;
 	private file?: ExportFile;
 
 	private isCancelled = false;
@@ -114,10 +167,14 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 	constructor({
 		width,
 		height,
+		outputSize,
 		fps,
 		format,
-		quality,
+		videoCodec,
+		videoBitrate,
+		bitrateMode,
 		audio,
+		audioSettings,
 		file,
 	}: ExportParams) {
 		super();
@@ -127,9 +184,13 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 			fps,
 		});
 
+		this.outputSize = outputSize;
 		this.format = format;
-		this.quality = quality;
+		this.videoCodec = videoCodec;
+		this.videoBitrate = videoBitrate;
+		this.bitrateMode = bitrateMode;
 		this.audio = audio;
+		this.audioSettings = audioSettings;
 		this.file = file;
 	}
 
@@ -165,11 +226,10 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		);
 		const frameCount = Math.floor(rootNode.duration / ticksPerFrame);
 
-		const outputFormat =
-			this.format === "webm"
-				? new WebMOutputFormat()
-				: // Its index at the end, written once: nothing held in memory.
-					new Mp4OutputFormat(this.file ? { fastStart: false } : {});
+		const outputFormat = createOutputFormat({
+			format: this.format,
+			isStreamed: !!this.file,
+		});
 
 		const target = this.file
 			? new StreamTarget(this.file.writable, {
@@ -179,32 +239,40 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 			: new BufferTarget();
 		const output = new Output({ format: outputFormat, target });
 
-		const videoSource = new CanvasSource(this.renderer.getOutputCanvas(), {
-			codec: this.format === "webm" ? "vp9" : "avc",
-			bitrate: qualityMap[this.quality],
+		// The composited frame, or a copy scaled to the size encoded.
+		const composited = this.renderer.getOutputCanvas();
+		const scaled = this.outputSize
+			? new OffscreenCanvas(this.outputSize.width, this.outputSize.height)
+			: null;
+		const scaledContext = scaled?.getContext("2d") ?? null;
+		if (scaledContext) scaledContext.imageSmoothingQuality = "high";
+		const videoSource = new CanvasSource(scaled ?? composited, {
+			codec: this.videoCodec,
+			bitrate: this.videoBitrate,
+			bitrateMode: this.bitrateMode,
 			onEncoderConfig: (config) => preferBaselineInWebKit({ config }),
 		});
 
 		output.addVideoTrack(videoSource, { frameRate: fpsFloat });
 
 		let audioSource: AudioBufferSource | null = null;
-		if (this.audio) {
-			let audioCodec: "aac" | "opus" = this.format === "webm" ? "opus" : "aac";
-
-			if (audioCodec === "aac" && typeof AudioEncoder !== "undefined") {
-				const { supported } = await AudioEncoder.isConfigSupported({
-					codec: "mp4a.40.2",
+		const { audioSettings } = this;
+		if (this.audio && audioSettings) {
+			const bitrate = audioSettings.kbps * 1000;
+			let codec = audioSettings.codec;
+			// A web view without an AAC encoder: Opus, where the container takes it.
+			if (
+				codec === "aac" &&
+				FORMAT_CODECS[this.format].audio.includes("opus") &&
+				!(await canEncodeAudio("aac", {
+					numberOfChannels: audioSettings.channels,
 					sampleRate: EXPORT_SAMPLE_RATE,
-					numberOfChannels: MIX_CHANNELS,
-					bitrate: 192000,
-				});
-				if (!supported) audioCodec = "opus";
+					bitrate,
+				}))
+			) {
+				codec = "opus";
 			}
-
-			audioSource = new AudioBufferSource({
-				codec: audioCodec,
-				bitrate: qualityMap[this.quality],
-			});
+			audioSource = new AudioBufferSource({ codec, bitrate });
 			output.addAudioTrack(audioSource);
 		}
 
@@ -212,7 +280,11 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 
 		const soundtrack =
 			audioSource && this.audio
-				? new SoundtrackFeed({ windows: this.audio, source: audioSource })
+				? new SoundtrackFeed({
+						windows: this.audio,
+						source: audioSource,
+						isMono: audioSettings?.channels === 1,
+					})
 				: null;
 
 		for (let i = 0; i < frameCount; i++) {
@@ -227,6 +299,9 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 			const timeSeconds = mediaTimeToSeconds({ time: timeTicks });
 			await soundtrack?.addUntil({ time: timeSeconds });
 			await this.renderer.render({ node: rootNode, time: timeTicks });
+			if (scaled && scaledContext) {
+				scaledContext.drawImage(composited, 0, 0, scaled.width, scaled.height);
+			}
 			await videoSource.add(timeSeconds, 1 / fpsFloat);
 
 			this.emit("progress", i / frameCount);

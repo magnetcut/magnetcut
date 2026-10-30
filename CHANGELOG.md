@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## Unreleased
 
+### Added
+- Export settings, as in HandBrake: MP4, MOV, MKV or WebM; H.264, HEVC, VP9 or AV1, whichever
+  your computer can encode; quality as a level, a bitrate or a file size to fit in; a smaller
+  size (4K down to 480p) and another frame rate; and the sound's codec, bitrate and stereo or
+  mono. The panel says what it will make and about how big before it starts.
+
 ### Changed
 - The desktop app reads imported media where it is on your computer instead of copying it into
   its own storage, so a file of any size can go in (on Linux that storage held 1 GB). That's

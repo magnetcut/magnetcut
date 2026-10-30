@@ -116,17 +116,23 @@ and give it constant quality and the encoders the web views lack.
   decode is read whole.
 
 ### 3. HandBrake's settings
-- Container: MP4, MOV, MKV, WebM. Codec: H.264, HEVC, VP9, AV1, as the web view can encode
-  them at the chosen size (asked, not assumed).
-- Quality: a level (mediabunny's `Quality`), an average bitrate, or a target file size (the
-  bitrate that fits, after the audio).
-- Size: the project's, presets (4K, 1080p, 720p, 480p, phone, "fits in 25 MB" for Discord),
-  or your own, keeping the aspect ratio; crop, with black bars found from sampled frames.
-- Frame rate: the project's or another, constant.
-- Audio: AAC or Opus, bitrate, stereo or mono; passthrough when the soundtrack is one source's
-  audio uncut, through `EncodedAudioPacketSource`.
-- Presets of your own, in local storage, and the last settings remembered.
-- The export window says what it'll make (codec, size, rate, estimated size) before it starts.
+- Container: MP4, MOV, MKV, WebM. Codec: H.264, HEVC, VP9, AV1, each container offering what
+  players expect in it (`export/settings.ts`); a codec the web view can't encode at the size
+  chosen is greyed out (asked with `canEncodeVideo`, not assumed).
+- Quality: a level, an average bitrate, or a file size. All three become a bitrate before
+  anything is encoded: a level is mediabunny's own sum (3 Mbit/s for medium H.264 at 1080p,
+  scaled by the picture and the codec; a test keeps the two equal), a file size what's left
+  after the audio and about 1% for the container, encoded at a constant bitrate.
+- Size: the project's, or 4K, 1440p, 1080p, 720p or 480p by the shorter side, so a portrait
+  project stays portrait; never larger than the project, in even numbers. The compositor still
+  draws at the project's size, and each frame is scaled onto a canvas of the size encoded.
+- Frame rate: the project's or another, constant (23.976 to 60).
+- Audio: AAC or Opus, the bitrate, stereo or mono (the mix downmixed).
+- The panel says what it'll make (codec, size, rate, sound, about how big) before it starts.
+- Still to do: presets of your own and the last settings remembered (local storage); a size of
+  your own and crop, with black bars found from sampled frames; a "fits in 25 MB" preset;
+  audio passthrough when the soundtrack is one source's audio uncut
+  (`EncodedAudioPacketSource`).
 
 ### 4. Natively on macOS
 - `rust/crates/media` (new): decode with VideoToolbox (`objc2-video-toolbox`, MIT), frames as
@@ -159,6 +165,9 @@ and give it constant quality and the encoders the web views lack.
   that peaked over 0.98 did. A quiet mix comes out about 0.5 dB louder (the limiter's makeup
   gain) and 6 ms later (its lookahead), as it plays in the editor.
 - H.264 Baseline gives less quality for its bitrate than High, until phase 4 encodes natively.
+- A file size is a ceiling, not a promise: WebKit's encoder spends less than the constant
+  bitrate asked for on a picture that's easy to encode (1 MB asked, 745 KB made, on a test
+  pattern). It isn't meant to go over.
 - Constant quality waits for phase 4: until then quality is a bitrate.
 - What the editor may read is decided in Rust, but a script running in the web view could still
   ask for the files of the last drag made anywhere, or read files given to other projects. Only
@@ -179,3 +188,10 @@ and give it constant quality and the encoders the web views lack.
   timeline to the sample, the joins as smooth as the tone, the limiter holding the peak under
   0.98 across them. Exported at 320x180 and 1920x1080 with that soundtrack: every frame
   (750), the sound whole, 1080p at 2.2 times real time.
+- Phase 3, the settings above but for what's still to do. In the app on macOS, a 4 s 720p
+  timeline exported seven ways: HEVC in MP4; H.264 in MOV at 480p with mono AAC; H.264 and
+  AAC in MKV; VP9 and Opus in MKV and, mono, in WebM; HEVC in MOV at 25 fps from a 30 fps
+  timeline, at 3 Mbit/s (2.98 made); H.264 to fit in 1 MB. Every frame in each (120, and 100
+  at 25 fps), with the codec, size and channels asked for; the MP4s and MOVs play in
+  AVFoundation (HEVC as `hvc1`), and the 480p frame is the whole picture, scaled. AV1 is the
+  one codec this Mac's web view doesn't encode.
