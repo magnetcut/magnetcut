@@ -71,10 +71,6 @@ jobs:
           bun run build:web
           cargo build -p magnetcut --features tauri/custom-protocol
 
-      # Clippy where it builds: the desktop app has code for each system.
-      - name: Clippy
-        run: cargo clippy -p magnetcut --all-targets -- -D warnings
-
       # Twice: with base and good, then with what desktops add for codecs
       # (bad has the parsers WebKit decodes with, libav the H.264 and AAC
       # decoders). The second goes in the summary as "with codecs".
@@ -126,3 +122,8 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           grep -q '^MAGNETCUT_PROBE ' probe.txt
+
+      # Clippy where it builds: the desktop app has code for each system. Last,
+      # so that a lint doesn't keep the report from being written.
+      - name: Clippy
+        run: cargo clippy -p magnetcut --all-targets -- -D warnings

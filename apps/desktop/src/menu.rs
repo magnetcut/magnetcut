@@ -1,7 +1,9 @@
 // The macOS menu bar. Windows and Linux have none: there, the same items are
 // in the editor's own menus.
 
+#[cfg(target_os = "macos")]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+#[cfg(target_os = "macos")]
 use tauri::{AppHandle, Runtime};
 
 /// Items the editor handles: a click is sent to it as a `menu` event with
@@ -19,6 +21,7 @@ pub fn is_forwarded(id: &str) -> bool {
     id == ABOUT || id == SETTINGS
 }
 
+#[cfg(target_os = "macos")]
 pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let name = &app.package_info().name;
     let app_menu = Submenu::with_items(
