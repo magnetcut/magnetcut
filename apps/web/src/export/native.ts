@@ -18,7 +18,28 @@ export interface NativeSourceInfo {
 }
 
 export const NATIVE_FORMATS: readonly ExportFormat[] = ["mp4", "mov"];
-export const NATIVE_VIDEO_CODECS: readonly ExportVideoCodec[] = ["avc", "hevc"];
+export const NATIVE_VIDEO_CODECS: readonly ExportVideoCodec[] = [
+	"avc",
+	"hevc",
+	"prores",
+	"prores-hq",
+];
+
+/** What the native export can do here, besides its codecs. */
+export interface NativeCapabilities {
+	/** H.264 and HEVC at a constant quality: on Apple silicon. */
+	constantQuality: boolean;
+}
+
+let capabilities: Promise<NativeCapabilities | null> | undefined;
+
+/** Null where there's no native export: in a browser, on Windows and Linux. */
+export function getNativeCapabilities(): Promise<NativeCapabilities | null> {
+	capabilities ??= isTauri()
+		? invoke<NativeCapabilities>("native_export_capabilities").catch(() => null)
+		: Promise.resolve(null);
+	return capabilities;
+}
 
 /**
  * What the native export makes of each file, by path: null for each it
@@ -54,6 +75,8 @@ export interface NativeExportOptions {
 	videoCodec: ExportVideoCodec;
 	/** In bits a second. */
 	videoBitrate: number;
+	/** A constant quality instead, from 0 to 1, where the Mac takes it. */
+	videoQuality?: number;
 	/** AAC from the mix: float samples, interleaved. */
 	audio: { channels: number; sampleRate: number; bitrate: number } | null;
 	/** Or a source's sound, copied as it is up to `end` seconds. */

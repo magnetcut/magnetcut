@@ -166,8 +166,13 @@ and give it constant quality and the encoders the web views lack.
 - While an export runs, on either road, the app holds a user-initiated activity
   (`activity.rs`): hidden behind other windows, App Nap would otherwise slow it, and idle sleep
   would stop it. Windows and Linux have no equivalent yet.
-- Still to do: constant quality and ProRes in the panel, turned videos, the decoded frame used
-  as a Metal texture without the copy, and 10-bit HEVC.
+- The panel offers ProRes 422 and 422 HQ in QuickTime where the native export is, its size
+  reckoned from Apple's rates (147 and 220 Mbit/s at 1080p and 29.97); and Constant quality,
+  1 to 100, on Apple silicon. Where the native export can't make the film, ProRes fails with
+  why (`findNativeSources` says: a turned or blurred clip, a file the Mac can't decode) and a
+  constant quality becomes a bitrate like it: Medium's at 60, twice as much each 10 more.
+- Still to do: turned videos, the decoded frame used as a Metal texture without the copy, and
+  10-bit HEVC.
 - What the web view can't decode (ProRes, DNxHR) can work there too, once the editor can show
   it.
 
@@ -200,7 +205,8 @@ and give it constant quality and the encoders the web views lack.
 - A file size is a ceiling, not a promise: WebKit's encoder spends less than the constant
   bitrate asked for on a picture that's easy to encode (1 MB asked, 745 KB made, on a test
   pattern). It isn't meant to go over.
-- Constant quality waits for phase 4: until then quality is a bitrate.
+- Constant quality is the Mac's encoder's own scale, on Apple silicon only; elsewhere, and for
+  a film the native export can't make, it's a bitrate standing in for it.
 - What the editor may read is decided in Rust, but a script running in the web view could still
   ask for the files of the last drag made anywhere, or read files given to other projects. Only
   media files are granted, each drag's once; still to do: forget a file when no project uses it,

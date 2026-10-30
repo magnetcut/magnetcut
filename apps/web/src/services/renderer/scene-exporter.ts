@@ -24,7 +24,7 @@ import {
 	NO_CROP,
 	type ExportAudioSettings,
 	type ExportCrop,
-	type ExportVideoCodec,
+	type WebVideoCodec,
 } from "@/export/settings";
 import { EXPORT_SAMPLE_RATE } from "@/media/audio-mix";
 import { CanvasRenderer } from "./canvas-renderer";
@@ -39,7 +39,7 @@ type ExportParams = {
 	crop?: ExportCrop;
 	fps: FrameRate;
 	format: ExportFormat;
-	videoCodec: ExportVideoCodec;
+	videoCodec: WebVideoCodec;
 	/** In bits a second. */
 	videoBitrate: number;
 	/** Constant for a file size to keep to; otherwise the encoder's choice. */
@@ -176,7 +176,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 	private outputSize?: { width: number; height: number };
 	private crop?: ExportCrop;
 	private format: ExportFormat;
-	private videoCodec: ExportVideoCodec;
+	private videoCodec: WebVideoCodec;
 	private videoBitrate: number;
 	private bitrateMode?: "constant" | "variable";
 	private audio?: AsyncGenerator<AudioBuffer, void, undefined>;

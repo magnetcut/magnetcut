@@ -20,7 +20,7 @@ import {
 // values for the quality modes and the sound not in use are kept too, so
 // going back to one finds it as it was.
 
-export const QUALITY_MODES = ["level", "bitrate", "size"] as const;
+export const QUALITY_MODES = ["level", "bitrate", "size", "constant"] as const;
 export type QualityMode = (typeof QUALITY_MODES)[number];
 
 export interface ExportChoices {
@@ -30,6 +30,8 @@ export interface ExportChoices {
 	level: ExportQuality;
 	videoKbps: number;
 	megabytes: number;
+	/** From 1 to 100: kept by the Mac's own encoder (`export/native.ts`). */
+	constantQuality: number;
 	/** The shorter side, a preset's or your own; none for the full size. */
 	shortSide: number | null;
 	/** A `FRAME_RATE_PRESETS` label; none for the project's rate. */
@@ -55,6 +57,7 @@ export const DEFAULT_EXPORT_CHOICES: ExportChoices = {
 	level: "high",
 	videoKbps: 8000,
 	megabytes: 25,
+	constantQuality: 65,
 	shortSide: null,
 	fpsLabel: null,
 	hasAudio: true,
@@ -145,6 +148,8 @@ export function getChosenQuality({
 			return { mode: "bitrate", kbps: choices.videoKbps };
 		case "size":
 			return { mode: "size", megabytes: choices.megabytes };
+		case "constant":
+			return { mode: "constant", quality: choices.constantQuality };
 	}
 }
 
@@ -239,6 +244,7 @@ export function sanitizeChoices({ value }: { value: unknown }): ExportChoices {
 	const fpsLabel = read("fpsLabel");
 	const videoKbps = read("videoKbps");
 	const megabytes = read("megabytes");
+	const constantQuality = read("constantQuality");
 	const audioKbps = read("audioKbps");
 	const hasAudio = read("hasAudio");
 	const audioPassthrough = read("audioPassthrough");
@@ -253,6 +259,10 @@ export function sanitizeChoices({ value }: { value: unknown }): ExportChoices {
 			defaults.level,
 		videoKbps: isPositiveNumber(videoKbps) ? videoKbps : defaults.videoKbps,
 		megabytes: isPositiveNumber(megabytes) ? megabytes : defaults.megabytes,
+		constantQuality:
+			isPositiveNumber(constantQuality) && constantQuality <= 100
+				? Math.round(constantQuality)
+				: defaults.constantQuality,
 		shortSide:
 			isPositiveNumber(shortSide) && shortSide >= MIN_SHORT_SIDE
 				? shortSide

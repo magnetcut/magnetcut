@@ -6,6 +6,7 @@ import { SceneExporter } from "@/services/renderer/scene-exporter";
 import {
 	NativeSceneExporter,
 	findNativeSources,
+	type NativeSources,
 } from "@/services/renderer/native-exporter";
 import type { NativeExportOptions, NativeSourceInfo } from "@/export/native";
 import { openExportFile } from "@/export/disk-target";
@@ -13,9 +14,11 @@ import { DiskFile } from "@/media/disk-file";
 import { buildScene } from "@/services/renderer/scene-builder";
 import { EXPORT_SAMPLE_RATE, mixTimelineAudio } from "@/media/audio-mix";
 import {
+	VIDEO_CODEC_NAMES,
 	fitExportSize,
 	getVideoBitrate,
 	isCropped,
+	isNativeOnlyCodec,
 	type ExportCrop,
 } from "@/export/settings";
 import { findFrameBars, mergeBlackBars } from "@/export/black-bars";
@@ -215,6 +218,7 @@ export class RendererManager {
 				quality,
 				codec: videoCodec,
 				...outputSize,
+				fps: frameRateToFloat(exportFps),
 				duration: duration / TICKS_PER_SECOND,
 				audioBitrate,
 			});
@@ -229,16 +233,17 @@ export class RendererManager {
 			// The desktop app's own export, where it can make this one: it
 			// copies sound from a file on disk.
 			const copiedFile = passthrough?.file;
-			const nativeSources =
-				path && (!copiedFile || copiedFile instanceof DiskFile)
-					? await findNativeSources({
+			const native: NativeSources = !path
+				? { reason: "it's only in the desktop app" }
+				: copiedFile && !(copiedFile instanceof DiskFile)
+					? { reason: "the sound to copy isn't read from the disk" }
+					: await findNativeSources({
 							rootNode: scene,
 							format,
 							videoCodec,
 							audioCodec: passthrough?.codec ?? audio?.codec ?? null,
-						})
-					: null;
-			if (path && nativeSources) {
+						});
+			if (path && "sources" in native) {
 				const audioCopy =
 					passthrough && copiedFile instanceof DiskFile
 						? { path: copiedFile.path, end: passthrough.end }
@@ -247,7 +252,7 @@ export class RendererManager {
 				passthrough = null;
 				return await this.exportNatively({
 					scene,
-					sources: nativeSources,
+					sources: native.sources,
 					path,
 					options: {
 						path,
@@ -260,6 +265,8 @@ export class RendererManager {
 						fps: exportFps,
 						videoCodec,
 						videoBitrate,
+						videoQuality:
+							quality.mode === "constant" ? quality.quality / 100 : undefined,
 						audio:
 							audio && !audioCopy
 								? {
@@ -273,6 +280,15 @@ export class RendererManager {
 					onProgress,
 					onCancel,
 				});
+			}
+			if (isNativeOnlyCodec(videoCodec)) {
+				passthrough?.close();
+				const reason =
+					"reason" in native ? native.reason : "it's only in the desktop app";
+				return {
+					success: false,
+					error: `${VIDEO_CODEC_NAMES[videoCodec]} is made by the Mac's own encoder, which can't make this film: ${reason}.`,
+				};
 			}
 
 			const exporter = new SceneExporter({

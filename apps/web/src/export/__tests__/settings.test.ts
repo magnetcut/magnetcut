@@ -12,8 +12,10 @@ import {
 	fitAudioCodec,
 	fitExportSize,
 	fitVideoCodec,
+	getConstantQualityBitrate,
 	getLevelBitrate,
 	getVideoBitrate,
+	isNativeOnlyCodec,
 } from "../settings";
 
 /** mediabunny's own bitrate for a quality, which it keeps internal. */
@@ -93,6 +95,7 @@ describe("getVideoBitrate", () => {
 		] as const;
 		for (const [level, quality] of levels) {
 			for (const codec of EXPORT_VIDEO_CODECS) {
+				if (isNativeOnlyCodec(codec)) continue;
 				for (const [width, height] of sizes) {
 					expect(getLevelBitrate({ level, codec, width, height })).toBe(
 						getMediabunnyBitrate({ quality, codec, width, height }),
@@ -108,6 +111,7 @@ describe("getVideoBitrate", () => {
 			codec: "avc",
 			width: 1920,
 			height: 1080,
+			fps: 30,
 			duration: 60,
 			audioBitrate: 192_000,
 		});
@@ -122,6 +126,7 @@ describe("getVideoBitrate", () => {
 			codec: "avc",
 			width: 1920,
 			height: 1080,
+			fps: 30,
 			duration,
 			audioBitrate,
 		});
@@ -131,12 +136,71 @@ describe("getVideoBitrate", () => {
 		expect(bytes).toBeGreaterThan(24_900_000);
 	});
 
+	test("ProRes is at its own rate, whatever's chosen", () => {
+		const prores = ({
+			codec,
+			fps,
+		}: {
+			codec: "prores" | "prores-hq";
+			fps: number;
+		}) =>
+			getVideoBitrate({
+				quality: { mode: "size", megabytes: 1 },
+				codec,
+				width: 1920,
+				height: 1080,
+				fps,
+				duration: 60,
+				audioBitrate: 192_000,
+			});
+		// Apple's: 147 and 220 Mbit/s at 1080p and 29.97.
+		expect(prores({ codec: "prores", fps: 30000 / 1001 })).toBe(147_000_000);
+		expect(prores({ codec: "prores-hq", fps: 30000 / 1001 })).toBe(220_000_000);
+		expect(prores({ codec: "prores", fps: 60000 / 1001 })).toBe(294_000_000);
+	});
+
+	test("a constant quality stands in as a bitrate: medium at 60, doubling each 10", () => {
+		const at = (quality: number) =>
+			getConstantQualityBitrate({
+				quality,
+				codec: "avc",
+				width: 1920,
+				height: 1080,
+			});
+		expect(at(60)).toBe(
+			getLevelBitrate({
+				level: "medium",
+				codec: "avc",
+				width: 1920,
+				height: 1080,
+			}),
+		);
+		expect(at(70)).toBe(
+			getLevelBitrate({
+				level: "high",
+				codec: "avc",
+				width: 1920,
+				height: 1080,
+			}),
+		);
+		expect(at(80)).toBe(
+			getLevelBitrate({
+				level: "very_high",
+				codec: "avc",
+				width: 1920,
+				height: 1080,
+			}),
+		);
+		expect(at(50)).toBeLessThan(at(60));
+	});
+
 	test("a file size too small for the length still gets a picture", () => {
 		const bitrate = getVideoBitrate({
 			quality: { mode: "size", megabytes: 1 },
 			codec: "avc",
 			width: 1920,
 			height: 1080,
+			fps: 30,
 			duration: 3600,
 			audioBitrate: 192_000,
 		});

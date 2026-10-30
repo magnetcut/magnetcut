@@ -4,8 +4,27 @@ import type { ExportFormat, ExportQuality } from "./index";
 // Export's settings, as HandBrake has them (docs/NATIVE.md, phase 3): what
 // they mean in bitrates and sizes, worked out before anything is encoded.
 
-export const EXPORT_VIDEO_CODECS = ["avc", "hevc", "vp9", "av1"] as const;
+export const EXPORT_VIDEO_CODECS = [
+	"avc",
+	"hevc",
+	"vp9",
+	"av1",
+	"prores",
+	"prores-hq",
+] as const;
 export type ExportVideoCodec = (typeof EXPORT_VIDEO_CODECS)[number];
+
+/** Made only by the desktop app's native export, on macOS (`export/native.ts`). */
+export const NATIVE_ONLY_VIDEO_CODECS = ["prores", "prores-hq"] as const;
+type NativeOnlyVideoCodec = (typeof NATIVE_ONLY_VIDEO_CODECS)[number];
+/** The codecs the web view's encoders may have. */
+export type WebVideoCodec = Exclude<ExportVideoCodec, NativeOnlyVideoCodec>;
+
+export function isNativeOnlyCodec(
+	codec: ExportVideoCodec,
+): codec is NativeOnlyVideoCodec {
+	return NATIVE_ONLY_VIDEO_CODECS.some((candidate) => candidate === codec);
+}
 
 export const EXPORT_AUDIO_CODECS = ["aac", "opus"] as const;
 export type ExportAudioCodec = (typeof EXPORT_AUDIO_CODECS)[number];
@@ -16,7 +35,7 @@ export const FORMAT_CODECS: Record<
 	{ video: ExportVideoCodec[]; audio: ExportAudioCodec[] }
 > = {
 	mp4: { video: ["avc", "hevc", "av1"], audio: ["aac", "opus"] },
-	mov: { video: ["avc", "hevc"], audio: ["aac"] },
+	mov: { video: ["avc", "hevc", "prores", "prores-hq"], audio: ["aac"] },
 	mkv: { video: ["avc", "hevc", "vp9", "av1"], audio: ["aac", "opus"] },
 	webm: { video: ["vp9", "av1"], audio: ["opus"] },
 };
@@ -33,6 +52,8 @@ export const VIDEO_CODEC_NAMES: Record<ExportVideoCodec, string> = {
 	hevc: "HEVC (H.265)",
 	vp9: "VP9",
 	av1: "AV1",
+	prores: "ProRes 422",
+	"prores-hq": "ProRes 422 HQ",
 };
 
 export const AUDIO_CODEC_NAMES: Record<ExportAudioCodec, string> = {
@@ -44,7 +65,9 @@ export const AUDIO_CODEC_NAMES: Record<ExportAudioCodec, string> = {
 export type ExportVideoQuality =
 	| { mode: "level"; level: ExportQuality }
 	| { mode: "bitrate"; kbps: number }
-	| { mode: "size"; megabytes: number };
+	| { mode: "size"; megabytes: number }
+	/** From 1 to 100: kept natively, else a bitrate standing in for it. */
+	| { mode: "constant"; quality: number };
 
 // mediabunny's quality factors (QUALITY_LOW and the rest) and how much less
 // each codec needs than H.264, applied here so the bitrate is known before
@@ -55,7 +78,7 @@ const LEVEL_FACTORS: Record<ExportQuality, number> = {
 	high: 2,
 	very_high: 4,
 };
-const CODEC_EFFICIENCY: Record<ExportVideoCodec, number> = {
+const CODEC_EFFICIENCY: Record<WebVideoCodec, number> = {
 	avc: 1,
 	hevc: 0.6,
 	vp9: 0.6,
@@ -65,6 +88,14 @@ const CODEC_EFFICIENCY: Record<ExportVideoCodec, number> = {
 // What a file takes besides its video and audio, about.
 const CONTAINER_OVERHEAD = 0.01;
 const MIN_VIDEO_BITRATE = 100_000;
+
+// ProRes's rates in bits a pixel, from Apple's: 147 and 220 Mbit/s at
+// 1920x1080 and 29.97 (30000/1001) frames a second.
+const NTSC_RATE = 30000 / 1001;
+const PRORES_BITS_PER_PIXEL: Record<NativeOnlyVideoCodec, number> = {
+	prores: 147_000_000 / (1920 * 1080 * NTSC_RATE),
+	"prores-hq": 220_000_000 / (1920 * 1080 * NTSC_RATE),
+};
 
 /**
  * A quality level's video bitrate, as mediabunny reckons it: 3 Mbit/s for
@@ -77,22 +108,58 @@ export function getLevelBitrate({
 	height,
 }: {
 	level: ExportQuality;
-	codec: ExportVideoCodec;
+	codec: WebVideoCodec;
+	width: number;
+	height: number;
+}): number {
+	return scaledBitrate({ factor: LEVEL_FACTORS[level], codec, width, height });
+}
+
+/**
+ * The bitrate standing in for a constant quality where it can't be kept:
+ * medium at 60, twice as much each 10 more.
+ */
+export function getConstantQualityBitrate({
+	quality,
+	codec,
+	width,
+	height,
+}: {
+	quality: number;
+	codec: WebVideoCodec;
+	width: number;
+	height: number;
+}): number {
+	const factor = 2 ** ((quality - 60) / 10);
+	return scaledBitrate({ factor, codec, width, height });
+}
+
+function scaledBitrate({
+	factor,
+	codec,
+	width,
+	height,
+}: {
+	factor: number;
+	codec: WebVideoCodec;
 	width: number;
 	height: number;
 }): number {
 	const scale = ((width * height) / (1920 * 1080)) ** 0.95;
-	const bitrate =
-		3_000_000 * scale * CODEC_EFFICIENCY[codec] * LEVEL_FACTORS[level];
+	const bitrate = 3_000_000 * scale * CODEC_EFFICIENCY[codec] * factor;
 	return Math.ceil(bitrate / 1000) * 1000;
 }
 
-/** The video bitrate for the quality chosen, in bits a second. */
+/**
+ * The video bitrate for the quality chosen, in bits a second: ProRes's own,
+ * whatever's chosen.
+ */
 export function getVideoBitrate({
 	quality,
 	codec,
 	width,
 	height,
+	fps,
 	duration,
 	audioBitrate,
 }: {
@@ -100,13 +167,25 @@ export function getVideoBitrate({
 	codec: ExportVideoCodec;
 	width: number;
 	height: number;
+	/** Frames a second. */
+	fps: number;
 	/** In seconds. */
 	duration: number;
 	audioBitrate: number;
 }): number {
+	if (isNativeOnlyCodec(codec)) {
+		return Math.round(PRORES_BITS_PER_PIXEL[codec] * width * height * fps);
+	}
 	switch (quality.mode) {
 		case "level":
 			return getLevelBitrate({ level: quality.level, codec, width, height });
+		case "constant":
+			return getConstantQualityBitrate({
+				quality: quality.quality,
+				codec,
+				width,
+				height,
+			});
 		case "bitrate":
 			return Math.round(quality.kbps * 1000);
 		case "size": {

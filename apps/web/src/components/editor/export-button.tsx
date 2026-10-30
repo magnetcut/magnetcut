@@ -79,10 +79,17 @@ import {
 	getCroppedSize,
 	getVideoBitrate,
 	isCropped,
+	isNativeOnlyCodec,
+	NATIVE_ONLY_VIDEO_CODECS,
 	NO_CROP,
 	type ExportCrop,
 	type ExportVideoCodec,
+	type WebVideoCodec,
 } from "@/export/settings";
+import {
+	getNativeCapabilities,
+	type NativeCapabilities,
+} from "@/export/native";
 import { frameRateToFloat } from "@/fps/utils";
 import { TICKS_PER_SECOND } from "@/wasm";
 
@@ -147,6 +154,7 @@ const QUALITY_MODE_LABELS: Record<QualityMode, string> = {
 	level: "Level",
 	bitrate: "Bitrate",
 	size: "File size",
+	constant: "Constant",
 };
 
 function isQualityMode(value: string): value is QualityMode {
@@ -160,7 +168,10 @@ function formatMegabytes({ bytes }: { bytes: number }): string {
 	return `${megabytes < 10 ? megabytes.toFixed(1) : Math.round(megabytes)} MB`;
 }
 
-/** The codecs this computer encodes at the size chosen, asked of the web view. */
+/**
+ * The codecs this computer encodes at the size chosen: those the web view's
+ * encoders take, and ProRes where the Mac's own export makes it.
+ */
 function useEncodableCodecs({
 	width,
 	height,
@@ -173,20 +184,46 @@ function useEncodableCodecs({
 	);
 	useEffect(() => {
 		let isCurrent = true;
-		const codecs: ExportVideoCodec[] = ["avc", "hevc", "vp9", "av1"];
-		void Promise.all(
-			codecs.map((codec) =>
-				canEncodeVideo(codec, { width, height }).catch(() => false),
+		const codecs: WebVideoCodec[] = ["avc", "hevc", "vp9", "av1"];
+		void Promise.all([
+			Promise.all(
+				codecs.map((codec) =>
+					canEncodeVideo(codec, { width, height }).catch(() => false),
+				),
 			),
-		).then((results) => {
+			getNativeCapabilities(),
+		]).then(([results, native]) => {
 			if (!isCurrent) return;
-			setEncodable(new Set(codecs.filter((_, index) => results[index])));
+			const found = new Set<ExportVideoCodec>(
+				codecs.filter((_, index) => results[index]),
+			);
+			if (native) {
+				for (const codec of NATIVE_ONLY_VIDEO_CODECS) found.add(codec);
+			}
+			setEncodable(found);
 		});
 		return () => {
 			isCurrent = false;
 		};
 	}, [width, height]);
 	return encodable;
+}
+
+/** What the desktop app's native export can do here: null where there's none. */
+function useNativeCapabilities(): NativeCapabilities | null {
+	const [capabilities, setCapabilities] = useState<NativeCapabilities | null>(
+		null,
+	);
+	useEffect(() => {
+		let isCurrent = true;
+		void getNativeCapabilities().then((found) => {
+			if (isCurrent) setCapabilities(found);
+		});
+		return () => {
+			isCurrent = false;
+		};
+	}, []);
+	return capabilities;
 }
 
 /** What Export would copy of the source's sound. */
@@ -549,6 +586,7 @@ function ExportPopover({
 		level,
 		videoKbps,
 		megabytes,
+		constantQuality,
 		fpsLabel,
 		hasAudio,
 		audioPassthrough,
@@ -571,6 +609,15 @@ function ExportPopover({
 	const pictureShortSide = Math.min(picture.width, picture.height);
 	const outputSize = fitExportSize({ canvas: canvasSize, shortSide, crop });
 	const encodable = useEncodableCodecs(outputSize);
+	const native = useNativeCapabilities();
+	const isProRes = isNativeOnlyCodec(videoCodec);
+	// Kept by the Mac's encoder, in H.264 and HEVC on Apple silicon.
+	const canKeepQuality =
+		!!native?.constantQuality && (videoCodec === "avc" || videoCodec === "hevc");
+	const qualityModes = QUALITY_MODES.filter(
+		(mode) =>
+			mode !== "constant" || !!native?.constantQuality || qualityMode === mode,
+	);
 	const fps = options.fps ?? activeProject.settings.fps;
 	const passthroughInfo = usePassthroughInfo({ format });
 	const copied = hasAudio && audioPassthrough ? passthroughInfo : null;
@@ -584,6 +631,7 @@ function ExportPopover({
 		quality,
 		codec: videoCodec,
 		...outputSize,
+		fps: frameRateToFloat(fps),
 		duration,
 		audioBitrate,
 	});
@@ -681,7 +729,9 @@ function ExportPopover({
 			: audio
 				? `${AUDIO_CODEC_NAMES[audio.codec]} ${audio.kbps} kbit/s${audio.channels === 1 ? " mono" : ""}`
 				: "no sound",
-		`about ${formatMegabytes({ bytes: estimatedBytes })}`,
+		qualityMode === "constant" && canKeepQuality && !isProRes
+			? "size varies with the picture"
+			: `about ${formatMegabytes({ bytes: estimatedBytes })}`,
 	].join(" · ");
 
 	return (
@@ -774,78 +824,107 @@ function ExportPopover({
 										</SectionHeader>
 										<SectionContent>
 											<SectionFields>
-												<RadioGroup
-													className="flex gap-4"
-													value={qualityMode}
-													onValueChange={(value) => {
-														if (isQualityMode(value)) {
-															setChoices({ choices: { qualityMode: value } });
-														}
-													}}
-												>
-													{QUALITY_MODES.map((mode) => (
-														<div
-															key={mode}
-															className="flex items-center space-x-2"
+												{isProRes ? (
+													<p className="text-muted-foreground text-xs">
+														{`ProRes keeps its own quality: about ${Math.round(videoBitrate / 1_000_000)} Mbit/s.`}
+													</p>
+												) : (
+													<>
+														<RadioGroup
+															className="flex gap-4"
+															value={qualityMode}
+															onValueChange={(value) => {
+																if (isQualityMode(value)) {
+																	setChoices({ choices: { qualityMode: value } });
+																}
+															}}
 														>
-															<RadioGroupItem
-																value={mode}
-																id={`quality-${mode}`}
-															/>
-															<Label htmlFor={`quality-${mode}`}>
-																{QUALITY_MODE_LABELS[mode]}
-															</Label>
-														</div>
-													))}
-												</RadioGroup>
-												{qualityMode === "level" && (
-													<Select
-														value={level}
-														onValueChange={(value) => {
-															if (isExportQuality(value)) {
-																setChoices({ choices: { level: value } });
-															}
-														}}
-													>
-														<SelectTrigger variant="outline">
-															<SelectValue />
-														</SelectTrigger>
-														<SelectContent position="popper">
-															<SelectItem value="low">Low - Smallest file</SelectItem>
-															<SelectItem value="medium">Medium</SelectItem>
-															<SelectItem value="high">High - Recommended</SelectItem>
-															<SelectItem value="very_high">
-																Very high - Largest file
-															</SelectItem>
-														</SelectContent>
-													</Select>
-												)}
-												{qualityMode === "bitrate" && (
-													<SectionField label="Average bitrate (kbit/s)">
-														<Input
-															type="number"
-															min={100}
-															step={100}
-															value={videoKbps}
-															onChange={(event) => {
-																const value = Number(event.target.value);
-																if (value > 0) setChoices({ choices: { videoKbps: value } });
-															}}
-														/>
-													</SectionField>
-												)}
-												{qualityMode === "size" && (
-													<SectionField label="File size (MB)">
-														<Input
-															type="number"
-															min={1}
-															value={megabytes}
-															onChange={(event) => {
-																const value = Number(event.target.value);
-																if (value > 0) setChoices({ choices: { megabytes: value } });
-															}}
-														/>
-													</SectionField>
+															{qualityModes.map((mode) => (
+																<div
+																	key={mode}
+																	className="flex items-center space-x-2"
+																>
+																	<RadioGroupItem
+																		value={mode}
+																		id={`quality-${mode}`}
+																	/>
+																	<Label htmlFor={`quality-${mode}`}>
+																		{QUALITY_MODE_LABELS[mode]}
+																	</Label>
+																</div>
+															))}
+														</RadioGroup>
+														{qualityMode === "level" && (
+															<Select
+																value={level}
+																onValueChange={(value) => {
+																	if (isExportQuality(value)) {
+																		setChoices({ choices: { level: value } });
+																	}
+																}}
+															>
+																<SelectTrigger variant="outline">
+																	<SelectValue />
+																</SelectTrigger>
+																<SelectContent position="popper">
+																	<SelectItem value="low">Low - Smallest file</SelectItem>
+																	<SelectItem value="medium">Medium</SelectItem>
+																	<SelectItem value="high">High - Recommended</SelectItem>
+																	<SelectItem value="very_high">
+																		Very high - Largest file
+																	</SelectItem>
+																</SelectContent>
+															</Select>
+														)}
+														{qualityMode === "bitrate" && (
+															<SectionField label="Average bitrate (kbit/s)">
+																<Input
+																	type="number"
+																	min={100}
+																	step={100}
+																	value={videoKbps}
+																	onChange={(event) => {
+																		const value = Number(event.target.value);
+																		if (value > 0) setChoices({ choices: { videoKbps: value } });
+																	}}
+																/>
+															</SectionField>
+														)}
+														{qualityMode === "size" && (
+															<SectionField label="File size (MB)">
+																<Input
+																	type="number"
+																	min={1}
+																	value={megabytes}
+																	onChange={(event) => {
+																		const value = Number(event.target.value);
+																		if (value > 0) setChoices({ choices: { megabytes: value } });
+																	}}
+																/>
+															</SectionField>
+														)}
+														{qualityMode === "constant" && (
+															<SectionField label="Quality (1 to 100)">
+																<Input
+																	type="number"
+																	min={1}
+																	max={100}
+																	value={constantQuality}
+																	onChange={(event) => {
+																		const value = Math.round(Number(event.target.value));
+																		if (value >= 1 && value <= 100) {
+																			setChoices({ choices: { constantQuality: value } });
+																		}
+																	}}
+																/>
+																<p className="text-muted-foreground text-xs">
+																	{canKeepQuality
+																		? "Kept by the Mac's encoder. Where it can't make the film (a turned or blurred clip), a bitrate like it."
+																		: "Kept only in H.264 and HEVC on a Mac with Apple silicon; here, a bitrate like it."}
+																</p>
+															</SectionField>
+														)}
+													</>
 												)}
 											</SectionFields>
 										</SectionContent>

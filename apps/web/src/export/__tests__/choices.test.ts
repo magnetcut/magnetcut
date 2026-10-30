@@ -41,6 +41,7 @@ describe("sanitizeChoices", () => {
 					level: "best",
 					videoKbps: -1,
 					megabytes: Number.NaN,
+					constantQuality: 101,
 					shortSide: 8,
 					fpsLabel: "61",
 					hasAudio: "yes",
@@ -67,6 +68,26 @@ describe("sanitizeChoices", () => {
 			sanitizeChoices({ value: { audioCodec: "aac", audioKbps: 256 } })
 				.audioKbps,
 		).toBe(192);
+	});
+
+	test("keeps ProRes in a QuickTime file and a constant quality", () => {
+		const choices: ExportChoices = {
+			...DEFAULT_EXPORT_CHOICES,
+			format: "mov",
+			videoCodec: "prores-hq",
+			qualityMode: "constant",
+			constantQuality: 80,
+		};
+		expect(sanitizeChoices({ value: choices })).toEqual(choices);
+		expect(getChosenOptions({ choices }).quality).toEqual({
+			mode: "constant",
+			quality: 80,
+		});
+		// No ProRes in MP4.
+		expect(
+			sanitizeChoices({ value: { format: "mp4", videoCodec: "prores" } })
+				.videoCodec,
+		).toBe("avc");
 	});
 });
 

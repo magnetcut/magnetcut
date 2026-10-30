@@ -36,11 +36,16 @@ function collectVideos({ node }: { node: AnyBaseNode }) {
 	return { files: [...files], drawsFrames };
 }
 
+/** The scene's videos by path, for the native export; or why it can't make this one. */
+export type NativeSources =
+	| { sources: Map<string, NativeSourceInfo> }
+	| { reason: string };
+
 /**
  * The scene's videos as the native export sees them, by path, if it can make
- * this export: on macOS, into MP4 or QuickTime, in H.264 or HEVC with AAC or
- * no sound, from videos on disk that AVFoundation decodes, none of them
- * turned. Null otherwise, for the web view's export.
+ * this export: on macOS, into MP4 or QuickTime, in H.264, HEVC or ProRes with
+ * AAC or no sound, from videos on disk that AVFoundation decodes, none of
+ * them turned. Otherwise why not, and the web view makes it (but ProRes).
  */
 export async function findNativeSources({
 	rootNode,
@@ -53,25 +58,35 @@ export async function findNativeSources({
 	videoCodec: ExportVideoCodec;
 	/** The sound's in the file, encoded or copied: null for none. */
 	audioCodec: string | null;
-}): Promise<Map<string, NativeSourceInfo> | null> {
-	if (!NATIVE_FORMATS.includes(format)) return null;
-	if (!NATIVE_VIDEO_CODECS.includes(videoCodec)) return null;
-	if (audioCodec && audioCodec !== "aac") return null;
+}): Promise<NativeSources> {
+	if (!NATIVE_FORMATS.includes(format)) {
+		return { reason: "it makes only MP4 and QuickTime files" };
+	}
+	if (!NATIVE_VIDEO_CODECS.includes(videoCodec)) {
+		return { reason: "it encodes only H.264, HEVC and ProRes" };
+	}
+	if (audioCodec && audioCodec !== "aac") {
+		return { reason: `it copies only AAC sound, and this is ${audioCodec}` };
+	}
 	const { files, drawsFrames } = collectVideos({ node: rootNode });
-	if (drawsFrames) return null;
+	if (drawsFrames) return { reason: "a clip has a blurred background" };
 	const paths: string[] = [];
 	for (const file of files) {
-		if (!(file instanceof DiskFile)) return null;
+		if (!(file instanceof DiskFile)) {
+			return { reason: `${file.name} isn't read from the disk` };
+		}
 		paths.push(file.path);
 	}
 	const infos = await probeNativeSources({ paths });
-	if (!infos) return null;
+	if (!infos) return { reason: "there's no native export here" };
 	const sources = new Map<string, NativeSourceInfo>();
 	for (const [index, info] of infos.entries()) {
-		if (!info || info.rotation !== 0) return null;
+		const name = paths[index].split(/[\\/]/).pop();
+		if (!info) return { reason: `the Mac can't decode ${name}` };
+		if (info.rotation !== 0) return { reason: `${name} is turned` };
 		sources.set(paths[index], info);
 	}
-	return sources;
+	return { sources };
 }
 
 /** A window of the mix, interleaved, in as many channels as encoded. */

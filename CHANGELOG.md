@@ -14,6 +14,8 @@ All notable changes to this project are documented here. The format is based on
 - Export presets: a few built in (Fast 1080p, Fits in 25 MB, Web 1080p and others) and your
   own. Export remembers the settings you used last.
 - Crop on export, with Find black bars to take off letterboxing, and a size of your own.
+- On a Mac, Export makes ProRes 422 and 422 HQ in QuickTime files, and on Apple silicon keeps a
+  constant quality in H.264 and HEVC (Quality, Constant) instead of aiming at a bitrate.
 - Export copies a film's sound as it is, without re-encoding it, when the timeline plays that
   sound uncut and the container takes its codec (on by default; Audio in the export panel).
 
