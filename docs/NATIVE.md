@@ -191,7 +191,15 @@ and give it constant quality and the encoders the web views lack.
 - Checked only on CI and the probe: no local Windows or Linux machine.
 
 ### 6. Software encoders and filters
-- AV1 with rav1e (BSD-2) and VP9 with libvpx (BSD-3), where the system has no hardware encoder.
+- AV1 with rav1e (BSD-2), on macOS, where no Mac encodes it in hardware and WebKit doesn't at
+  all (`av1.rs`): each frame drawn is converted to BT.709 YUV and encoded, and AVAssetWriter
+  passes the packets into an MP4 as they are, under an `av01` format description with rav1e's
+  av1C record; key frames marked, the rest not. Tested end to end (decoded back by
+  AVFoundation, every frame, sound alongside). rav1e's fastest preset, in a tile for each core
+  and without looking ahead: 4K to 1080p at 14 frames a second on an M4, half real time.
+- VP9 with libvpx: not done. Every web view encodes VP9 already (WebKit and WebView2 with
+  libvpx inside, WebKitGTK through GStreamer's vpx plugin), so a native one would add a C
+  build to each app for nothing they lack.
 - Filters as compositor passes (`rust/crates/effects`), so both exports have them: the panel's
   Filters (`export/filters.ts`). Deinterlace and denoise run on each video as it is, before
   it's placed (a layer's `sourceEffectPassGroups`), since deinterlacing needs the source's own

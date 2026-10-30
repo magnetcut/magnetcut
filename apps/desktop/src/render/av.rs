@@ -5,7 +5,7 @@ use std::path::Path;
 
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2_core_foundation::CFString;
+use objc2_core_foundation::{CFDictionary, CFString};
 use objc2_core_media::CMTime;
 use objc2_foundation::{NSDictionary, NSError, NSString, NSURL};
 
@@ -42,6 +42,12 @@ pub(crate) use av;
 pub fn bridged(string: &CFString) -> &NSString {
     // SAFETY: CFString and NSString are toll-free bridged: the same object.
     unsafe { &*(string as *const CFString).cast::<NSString>() }
+}
+
+/// A Foundation dictionary, as the Core Foundation one it is too.
+pub fn cf_dictionary<K: ?Sized, V: ?Sized>(dictionary: &NSDictionary<K, V>) -> &CFDictionary {
+    // SAFETY: NSDictionary and CFDictionary are toll-free bridged.
+    unsafe { &*(dictionary as *const NSDictionary<K, V>).cast::<CFDictionary>() }
 }
 
 pub fn file_url(path: &Path) -> Result<Retained<NSURL>, String> {

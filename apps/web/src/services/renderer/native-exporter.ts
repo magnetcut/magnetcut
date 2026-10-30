@@ -44,7 +44,7 @@ export type NativeSources =
 
 /**
  * The scene's videos as the native export sees them, by path, if it can make
- * this export: on macOS, into MP4 or QuickTime, in H.264, HEVC or ProRes with
+ * this export: on macOS, into MP4 or QuickTime, in H.264, HEVC, ProRes or AV1 with
  * AAC or no sound, from videos on disk that AVFoundation decodes (turned as
  * they're shown: their sizes are). Otherwise why not, and the web view makes
  * it (but ProRes).
@@ -65,7 +65,10 @@ export async function findNativeSources({
 		return { reason: "it makes only MP4 and QuickTime files" };
 	}
 	if (!NATIVE_VIDEO_CODECS.includes(videoCodec)) {
-		return { reason: "it encodes only H.264, HEVC and ProRes" };
+		return { reason: "it encodes only H.264, HEVC, ProRes and AV1" };
+	}
+	if (videoCodec === "av1" && format !== "mp4") {
+		return { reason: "it puts AV1 only in MP4 files" };
 	}
 	if (audioCodec && audioCodec !== "aac") {
 		return { reason: `it copies only AAC sound, and this is ${audioCodec}` };

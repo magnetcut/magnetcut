@@ -214,14 +214,16 @@ function formatMegabytes({ bytes }: { bytes: number }): string {
 
 /**
  * The codecs this computer encodes at the size chosen: those the web view's
- * encoders take, and ProRes where the Mac's own export makes it.
+ * encoders take, and those the Mac's own export makes (ProRes, and AV1 in MP4).
  */
 function useEncodableCodecs({
 	width,
 	height,
+	format,
 }: {
 	width: number;
 	height: number;
+	format: ExportFormat;
 }): Set<ExportVideoCodec> | null {
 	const [encodable, setEncodable] = useState<Set<ExportVideoCodec> | null>(
 		null,
@@ -243,13 +245,14 @@ function useEncodableCodecs({
 			);
 			if (native) {
 				for (const codec of NATIVE_ONLY_VIDEO_CODECS) found.add(codec);
+				if (format === "mp4") found.add("av1");
 			}
 			setEncodable(found);
 		});
 		return () => {
 			isCurrent = false;
 		};
-	}, [width, height]);
+	}, [width, height, format]);
 	return encodable;
 }
 
@@ -655,15 +658,16 @@ function ExportPopover({
 	const picture = getCroppedSize({ canvas: canvasSize, crop });
 	const pictureShortSide = Math.min(picture.width, picture.height);
 	const outputSize = fitExportSize({ canvas: canvasSize, shortSide, crop });
-	const encodable = useEncodableCodecs(outputSize);
+	const encodable = useEncodableCodecs({ ...outputSize, format });
 	const native = useNativeCapabilities();
 	const isProRes = isNativeOnlyCodec(videoCodec);
-	// Kept by the Mac's encoder, in H.264 and HEVC on Apple silicon.
+	// Kept by the Mac's encoders: H.264 and HEVC on Apple silicon, AV1 on any.
 	const canKeepQuality =
-		!!native?.constantQuality && (videoCodec === "avc" || videoCodec === "hevc");
+		(!!native?.constantQuality &&
+			(videoCodec === "avc" || videoCodec === "hevc")) ||
+		(!!native && videoCodec === "av1");
 	const qualityModes = QUALITY_MODES.filter(
-		(mode) =>
-			mode !== "constant" || !!native?.constantQuality || qualityMode === mode,
+		(mode) => mode !== "constant" || !!native || qualityMode === mode,
 	);
 	const fps = options.fps ?? activeProject.settings.fps;
 	const passthroughInfo = usePassthroughInfo({ format });
@@ -979,7 +983,7 @@ function ExportPopover({
 																<p className="text-muted-foreground text-xs">
 																	{canKeepQuality
 																		? "Kept by the Mac's encoder. Where it can't make the film (a clip with a blurred background), a bitrate like it."
-																		: "Kept only in H.264 and HEVC on a Mac with Apple silicon; here, a bitrate like it."}
+																		: "Kept by the Mac's encoders: AV1 on any Mac, H.264 and HEVC on Apple silicon. Here, a bitrate like it."}
 																</p>
 															</SectionField>
 														)}

@@ -6,6 +6,7 @@
 // from the web view: no frame does, which at 4K cost more than drawing it.
 
 mod av;
+mod av1;
 mod decode;
 mod encode;
 mod frames;
@@ -461,7 +462,10 @@ impl Worker {
             width: output_size.0,
             height: output_size.1,
             bitrate: options.video_bitrate,
-            quality: options.video_quality.filter(|_| encode::constant_quality()),
+            // rav1e keeps a quality on any Mac; AVFoundation, on Apple silicon.
+            quality: options
+                .video_quality
+                .filter(|_| options.video_codec == VideoCodec::Av1 || encode::constant_quality()),
             fps: options.fps,
         };
         let audio = match (&options.audio_copy, options.audio) {

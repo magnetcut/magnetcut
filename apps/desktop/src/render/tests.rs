@@ -668,6 +668,7 @@ fn native_speed() {
     for (name, codec, size) in [
         ("4K HEVC", VideoCodec::Hevc, (3840, 2160)),
         ("4K to 1080p H.264", VideoCodec::Avc, (1920, 1080)),
+        ("4K to 1080p AV1", VideoCodec::Av1, (1920, 1080)),
     ] {
         let path = temporary("speed.mp4");
         let options = StartOptions {
@@ -860,5 +861,132 @@ fn tone_maps_an_hdr_source() {
     assert!(
         reference < 245 && four_hundred < 255 && thousand >= 245,
         "{levels:?}"
+    );
+}
+
+/// A film's frames as stored: how many, and which are marked as not ones to
+/// start decoding from.
+fn stored_frames(path: &Path) -> (usize, Vec<bool>) {
+    use objc2_av_foundation::{AVAssetReader, AVAssetReaderTrackOutput, AVMediaTypeVideo};
+    use objc2_core_foundation::{CFBoolean, CFDictionary};
+    use objc2_core_media::kCMSampleAttachmentKey_NotSync;
+
+    let asset = decode::open_asset(path).unwrap();
+    #[allow(deprecated)]
+    let track = unsafe { asset.tracksWithMediaType(AVMediaTypeVideo.unwrap()) }
+        .firstObject()
+        .unwrap();
+    let reader = unsafe { AVAssetReader::assetReaderWithAsset_error(&asset) }.unwrap();
+    let output = unsafe {
+        AVAssetReaderTrackOutput::assetReaderTrackOutputWithTrack_outputSettings(&track, None)
+    };
+    unsafe {
+        reader.addOutput(&output);
+        assert!(reader.startReading());
+    }
+    let mut not_sync = Vec::new();
+    while let Some(sample) = unsafe { output.copyNextSampleBuffer() } {
+        if unsafe { sample.num_samples() } == 0 {
+            continue;
+        }
+        let marked = unsafe { sample.sample_attachments_array(false) }.is_some_and(|array| {
+            let first = unsafe { array.value_at_index(0) }.cast::<CFDictionary>();
+            let value = unsafe {
+                (*first).value(
+                    (kCMSampleAttachmentKey_NotSync as *const objc2_core_foundation::CFString)
+                        .cast(),
+                )
+            };
+            !value.is_null() && unsafe { (*value.cast::<CFBoolean>()).as_bool() }
+        });
+        not_sync.push(marked);
+    }
+    (not_sync.len(), not_sync)
+}
+
+#[test]
+fn encodes_av1_with_rav1e() {
+    let source = temporary("av1-source.mp4");
+    let mut writer = Writer::new(
+        &source,
+        Container::Mp4,
+        &VideoSettings {
+            codec: VideoCodec::Avc,
+            width: 64,
+            height: 64,
+            bitrate: 2_000_000,
+            quality: None,
+            fps: FPS,
+        },
+        None,
+    )
+    .unwrap();
+    for i in 0..60 {
+        let buffer = writer.pixel_buffer().unwrap();
+        with_pixels(&buffer, |pixels, _| pixels.fill(grey(i % 30)));
+        writer.add_frame(&buffer).unwrap();
+    }
+    writer.finish().unwrap();
+
+    let path = temporary("rav1e.mp4");
+    let options = StartOptions {
+        path: path.to_str().unwrap().to_owned(),
+        format: Container::Mp4,
+        width: 64,
+        height: 64,
+        crop: Crop::default(),
+        output_width: 64,
+        output_height: 64,
+        fps: FPS,
+        video_codec: VideoCodec::Av1,
+        video_bitrate: 500_000,
+        video_quality: None,
+        audio: Some(AudioSettings {
+            channels: 2,
+            sample_rate: 44_100,
+            bitrate: 128_000,
+        }),
+        audio_copy: None,
+    };
+    let Ok(mut worker) = Worker::new(&path, &options) else {
+        eprintln!("No GPU: skipped");
+        return;
+    };
+    worker
+        .handle(Message::Audio {
+            samples: vec![0.1; 44_100 * 2 * 2],
+            is_last: true,
+        })
+        .unwrap();
+    for i in 0..60 {
+        let video = VideoFrame {
+            texture_id: "video".into(),
+            location: source.clone(),
+            stream: String::new(),
+            time: f64::from(i) / 30.0,
+        };
+        let message = Message::Frame {
+            frame: frame_showing("video", 64),
+            videos: vec![video],
+            released: vec![],
+        };
+        worker.handle(message).unwrap();
+    }
+    worker.finish().unwrap();
+
+    assert!(
+        decode::probe(&path).unwrap().is_some(),
+        "AVFoundation can't decode it"
+    );
+    let mut reader = VideoReader::open(&path, 0.0).unwrap();
+    let (time, pixels) = reader.frame_at(1.0).unwrap().unwrap();
+    assert!((time - 1.0).abs() < 1e-3, "{time}");
+    // Frame 30 shows the source's first grey again.
+    assert_grey(middle(pixels), grey(0));
+    let (frames, not_sync) = stored_frames(&path);
+    assert_eq!(frames, 60);
+    assert!(
+        !not_sync[0] && not_sync.iter().any(|&marked| marked),
+        "{not_sync:?}"
     );
 }

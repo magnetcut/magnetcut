@@ -9,6 +9,7 @@ import {
 	type NativeSources,
 } from "@/services/renderer/native-exporter";
 import type { NativeExportOptions, NativeSourceInfo } from "@/export/native";
+import { canEncodeVideo } from "mediabunny";
 import { openExportFile } from "@/export/disk-target";
 import { DiskFile } from "@/media/disk-file";
 import {
@@ -300,13 +301,24 @@ export class RendererManager {
 					onCancel,
 				});
 			}
+			const reason =
+				"reason" in native ? native.reason : "it's only in the desktop app";
 			if (isNativeOnlyCodec(videoCodec)) {
 				passthrough?.close();
-				const reason =
-					"reason" in native ? native.reason : "it's only in the desktop app";
 				return {
 					success: false,
 					error: `${VIDEO_CODEC_NAMES[videoCodec]} is made by the Mac's own encoder, which can't make this film: ${reason}.`,
+				};
+			}
+			// AV1 on a Mac, which only the native export encodes.
+			const canEncode = await canEncodeVideo(videoCodec, outputSize).catch(
+				() => false,
+			);
+			if (!canEncode) {
+				passthrough?.close();
+				return {
+					success: false,
+					error: `${VIDEO_CODEC_NAMES[videoCodec]} can't be encoded here, and the Mac's own export can't make this film: ${reason}.`,
 				};
 			}
 

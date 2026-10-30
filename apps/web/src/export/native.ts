@@ -23,6 +23,8 @@ export const NATIVE_VIDEO_CODECS: readonly ExportVideoCodec[] = [
 	"hevc",
 	"prores",
 	"prores-hq",
+	// In software, by rav1e: no Mac encodes it in hardware, nor WebKit at all.
+	"av1",
 ];
 
 /** What the native export can do here, besides its codecs. */

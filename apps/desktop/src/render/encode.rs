@@ -43,7 +43,10 @@ use objc2_core_video::{
 use objc2_foundation::{NSDictionary, NSNumber, NSString};
 use serde::Deserialize;
 
-use super::av::{any, av, bridged, describe, dictionary, file_url, fraction, seconds};
+use super::av::{
+    any, av, bridged, cf_dictionary, describe, dictionary, file_url, fraction, seconds,
+};
+use super::av1::Av1Encoder;
 use super::decode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -62,6 +65,8 @@ pub enum VideoCodec {
     ProRes,
     #[serde(rename = "prores-hq")]
     ProResHq,
+    /// In software, by rav1e (`av1.rs`).
+    Av1,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -152,10 +157,21 @@ struct Copy {
     is_done: bool,
 }
 
+/// Where the frames go: to AVFoundation's encoder, through its pixel buffer
+/// adaptor, or to rav1e, whose packets the writer passes through.
+enum VideoSink {
+    Adaptor(Retained<AVAssetWriterInputPixelBufferAdaptor>),
+    Av1 {
+        encoder: Box<Av1Encoder>,
+        /// The buffers frames are drawn into.
+        pool: CFRetained<CVPixelBufferPool>,
+    },
+}
+
 pub struct Writer {
     writer: Retained<AVAssetWriter>,
     video: Retained<AVAssetWriterInput>,
-    adaptor: Retained<AVAssetWriterInputPixelBufferAdaptor>,
+    sink: VideoSink,
     audio: Option<AudioInput>,
     fps: FrameRate,
     frames: i64,
@@ -174,6 +190,9 @@ impl Writer {
         {
             return Err("ProRes goes in a QuickTime file".into());
         }
+        if container == Container::Mov && video.codec == VideoCodec::Av1 {
+            return Err("AV1 goes in an MP4 file".into());
+        }
         // AVAssetWriter won't write over a file.
         match std::fs::remove_file(path) {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
@@ -191,23 +210,6 @@ impl Writer {
         // The index at the start, so the film plays as it downloads.
         unsafe { writer.setShouldOptimizeForNetworkUse(container == Container::Mp4) };
 
-        let settings = video_output_settings(video)?;
-        // An input raises an exception for settings it won't take.
-        if !unsafe {
-            writer.canApplyOutputSettings_forMediaType(Some(&settings), av!(AVMediaTypeVideo))
-        } {
-            return Err(format!(
-                "This Mac can't encode {:?} at {}x{}",
-                video.codec, video.width, video.height
-            ));
-        }
-        let video_input = unsafe {
-            AVAssetWriterInput::assetWriterInputWithMediaType_outputSettings(
-                av!(AVMediaTypeVideo),
-                Some(&settings),
-            )
-        };
-        unsafe { video_input.setExpectsMediaDataInRealTime(false) };
         let format = NSNumber::new_u32(kCVPixelFormatType_32BGRA);
         let width = NSNumber::new_u32(video.width);
         let height = NSNumber::new_u32(video.height);
@@ -222,12 +224,69 @@ impl Writer {
                 (bridged(kCVPixelBufferIOSurfacePropertiesKey), any(&surface)),
             ])
         };
-        let adaptor = unsafe {
-            AVAssetWriterInputPixelBufferAdaptor::assetWriterInputPixelBufferAdaptorWithAssetWriterInput_sourcePixelBufferAttributes(
-                &video_input,
-                Some(&attributes),
+        let (video_input, sink) = if video.codec == VideoCodec::Av1 {
+            let encoder = Av1Encoder::new(
+                (video.width, video.height),
+                video.fps,
+                video.bitrate,
+                video.quality,
+                KEY_FRAME_INTERVAL,
+            )?;
+            // No settings: the packets as they are, in the format given.
+            let input = unsafe {
+                AVAssetWriterInput::assetWriterInputWithMediaType_outputSettings_sourceFormatHint(
+                    av!(AVMediaTypeVideo),
+                    None,
+                    Some(encoder.format()),
+                )
+            };
+            let mut pool: *mut CVPixelBufferPool = ptr::null_mut();
+            let status = unsafe {
+                CVPixelBufferPool::create(
+                    None,
+                    None,
+                    Some(cf_dictionary(&attributes)),
+                    NonNull::from(&mut pool),
+                )
+            };
+            let pool = NonNull::new(pool)
+                .filter(|_| status == kCVReturnSuccess)
+                .ok_or("Couldn't make buffers for the frames")?;
+            // SAFETY: created, so ours to release.
+            let pool = unsafe { CFRetained::from_raw(pool) };
+            (
+                input,
+                VideoSink::Av1 {
+                    encoder: Box::new(encoder),
+                    pool,
+                },
             )
+        } else {
+            let settings = video_output_settings(video)?;
+            // An input raises an exception for settings it won't take.
+            if !unsafe {
+                writer.canApplyOutputSettings_forMediaType(Some(&settings), av!(AVMediaTypeVideo))
+            } {
+                return Err(format!(
+                    "This Mac can't encode {:?} at {}x{}",
+                    video.codec, video.width, video.height
+                ));
+            }
+            let input = unsafe {
+                AVAssetWriterInput::assetWriterInputWithMediaType_outputSettings(
+                    av!(AVMediaTypeVideo),
+                    Some(&settings),
+                )
+            };
+            let adaptor = unsafe {
+                AVAssetWriterInputPixelBufferAdaptor::assetWriterInputPixelBufferAdaptorWithAssetWriterInput_sourcePixelBufferAttributes(
+                    &input,
+                    Some(&attributes),
+                )
+            };
+            (input, VideoSink::Adaptor(adaptor))
         };
+        unsafe { video_input.setExpectsMediaDataInRealTime(false) };
         add_input(&writer, &video_input)?;
 
         let audio = match audio {
@@ -248,7 +307,7 @@ impl Writer {
         Ok(Self {
             writer,
             video: video_input,
-            adaptor,
+            sink,
             audio,
             fps: video.fps,
             frames: 0,
@@ -257,11 +316,18 @@ impl Writer {
 
     /// A buffer for the next frame, from the encoder's own pool.
     pub fn pixel_buffer(&self) -> Result<CFRetained<CVPixelBuffer>, String> {
-        let pool: Retained<CVPixelBufferPool> = unsafe { self.adaptor.pixelBufferPool() }
-            .ok_or_else(|| self.failure("The encoder has no buffers"))?;
+        let adaptor_pool: Retained<CVPixelBufferPool>;
+        let pool: &CVPixelBufferPool = match &self.sink {
+            VideoSink::Adaptor(adaptor) => {
+                adaptor_pool = unsafe { adaptor.pixelBufferPool() }
+                    .ok_or_else(|| self.failure("The encoder has no buffers"))?;
+                &adaptor_pool
+            }
+            VideoSink::Av1 { pool, .. } => pool,
+        };
         let mut buffer: *mut CVPixelBuffer = ptr::null_mut();
         let status = unsafe {
-            CVPixelBufferPool::create_pixel_buffer(None, &pool, NonNull::from(&mut buffer))
+            CVPixelBufferPool::create_pixel_buffer(None, pool, NonNull::from(&mut buffer))
         };
         let buffer = NonNull::new(buffer)
             .filter(|_| status == kCVReturnSuccess)
@@ -272,19 +338,43 @@ impl Writer {
 
     /// Adds the next frame, once the encoder takes more.
     pub fn add_frame(&mut self, buffer: &CVPixelBuffer) -> Result<(), String> {
-        self.wait_for_video()?;
-        let time = fraction(
-            self.frames * i64::from(self.fps.denominator),
-            self.fps.numerator as i32,
-        );
-        if !unsafe {
-            self.adaptor
-                .appendPixelBuffer_withPresentationTime(buffer, time)
-        } {
-            return Err(self.failure("Couldn't encode a frame"));
+        match &mut self.sink {
+            VideoSink::Adaptor(_) => {
+                self.wait_for_video()?;
+                let time = fraction(
+                    self.frames * i64::from(self.fps.denominator),
+                    self.fps.numerator as i32,
+                );
+                let VideoSink::Adaptor(adaptor) = &self.sink else {
+                    unreachable!();
+                };
+                if !unsafe { adaptor.appendPixelBuffer_withPresentationTime(buffer, time) } {
+                    return Err(self.failure("Couldn't encode a frame"));
+                }
+            }
+            VideoSink::Av1 { encoder, .. } => {
+                encoder.send(buffer)?;
+                self.write_packets()?;
+            }
         }
         self.frames += 1;
         Ok(())
+    }
+
+    /// Passes the packets rav1e has made into the file.
+    fn write_packets(&mut self) -> Result<(), String> {
+        loop {
+            let VideoSink::Av1 { encoder, .. } = &mut self.sink else {
+                return Ok(());
+            };
+            let Some(sample) = encoder.receive()? else {
+                return Ok(());
+            };
+            self.wait_for_video()?;
+            if !unsafe { self.video.appendSampleBuffer(&sample) } {
+                return Err(self.failure("Couldn't write a frame"));
+            }
+        }
     }
 
     /// Adds the mix's next samples: float, interleaved. The encoder's told
@@ -308,6 +398,10 @@ impl Writer {
 
     /// Ends the film where its last frame does, and finishes the file.
     pub fn finish(mut self) -> Result<(), String> {
+        if let VideoSink::Av1 { encoder, .. } = &mut self.sink {
+            encoder.flush();
+            self.write_packets()?;
+        }
         unsafe { self.video.markAsFinished() };
         let started = Instant::now();
         while self
@@ -414,6 +508,7 @@ fn video_output_settings(
         VideoCodec::Hevc => av!(AVVideoCodecTypeHEVC),
         VideoCodec::ProRes => av!(AVVideoCodecTypeAppleProRes422),
         VideoCodec::ProResHq => av!(AVVideoCodecTypeAppleProRes422HQ),
+        VideoCodec::Av1 => return Err("AV1 is encoded by rav1e, not AVFoundation".into()),
     };
     // HD's colours, which the editor's pictures are in.
     let colors = dictionary(&[
@@ -454,7 +549,7 @@ fn video_output_settings(
         )),
         VideoCodec::Hevc => compression.push((av!(AVVideoProfileLevelKey), any(&hevc_main))),
         // ProRes takes no compression settings: its rate is the codec's.
-        VideoCodec::ProRes | VideoCodec::ProResHq => compression.clear(),
+        VideoCodec::ProRes | VideoCodec::ProResHq | VideoCodec::Av1 => compression.clear(),
     }
     let compression = dictionary(&compression);
     let width = NSNumber::new_u32(video.width);

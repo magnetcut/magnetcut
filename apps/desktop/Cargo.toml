@@ -57,6 +57,13 @@ gpu = { path = "../../rust/crates/gpu" }
 # Waits for the GPU on the export's thread.
 futures-executor = "0.3"
 
+# AV1, which no Mac encodes in hardware, in software (BSD-2). Its assembly on
+# Apple silicon is built with cc; on Intel it would need nasm.
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+rav1e = { version = "0.8", default-features = false, features = ["threading", "asm"] }
+[target.'cfg(all(target_os = "macos", not(target_arch = "aarch64")))'.dependencies]
+rav1e = { version = "0.8", default-features = false, features = ["threading"] }
+
 # The web view on Linux: its settings, to switch on the features the editor
 # needs (src/webkit.rs). The versions Tauri itself uses.
 [target.'cfg(target_os = "linux")'.dependencies]

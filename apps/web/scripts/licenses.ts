@@ -342,7 +342,10 @@ interface CargoMetadata {
 	resolve: {
 		nodes: Array<{
 			id: string;
-			deps: Array<{ pkg: string; dep_kinds: Array<{ kind: string | null }> }>;
+			deps: Array<{
+				pkg: string;
+				dep_kinds: Array<{ kind: string | null; target: string | null }>;
+			}>;
 		}>;
 	};
 }
@@ -359,7 +362,8 @@ function rustPackages(): Package[] {
 	const workspace = new Set(metadata.workspace_members);
 
 	// What the desktop app and the WebAssembly core link: normal dependencies
-	// only (no build scripts' or tests').
+	// only (no build scripts' or tests'), and none only for fuzzing, a cfg
+	// set by cargo-fuzz alone.
 	const shipped = new Set<string>();
 	const stack = metadata.workspace_members.filter((id) =>
 		["magnetcut", "magnetcut-wasm"].includes(byId.get(id)?.name ?? ""),
@@ -369,7 +373,10 @@ function rustPackages(): Package[] {
 		if (shipped.has(id)) continue;
 		shipped.add(id);
 		for (const dep of nodes.get(id)?.deps ?? []) {
-			if (dep.dep_kinds.some(({ kind }) => kind === null)) stack.push(dep.pkg);
+			const isLinked = dep.dep_kinds.some(
+				({ kind, target }) => kind === null && target !== "cfg(fuzzing)",
+			);
+			if (isLinked) stack.push(dep.pkg);
 		}
 	}
 
