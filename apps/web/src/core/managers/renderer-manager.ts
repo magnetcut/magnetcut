@@ -22,6 +22,7 @@ import {
 	getPictureTracks,
 	getSubtitleFiles,
 } from "@/export/subtitles";
+import { getSubtitleLines, getSubtitleTracks } from "@/subtitles/track";
 import { buildScene } from "@/services/renderer/scene-builder";
 import { EXPORT_SAMPLE_RATE, mixTimelineAudio } from "@/media/audio-mix";
 import {
@@ -249,14 +250,12 @@ export class RendererManager {
 			});
 
 			const subtitleFiles = getSubtitleFiles({ tracks, subtitles });
-			if (subtitleFiles.length > 0 && !canHoldSubtitleTracks({ format })) {
-				passthrough?.close();
-				return {
-					success: false,
-					error:
-						"A QuickTime file can't hold subtitle tracks here: choose MP4, MKV or WebM, or put the subtitles in the picture.",
-				};
-			}
+			const subtitleTracks =
+				subtitles === "picture"
+					? []
+					: getSubtitleTracks({ tracks }).map((track) => ({
+							cues: getSubtitleLines({ track }).map(({ cue }) => cue),
+						}));
 			const scene = buildScene({
 				tracks: getPictureTracks({ tracks, subtitles }),
 				mediaAssets,
@@ -269,9 +268,7 @@ export class RendererManager {
 			const copiedFile = passthrough?.file;
 			const native: NativeSources = !path
 				? { reason: "it's only in the desktop app" }
-				: subtitleFiles.length > 0
-					? { reason: "it doesn't write subtitle tracks yet" }
-					: copiedFile && !(copiedFile instanceof DiskFile)
+				: copiedFile && !(copiedFile instanceof DiskFile)
 					? { reason: "the sound to copy isn't read from the disk" }
 					: await findNativeSources({
 							rootNode: scene,
@@ -313,6 +310,7 @@ export class RendererManager {
 									}
 								: null,
 						audioCopy,
+						subtitles: subtitleTracks,
 					},
 					onProgress,
 					onCancel,
@@ -320,6 +318,13 @@ export class RendererManager {
 			}
 			const reason =
 				"reason" in native ? native.reason : "it's only in the desktop app";
+			if (subtitleFiles.length > 0 && !canHoldSubtitleTracks({ format })) {
+				passthrough?.close();
+				return {
+					success: false,
+					error: `Only the Mac's own export puts subtitle tracks in a QuickTime file, and it can't make this film: ${reason}. Choose MP4, MKV or WebM, or put the subtitles in the picture.`,
+				};
+			}
 			if (isNativeOnlyCodec(videoCodec)) {
 				passthrough?.close();
 				return {

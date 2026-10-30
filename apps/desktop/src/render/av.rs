@@ -2,11 +2,15 @@
 // weakly linked constants, file URLs and times.
 
 use std::path::Path;
+use std::ptr::{self, NonNull};
 
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2_core_foundation::{CFDictionary, CFString};
-use objc2_core_media::CMTime;
+use objc2_core_foundation::{CFDictionary, CFRetained, CFString};
+use objc2_core_media::{
+    CMBlockBuffer, CMFormatDescription, CMSampleBuffer, CMSampleTimingInfo, CMTime,
+    kCMBlockBufferAssureMemoryNowFlag, kCMTimeInvalid,
+};
 use objc2_foundation::{NSDictionary, NSError, NSString, NSURL};
 
 /// A settings dictionary, from its keys and values.
@@ -82,3 +86,64 @@ pub fn to_seconds(time: CMTime) -> f64 {
 
 // Divides evenly by the common frame rates' frame durations, NTSC's included.
 const TIMESCALE: i32 = 120_000;
+
+/// One sample of encoded data, in the format given, at `start` for `duration`.
+pub fn packet_sample(
+    data: &[u8],
+    format: &CMFormatDescription,
+    start: CMTime,
+    duration: CMTime,
+) -> Result<CFRetained<CMSampleBuffer>, String> {
+    let mut block: *mut CMBlockBuffer = ptr::null_mut();
+    let status = unsafe {
+        CMBlockBuffer::create_with_memory_block(
+            None,
+            ptr::null_mut(),
+            data.len().max(1),
+            None,
+            ptr::null(),
+            0,
+            data.len().max(1),
+            kCMBlockBufferAssureMemoryNowFlag,
+            NonNull::from(&mut block),
+        )
+    };
+    let block = NonNull::new(block)
+        .filter(|_| status == 0)
+        .ok_or("Couldn't hold a sample")?;
+    // SAFETY: created, so ours to release.
+    let block = unsafe { CFRetained::from_raw(block) };
+    if !data.is_empty() {
+        let status = unsafe {
+            CMBlockBuffer::replace_data_bytes(NonNull::from(data).cast(), &block, 0, data.len())
+        };
+        if status != 0 {
+            return Err("Couldn't hold a sample".into());
+        }
+    }
+    let timing = CMSampleTimingInfo {
+        duration,
+        presentationTimeStamp: start,
+        decodeTimeStamp: unsafe { kCMTimeInvalid },
+    };
+    let size = data.len();
+    let mut sample: *mut CMSampleBuffer = ptr::null_mut();
+    let status = unsafe {
+        CMSampleBuffer::create_ready(
+            None,
+            Some(&block),
+            Some(format),
+            1,
+            1,
+            &timing,
+            1,
+            &size,
+            NonNull::from(&mut sample),
+        )
+    };
+    let sample = NonNull::new(sample)
+        .filter(|_| status == 0)
+        .ok_or("Couldn't hold a sample")?;
+    // SAFETY: created, so ours to release.
+    Ok(unsafe { CFRetained::from_raw(sample) })
+}

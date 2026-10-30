@@ -83,6 +83,10 @@ export interface NativeExportOptions {
 	audio: { channels: number; sampleRate: number; bitrate: number } | null;
 	/** Or a source's sound, copied as it is up to `end` seconds. */
 	audioCopy?: { path: string; end: number };
+	/** Subtitle tracks, written as timed text (tx3g), as Apple's players show. */
+	subtitles?: Array<{
+		cues: Array<{ start: number; end: number; text: string }>;
+	}>;
 }
 
 /** A video's frame for the native side to decode into a texture. */

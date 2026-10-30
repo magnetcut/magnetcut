@@ -22,8 +22,8 @@ All notable changes to this project are documented here. The format is based on
   the speech in one click or synced on two lines, overlaps and durations fixed, and saved as
   SRT, WebVTT, ASS, SSA, SubViewer or MicroDVD. Paste a script and it's timed to the speech;
   type lines as it plays; snap them to speech and cuts; translate side by side.
-- Export puts subtitles in the picture, in a track a player turns on and off (MP4, MKV and
-  WebM), or both.
+- Export puts subtitles in the picture, in a track a player turns on and off, or both: as
+  timed text Apple's players show in MP4 and MOV from the Mac's own export, WebVTT otherwise.
 - Subtitle import opens WebVTT, SSA, SubViewer and MicroDVD files as well as SRT and ASS, in
   any text encoding (older files are often in a Windows code page).
 - Export filters, as in HandBrake: deinterlace, denoise and sharpen. On a Mac, HDR footage is

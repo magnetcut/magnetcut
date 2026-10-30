@@ -655,7 +655,6 @@ function ExportPopover({
 	const { quality, shortSide, audio, filters } = options;
 	const sceneTracks = useEditor((e) => e.scenes.getActiveScene().tracks);
 	const hasSubtitles = getSubtitleTracks({ tracks: sceneTracks }).length > 0;
-	const canTrackSubtitles = canHoldSubtitleTracks({ format });
 
 	// The crop is the film's, not the settings': it starts afresh each time.
 	const [crop, setCrop] = useState<ExportCrop>(NO_CROP);
@@ -670,6 +669,9 @@ function ExportPopover({
 	const outputSize = fitExportSize({ canvas: canvasSize, shortSide, crop });
 	const encodable = useEncodableCodecs({ ...outputSize, format });
 	const native = useNativeCapabilities();
+	// QuickTime takes them from the Mac's own export only.
+	const canTrackSubtitles =
+		canHoldSubtitleTracks({ format }) || (!!native && format === "mov");
 	const isProRes = isNativeOnlyCodec(videoCodec);
 	// Kept by the Mac's encoders: H.264 and HEVC on Apple silicon, AV1 on any.
 	const canKeepQuality =

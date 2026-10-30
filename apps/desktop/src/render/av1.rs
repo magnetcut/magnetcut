@@ -7,10 +7,9 @@ use std::ptr::{self, NonNull};
 
 use objc2_core_foundation::{CFMutableDictionary, CFRetained, kCFBooleanTrue};
 use objc2_core_media::{
-    CMBlockBuffer, CMFormatDescription, CMSampleBuffer, CMSampleTimingInfo,
-    CMVideoFormatDescriptionCreate, kCMBlockBufferAssureMemoryNowFlag,
+    CMFormatDescription, CMSampleBuffer, CMVideoFormatDescriptionCreate,
     kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms, kCMSampleAttachmentKey_NotSync,
-    kCMTimeInvalid, kCMVideoCodecType_AV1,
+    kCMVideoCodecType_AV1,
 };
 use objc2_core_video::{
     CVPixelBuffer, CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow,
@@ -20,7 +19,7 @@ use objc2_core_video::{
 use objc2_foundation::{NSData, NSString};
 use rav1e::prelude::*;
 
-use super::av::{any, bridged, cf_dictionary, dictionary, fraction};
+use super::av::{any, bridged, cf_dictionary, dictionary, fraction, packet_sample};
 use super::encode::FrameRate;
 
 // rav1e's fastest: AV1 in software is slow enough.
@@ -136,70 +135,17 @@ impl Av1Encoder {
     }
 
     fn sample(&self, packet: &Packet<u8>) -> Result<CFRetained<CMSampleBuffer>, String> {
-        let data = &packet.data;
-        let mut block: *mut CMBlockBuffer = ptr::null_mut();
-        let status = unsafe {
-            CMBlockBuffer::create_with_memory_block(
-                None,
-                ptr::null_mut(),
-                data.len(),
-                None,
-                ptr::null(),
-                0,
-                data.len(),
-                kCMBlockBufferAssureMemoryNowFlag,
-                NonNull::from(&mut block),
-            )
-        };
-        let block = NonNull::new(block)
-            .filter(|_| status == 0)
-            .ok_or("Couldn't hold a packet")?;
-        // SAFETY: created, so ours to release.
-        let block = unsafe { CFRetained::from_raw(block) };
-        let status = unsafe {
-            CMBlockBuffer::replace_data_bytes(
-                NonNull::from(&data[..]).cast(),
-                &block,
-                0,
-                data.len(),
-            )
-        };
-        if status != 0 {
-            return Err("Couldn't hold a packet".into());
-        }
         // Each packet shows one frame, in order.
         let (numerator, denominator) = (
             i64::from(self.fps.numerator),
             i64::from(self.fps.denominator),
         );
-        let timing = CMSampleTimingInfo {
-            duration: fraction(denominator, numerator as i32),
-            presentationTimeStamp: fraction(
-                packet.input_frameno as i64 * denominator,
-                numerator as i32,
-            ),
-            decodeTimeStamp: unsafe { kCMTimeInvalid },
-        };
-        let size = data.len();
-        let mut sample: *mut CMSampleBuffer = ptr::null_mut();
-        let status = unsafe {
-            CMSampleBuffer::create_ready(
-                None,
-                Some(&block),
-                Some(&self.format),
-                1,
-                1,
-                &timing,
-                1,
-                &size,
-                NonNull::from(&mut sample),
-            )
-        };
-        let sample = NonNull::new(sample)
-            .filter(|_| status == 0)
-            .ok_or("Couldn't hold a packet")?;
-        // SAFETY: created, so ours to release.
-        let sample = unsafe { CFRetained::from_raw(sample) };
+        let sample = packet_sample(
+            &packet.data,
+            &self.format,
+            fraction(packet.input_frameno as i64 * denominator, numerator as i32),
+            fraction(denominator, numerator as i32),
+        )?;
         if packet.frame_type != FrameType::KEY {
             mark_not_sync(&sample);
         }

@@ -10,6 +10,7 @@ mod av1;
 mod decode;
 mod encode;
 mod frames;
+mod subtitle;
 #[cfg(test)]
 mod tests;
 mod turn;
@@ -150,6 +151,9 @@ pub struct StartOptions {
     /// Or a source's sound, copied: the timeline's when it plays it uncut.
     #[serde(default)]
     audio_copy: Option<AudioCopy>,
+    /// Subtitle tracks, as timed text.
+    #[serde(default)]
+    subtitles: Vec<subtitle::SubtitleTrack>,
 }
 
 #[derive(Deserialize)]
@@ -476,7 +480,8 @@ impl Worker {
             (None, Some(settings)) => Some(Audio::Mix(settings)),
             (None, None) => None,
         };
-        let writer = Writer::new(path, options.format, &video, audio)?;
+        let writer =
+            Writer::with_subtitles(path, options.format, &video, audio, &options.subtitles)?;
         Ok(Self {
             renderer,
             writer: Some(writer),

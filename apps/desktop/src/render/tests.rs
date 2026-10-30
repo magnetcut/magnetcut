@@ -177,6 +177,7 @@ fn draws_a_source_into_a_film_cut_and_scaled() {
             bitrate: 128_000,
         }),
         audio_copy: None,
+        subtitles: Vec::new(),
     };
     let Ok(mut worker) = Worker::new(&path, &options) else {
         eprintln!("No GPU: skipped");
@@ -255,6 +256,7 @@ fn a_cancelled_export_leaves_no_file() {
         video_quality: None,
         audio: None,
         audio_copy: None,
+        subtitles: Vec::new(),
     };
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     let (ready_sender, ready) = std::sync::mpsc::channel();
@@ -447,6 +449,7 @@ fn copies_a_files_sound_as_it_is() {
             path: source.clone(),
             end: 1.0,
         }),
+        subtitles: Vec::new(),
     };
     let Ok(mut worker) = Worker::new(&path, &options) else {
         eprintln!("No GPU: skipped");
@@ -590,6 +593,7 @@ fn turns_a_source_as_it_is_shown() {
         video_quality: None,
         audio: None,
         audio_copy: None,
+        subtitles: Vec::new(),
     };
     let Ok(mut worker) = Worker::new(&path, &options) else {
         eprintln!("No GPU: skipped");
@@ -685,6 +689,7 @@ fn native_speed() {
             video_quality: None,
             audio: None,
             audio_copy: None,
+            subtitles: Vec::new(),
         };
         let started = Instant::now();
         let mut worker = Worker::new(&path, &options).unwrap();
@@ -947,6 +952,7 @@ fn encodes_av1_with_rav1e() {
             bitrate: 128_000,
         }),
         audio_copy: None,
+        subtitles: Vec::new(),
     };
     let Ok(mut worker) = Worker::new(&path, &options) else {
         eprintln!("No GPU: skipped");
@@ -989,4 +995,119 @@ fn encodes_av1_with_rav1e() {
         !not_sync[0] && not_sync.iter().any(|&marked| marked),
         "{not_sync:?}"
     );
+}
+
+/// A film's subtitle track as stored: each sample's start, end and text.
+fn stored_subtitles(path: &Path) -> Vec<(f64, f64, String)> {
+    use objc2_av_foundation::{AVAssetReader, AVAssetReaderTrackOutput, AVMediaTypeSubtitle};
+    use std::ptr::NonNull;
+
+    let asset = decode::open_asset(path).unwrap();
+    #[allow(deprecated)]
+    let track = unsafe { asset.tracksWithMediaType(AVMediaTypeSubtitle.unwrap()) }
+        .firstObject()
+        .expect("no subtitle track");
+    let reader = unsafe { AVAssetReader::assetReaderWithAsset_error(&asset) }.unwrap();
+    let output = unsafe {
+        AVAssetReaderTrackOutput::assetReaderTrackOutputWithTrack_outputSettings(&track, None)
+    };
+    unsafe {
+        reader.addOutput(&output);
+        assert!(reader.startReading());
+    }
+    let mut samples = Vec::new();
+    while let Some(sample) = unsafe { output.copyNextSampleBuffer() } {
+        let Some(block) = (unsafe { sample.data_buffer() }) else {
+            continue;
+        };
+        let length = unsafe { block.data_length() };
+        let mut data = vec![0u8; length];
+        unsafe {
+            objc2_core_media::CMBlockBuffer::copy_data_bytes(
+                &block,
+                0,
+                length,
+                NonNull::from(&mut data[..]).cast(),
+            )
+        };
+        let text_length = usize::from(u16::from_be_bytes([data[0], data[1]]));
+        let text = String::from_utf8(data[2..2 + text_length].to_vec()).unwrap();
+        let start = super::av::to_seconds(unsafe { sample.presentation_time_stamp() });
+        let end = start + super::av::to_seconds(unsafe { sample.duration() });
+        samples.push((start, end, text));
+    }
+    samples
+}
+
+#[test]
+fn writes_subtitle_tracks_as_timed_text() {
+    let source = temporary("subtitled-source.mp4");
+    make_source(&source);
+    for (name, container) in [
+        ("subtitled.mp4", Container::Mp4),
+        ("subtitled.mov", Container::Mov),
+    ] {
+        let path = temporary(name);
+        let options = StartOptions {
+            path: path.to_str().unwrap().to_owned(),
+            format: container,
+            width: 64,
+            height: 64,
+            crop: Crop::default(),
+            output_width: 64,
+            output_height: 64,
+            fps: FPS,
+            video_codec: VideoCodec::Avc,
+            video_bitrate: 1_000_000,
+            video_quality: None,
+            audio: None,
+            audio_copy: None,
+            subtitles: vec![super::subtitle::SubtitleTrack {
+                cues: vec![
+                    super::subtitle::SubtitleCue {
+                        start: 0.2,
+                        end: 0.5,
+                        text: "Hello".into(),
+                    },
+                    super::subtitle::SubtitleCue {
+                        start: 0.7,
+                        end: 0.9,
+                        text: "Café\nau lait".into(),
+                    },
+                ],
+            }],
+        };
+        let Ok(mut worker) = Worker::new(&path, &options) else {
+            eprintln!("No GPU: skipped");
+            return;
+        };
+        for i in 0..30 {
+            let video = VideoFrame {
+                texture_id: "video".into(),
+                location: source.clone(),
+                stream: String::new(),
+                time: f64::from(i) / 30.0,
+            };
+            let message = Message::Frame {
+                frame: frame_showing("video", 64),
+                videos: vec![video],
+                released: vec![],
+            };
+            worker.handle(message).unwrap();
+        }
+        worker.finish().unwrap();
+
+        let samples = stored_subtitles(&path);
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-3;
+        let texts: Vec<&str> = samples.iter().map(|(_, _, text)| text.as_str()).collect();
+        assert_eq!(
+            texts,
+            ["", "Hello", "", "Café\nau lait"],
+            "{name}: {samples:?}"
+        );
+        let (start, end, _) = &samples[1];
+        assert!(near(*start, 0.2) && near(*end, 0.5), "{name}: {samples:?}");
+        let (start, end, _) = &samples[3];
+        assert!(near(*start, 0.7) && near(*end, 0.9), "{name}: {samples:?}");
+    }
 }

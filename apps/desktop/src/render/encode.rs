@@ -48,6 +48,7 @@ use super::av::{
 };
 use super::av1::Av1Encoder;
 use super::decode;
+use super::subtitle::{SubtitleInput, SubtitleTrack};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -173,17 +174,32 @@ pub struct Writer {
     video: Retained<AVAssetWriterInput>,
     sink: VideoSink,
     audio: Option<AudioInput>,
+    subtitles: Vec<SubtitleInput>,
     fps: FrameRate,
     frames: i64,
 }
 
 impl Writer {
-    /// Starts a file at `path`, replacing what's there.
+    /// Starts a file at `path`, replacing what's there: with no subtitles,
+    /// as the tests make them.
+    #[cfg(test)]
     pub fn new(
         path: &Path,
         container: Container,
         video: &VideoSettings,
         audio: Option<Audio>,
+    ) -> Result<Self, String> {
+        Self::with_subtitles(path, container, video, audio, &[])
+    }
+
+    /// Starts a file at `path`, replacing what's there, with subtitle tracks
+    /// as timed text (`subtitle.rs`).
+    pub fn with_subtitles(
+        path: &Path,
+        container: Container,
+        video: &VideoSettings,
+        audio: Option<Audio>,
+        subtitles: &[SubtitleTrack],
     ) -> Result<Self, String> {
         if container == Container::Mp4
             && matches!(video.codec, VideoCodec::ProRes | VideoCodec::ProResHq)
@@ -296,6 +312,10 @@ impl Writer {
             }
             None => None,
         };
+        let subtitles = subtitles
+            .iter()
+            .map(|track| SubtitleInput::new(&writer, track, (video.width, video.height)))
+            .collect::<Result<Vec<_>, _>>()?;
 
         if !unsafe { writer.startWriting() } {
             return Err(describe(
@@ -309,6 +329,7 @@ impl Writer {
             video: video_input,
             sink,
             audio,
+            subtitles,
             fps: video.fps,
             frames: 0,
         })
@@ -416,6 +437,11 @@ impl Writer {
         if let Some(audio) = &mut self.audio {
             audio.finish();
         }
+        while !self.subtitles.iter().all(SubtitleInput::is_finished) {
+            self.drain_audio()?;
+            self.check(started)?;
+            thread::sleep(Duration::from_millis(1));
+        }
         let end = fraction(
             self.frames * i64::from(self.fps.denominator),
             self.fps.numerator as i32,
@@ -454,8 +480,12 @@ impl Writer {
         }
     }
 
-    /// Hands over the sound there is, as much as the encoder takes now.
+    /// Hands over the sound there is, as much as the encoder takes now, and
+    /// the subtitles' lines.
     fn drain_audio(&mut self) -> Result<(), String> {
+        for track in &mut self.subtitles {
+            track.drain(&self.writer)?;
+        }
         let Some(audio) = &mut self.audio else {
             return Ok(());
         };

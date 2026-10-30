@@ -77,8 +77,10 @@ made by Whisper, which runs on the computer (`apps/web/src/transcription`).
     (in the desktop app through its save dialog).
   - Export puts the subtitle tracks in the picture (as before), in tracks a player turns on and
     off, or both (`export/subtitles.ts`): each a WebVTT track, through mediabunny, in MP4, MKV
-    or WebM, the picture without them if they go only in tracks. QuickTime files can't hold them
-    yet, nor does the native export write them: an export with them goes through the web view.
+    or WebM, the picture without them if they go only in tracks. The Mac's own export writes
+    them as timed text (tx3g, MP4's mov_text, `render/subtitle.rs`), which Apple's players show,
+    in MP4 and QuickTime files alike: tested by writing two lines with a gap and reading back
+    each sample's text and times, an empty one clearing the screen in the gap.
   - Typed while it plays: a line starts where its typing began, the film paused while typing
     if chosen, and lasts long enough to read (15 characters a second, 1 to 7 s) or until the
     next line. With no subtitle track, the panel offers to start one.
@@ -88,5 +90,5 @@ made by Whisper, which runs on the computer (`apps/web/src/transcription`).
     line edited with the original it overlaps most shown above it.
   - Timed by holding a key: lines pasted in, T held while each is spoken (pressed where it
     starts, let go where it ends), taken before the editor's own shortcuts see the key.
-  - Still to do: mov_text (tx3g) for Apple's players, which don't show WebVTT in MP4;
-    Whisper's own word timings for auto-sync.
+  - Still to do: Whisper's own word timings for auto-sync; the subtitles' styles in timed text
+    (white, at the foot, for now).
