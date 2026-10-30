@@ -36,4 +36,14 @@ CI runs the same on macOS, Windows and Linux.
 
 ## Licence
 
-MagnetCut is under the GNU AGPL 3.0, and your contribution will be too.
+MagnetCut is under the GNU AGPL 3.0, and your contribution will be too, with this additional
+permission under its section 7, which lets MagnetCut be distributed through app stores:
+
+> As an additional permission under section 7 of the GNU Affero General Public License, version
+> 3, the copyright holders of MagnetCut give you permission to convey this program, or a work
+> based on it, through an application store or distribution platform (such as Apple's App
+> Store) whose terms impose restrictions beyond those of this License, provided that you also
+> make the Corresponding Source of what you convey available under this License, without those
+> restrictions, as section 6 describes.
+
+By opening a pull request, you agree that your contribution is licensed on those terms.

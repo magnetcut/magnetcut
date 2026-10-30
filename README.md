@@ -81,7 +81,9 @@ See [CONTRIBUTING.md](.github/CONTRIBUTING.md).
 
 ## Licence
 
-MagnetCut is licensed under the [GNU AGPL 3.0](LICENSE).
+MagnetCut is licensed under the [GNU AGPL 3.0](LICENSE), with an additional permission under its
+section 7 to distribute it through app stores; [CONTRIBUTING.md](.github/CONTRIBUTING.md#licence)
+has its text, and contributions come on the same terms.
 
 It's based on [OpenCut](https://github.com/OpenCut-app/opencut-classic), copyright 2025-2026
 OpenCut, under the MIT licence ([licenses/OpenCut.txt](licenses/OpenCut.txt)). MagnetCut isn't made,
