@@ -11,6 +11,8 @@ All notable changes to this project are documented here. The format is based on
   your computer can encode; quality as a level, a bitrate or a file size to fit in; a smaller
   size (4K down to 480p) and another frame rate; and the sound's codec, bitrate and stereo or
   mono. The panel says what it will make and about how big before it starts.
+- Export presets: a few built in (Fast 1080p, Fits in 25 MB, Web 1080p and others) and your
+  own. Export remembers the settings you used last.
 
 ### Changed
 - The desktop app reads imported media where it is on your computer instead of copying it into

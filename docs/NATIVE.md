@@ -129,10 +129,12 @@ and give it constant quality and the encoders the web views lack.
 - Frame rate: the project's or another, constant (23.976 to 60).
 - Audio: AAC or Opus, the bitrate, stereo or mono (the mix downmixed).
 - The panel says what it'll make (codec, size, rate, sound, about how big) before it starts.
-- Still to do: presets of your own and the last settings remembered (local storage); a size of
-  your own and crop, with black bars found from sampled frames; a "fits in 25 MB" preset;
-  audio passthrough when the soundtrack is one source's audio uncut
-  (`EncodedAudioPacketSource`).
+- Presets: Default, Fast 1080p, Small 720p, Fits in 25 MB, Fits in 10 MB, Web 1080p (WebM)
+  and Archive (HEVC), one greyed out where its codec can't be encoded; and your own, saved
+  from the panel. The panel's choices are kept for the next export, presets with them, in
+  local storage (`export/choices-store.ts`), and checked field by field when read back.
+- Still to do: a size of your own and crop, with black bars found from sampled frames; audio
+  passthrough when the soundtrack is one source's audio uncut (`EncodedAudioPacketSource`).
 
 ### 4. Natively on macOS
 - `rust/crates/media` (new): decode with VideoToolbox (`objc2-video-toolbox`, MIT), frames as
@@ -194,4 +196,5 @@ and give it constant quality and the encoders the web views lack.
   timeline, at 3 Mbit/s (2.98 made); H.264 to fit in 1 MB. Every frame in each (120, and 100
   at 25 fps), with the codec, size and channels asked for; the MP4s and MOVs play in
   AVFoundation (HEVC as `hvc1`), and the 480p frame is the whole picture, scaled. AV1 is the
-  one codec this Mac's web view doesn't encode.
+  one codec this Mac's web view doesn't encode. Presets, in Chrome: chosen, saved, kept
+  across a reload with the last choices, and removed.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { TransitionTopIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -15,7 +15,9 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
 	Select,
 	SelectContent,
+	SelectGroup,
 	SelectItem,
+	SelectLabel,
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
@@ -29,7 +31,7 @@ import {
 	getExportFileExtension,
 	downloadBuffer,
 } from "@/export";
-import { Check, Copy, Download, RotateCcw } from "lucide-react";
+import { Check, Copy, Download, RotateCcw, Trash2 } from "lucide-react";
 import {
 	EXPORT_FORMAT_VALUES,
 	EXPORT_QUALITY_VALUES,
@@ -45,7 +47,14 @@ import {
 	SectionTitle,
 } from "@/components/section";
 import { useEditor } from "@/editor/use-editor";
-import { DEFAULT_EXPORT_OPTIONS } from "@/export/defaults";
+import {
+	BUILT_IN_PRESETS,
+	QUALITY_MODES,
+	getChosenOptions,
+	isSameExport,
+	type QualityMode,
+} from "@/export/choices";
+import { useExportChoicesStore } from "@/export/choices-store";
 import {
 	getRevealLabel,
 	pickExportFile,
@@ -66,9 +75,7 @@ import {
 	fitExportSize,
 	fitVideoCodec,
 	getVideoBitrate,
-	type ExportAudioCodec,
 	type ExportVideoCodec,
-	type ExportVideoQuality,
 } from "@/export/settings";
 import { frameRateToFloat } from "@/fps/utils";
 import { TICKS_PER_SECOND } from "@/wasm";
@@ -130,16 +137,14 @@ export function ExportButton() {
 	);
 }
 
-type QualityMode = ExportVideoQuality["mode"];
-
-const QUALITY_MODES: { value: QualityMode; label: string }[] = [
-	{ value: "level", label: "Level" },
-	{ value: "bitrate", label: "Bitrate" },
-	{ value: "size", label: "File size" },
-];
+const QUALITY_MODE_LABELS: Record<QualityMode, string> = {
+	level: "Level",
+	bitrate: "Bitrate",
+	size: "File size",
+};
 
 function isQualityMode(value: string): value is QualityMode {
-	return QUALITY_MODES.some((mode) => mode.value === value);
+	return QUALITY_MODES.some((mode) => mode === value);
 }
 
 /** In decimal megabytes, as Finder and Explorer count them. */
@@ -178,6 +183,123 @@ function useEncodableCodecs({
 	return encodable;
 }
 
+/** The presets, built in and your own: chosen from, saved and removed. */
+function ExportPresetPicker({
+	encodable,
+}: {
+	encodable: Set<ExportVideoCodec> | null;
+}) {
+	const choices = useExportChoicesStore((state) => state.choices);
+	const presets = useExportChoicesStore((state) => state.presets);
+	const setChoices = useExportChoicesStore((state) => state.setChoices);
+	const savePreset = useExportChoicesStore((state) => state.savePreset);
+	const removePreset = useExportChoicesStore((state) => state.removePreset);
+	// The name being typed for a new preset; none when not saving one.
+	const [newName, setNewName] = useState<string | null>(null);
+	const nameInput = useRef<HTMLInputElement>(null);
+	const isNaming = newName !== null;
+	useEffect(() => {
+		if (isNaming) nameInput.current?.focus();
+	}, [isNaming]);
+	const allPresets = [...presets, ...BUILT_IN_PRESETS];
+	const current = allPresets.find((preset) =>
+		isSameExport({ a: preset.choices, b: choices }),
+	);
+	const ownCurrent = presets.find((preset) => preset.id === current?.id);
+
+	const handleSave = () => {
+		const name = newName?.trim();
+		if (!name) return;
+		savePreset({ name });
+		setNewName(null);
+	};
+
+	return (
+		<div className="flex flex-col gap-2 border-b p-3">
+			<div className="flex gap-2">
+				<Select
+					value={current?.id ?? "custom"}
+					onValueChange={(id) => {
+						const preset = allPresets.find((candidate) => candidate.id === id);
+						if (preset) setChoices({ choices: preset.choices });
+					}}
+				>
+					<SelectTrigger variant="outline" className="w-full">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent position="popper">
+						{!current && <SelectItem value="custom">Custom</SelectItem>}
+						{presets.length > 0 && (
+							<SelectGroup>
+								<SelectLabel>Yours</SelectLabel>
+								{presets.map((preset) => (
+									<SelectItem key={preset.id} value={preset.id}>
+										{preset.name}
+									</SelectItem>
+								))}
+							</SelectGroup>
+						)}
+						<SelectGroup>
+							<SelectLabel>Built in</SelectLabel>
+							{BUILT_IN_PRESETS.map((preset) => {
+								const isUnavailable =
+									!!encodable && !encodable.has(preset.choices.videoCodec);
+								return (
+									<SelectItem
+										key={preset.id}
+										value={preset.id}
+										disabled={isUnavailable}
+									>
+										{preset.name}
+										{isUnavailable ? " (not on this computer)" : ""}
+									</SelectItem>
+								);
+							})}
+						</SelectGroup>
+					</SelectContent>
+				</Select>
+				{ownCurrent ? (
+					<Button
+						variant="outline"
+						className="size-9 shrink-0 p-0"
+						aria-label={`Remove the preset ${ownCurrent.name}`}
+						onClick={() => removePreset({ id: ownCurrent.id })}
+					>
+						<Trash2 />
+					</Button>
+				) : (
+					<Button
+						variant="outline"
+						onClick={() => setNewName(newName === null ? "" : null)}
+					>
+						Save
+					</Button>
+				)}
+			</div>
+			{newName !== null && (
+				<form
+					className="flex gap-2"
+					onSubmit={(event) => {
+						event.preventDefault();
+						handleSave();
+					}}
+				>
+					<Input
+						ref={nameInput}
+						placeholder="Preset name"
+						aria-label="Preset name"
+						value={newName}
+						onChange={(event) => setNewName(event.target.value)}
+					/>
+					<Button type="submit" disabled={!newName.trim()}>
+						Save
+					</Button>
+				</form>
+			)}
+		</div>
+	);
+}
+
 function ExportPopover({
 	onOpenChange,
 }: {
@@ -187,40 +309,29 @@ function ExportPopover({
 	const activeProject = useEditor((e) => e.project.getActive());
 	const exportState = useEditor((e) => e.project.getExportState());
 	const { isExporting, progress, result: exportResult } = exportState;
-	const defaults = DEFAULT_EXPORT_OPTIONS;
-	const [format, setFormat] = useState<ExportFormat>(defaults.format);
-	const [videoCodec, setVideoCodec] = useState<ExportVideoCodec>(
-		defaults.videoCodec,
-	);
-	const [qualityMode, setQualityMode] = useState<QualityMode>("level");
-	const [level, setLevel] = useState<ExportQuality>(defaults.quality.level);
-	const [videoKbps, setVideoKbps] = useState(8000);
-	const [megabytes, setMegabytes] = useState(25);
-	// The shorter side; none for the project's size.
-	const [shortSide, setShortSide] = useState<number | undefined>();
-	const [fpsLabel, setFpsLabel] = useState<string | undefined>();
-	const [shouldIncludeAudio, setShouldIncludeAudio] = useState(true);
-	const [audioCodec, setAudioCodec] = useState<ExportAudioCodec>(
-		defaults.audio.codec,
-	);
-	const [audioKbps, setAudioKbps] = useState(defaults.audio.kbps);
-	const [channels, setChannels] = useState<1 | 2>(defaults.audio.channels);
+	const choices = useExportChoicesStore((state) => state.choices);
+	const setChoices = useExportChoicesStore((state) => state.setChoices);
+	const {
+		format,
+		videoCodec,
+		qualityMode,
+		level,
+		videoKbps,
+		megabytes,
+		fpsLabel,
+		hasAudio,
+		audioCodec,
+		audioKbps,
+		channels,
+	} = choices;
+	const options = getChosenOptions({ choices });
+	const { quality, shortSide, audio } = options;
 
 	const canvasSize = activeProject.settings.canvasSize;
+	const projectShortSide = Math.min(canvasSize.width, canvasSize.height);
 	const outputSize = fitExportSize({ canvas: canvasSize, shortSide });
 	const encodable = useEncodableCodecs(outputSize);
-	const fps =
-		FRAME_RATE_PRESETS.find((preset) => preset.label === fpsLabel)?.rate ??
-		activeProject.settings.fps;
-	const quality: ExportVideoQuality =
-		qualityMode === "level"
-			? { mode: "level", level }
-			: qualityMode === "bitrate"
-				? { mode: "bitrate", kbps: videoKbps }
-				: { mode: "size", megabytes };
-	const audio = shouldIncludeAudio
-		? { codec: audioCodec, kbps: audioKbps, channels }
-		: null;
+	const fps = options.fps ?? activeProject.settings.fps;
 	const duration = editor.timeline.getTotalDuration() / TICKS_PER_SECOND;
 	const audioBitrate = audio ? audio.kbps * 1000 : 0;
 	const videoBitrate = getVideoBitrate({
@@ -238,13 +349,15 @@ function ExportPopover({
 	const canEncode = !encodable || encodable.has(videoCodec);
 
 	const handleFormatChange = ({ value }: { value: ExportFormat }) => {
-		setFormat(value);
-		setVideoCodec(fitVideoCodec({ format: value, codec: videoCodec }));
 		const codec = fitAudioCodec({ format: value, codec: audioCodec });
-		if (codec !== audioCodec) {
-			setAudioCodec(codec);
-			setAudioKbps(DEFAULT_AUDIO_KBPS[codec]);
-		}
+		setChoices({
+			choices: {
+				format: value,
+				videoCodec: fitVideoCodec({ format: value, codec: videoCodec }),
+				audioCodec: codec,
+				audioKbps: codec === audioCodec ? audioKbps : DEFAULT_AUDIO_KBPS[codec],
+			},
+		});
 	};
 
 	const handleExport = async () => {
@@ -341,6 +454,7 @@ function ExportPopover({
 						{!isExporting && (
 							<>
 								<div className="flex flex-col">
+									<ExportPresetPicker encodable={encodable} />
 									<Section
 										collapsible
 										defaultOpen={false}
@@ -379,7 +493,7 @@ function ExportPopover({
 															const codec = FORMAT_CODECS[format].video.find(
 																(candidate) => candidate === value,
 															);
-															if (codec) setVideoCodec(codec);
+															if (codec) setChoices({ choices: { videoCodec: codec } });
 														}}
 													>
 														<SelectTrigger variant="outline">
@@ -415,20 +529,22 @@ function ExportPopover({
 													className="flex gap-4"
 													value={qualityMode}
 													onValueChange={(value) => {
-														if (isQualityMode(value)) setQualityMode(value);
+														if (isQualityMode(value)) {
+															setChoices({ choices: { qualityMode: value } });
+														}
 													}}
 												>
 													{QUALITY_MODES.map((mode) => (
 														<div
-															key={mode.value}
+															key={mode}
 															className="flex items-center space-x-2"
 														>
 															<RadioGroupItem
-																value={mode.value}
-																id={`quality-${mode.value}`}
+																value={mode}
+																id={`quality-${mode}`}
 															/>
-															<Label htmlFor={`quality-${mode.value}`}>
-																{mode.label}
+															<Label htmlFor={`quality-${mode}`}>
+																{QUALITY_MODE_LABELS[mode]}
 															</Label>
 														</div>
 													))}
@@ -437,7 +553,9 @@ function ExportPopover({
 													<Select
 														value={level}
 														onValueChange={(value) => {
-															if (isExportQuality(value)) setLevel(value);
+															if (isExportQuality(value)) {
+																setChoices({ choices: { level: value } });
+															}
 														}}
 													>
 														<SelectTrigger variant="outline">
@@ -462,7 +580,7 @@ function ExportPopover({
 															value={videoKbps}
 															onChange={(event) => {
 																const value = Number(event.target.value);
-																if (value > 0) setVideoKbps(value);
+																if (value > 0) setChoices({ choices: { videoKbps: value } });
 															}}
 														/>
 													</SectionField>
@@ -475,7 +593,7 @@ function ExportPopover({
 															value={megabytes}
 															onChange={(event) => {
 																const value = Number(event.target.value);
-																if (value > 0) setMegabytes(value);
+																if (value > 0) setChoices({ choices: { megabytes: value } });
 															}}
 														/>
 													</SectionField>
@@ -492,11 +610,18 @@ function ExportPopover({
 											<SectionFields>
 												<SectionField label="Size">
 													<Select
-														value={shortSide ? String(shortSide) : "project"}
+														value={
+															shortSide && shortSide < projectShortSide
+																? String(shortSide)
+																: "project"
+														}
 														onValueChange={(value) =>
-															setShortSide(
-																value === "project" ? undefined : Number(value),
-															)
+															setChoices({
+																choices: {
+																	shortSide:
+																		value === "project" ? null : Number(value),
+																},
+															})
 														}
 													>
 														<SelectTrigger variant="outline">
@@ -507,9 +632,7 @@ function ExportPopover({
 																{`The project's (${canvasSize.width}×${canvasSize.height})`}
 															</SelectItem>
 															{SIZE_PRESETS.filter(
-																(preset) =>
-																	preset.shortSide <
-																	Math.min(canvasSize.width, canvasSize.height),
+																(preset) => preset.shortSide < projectShortSide,
 															).map((preset) => (
 																<SelectItem
 																	key={preset.shortSide}
@@ -525,7 +648,11 @@ function ExportPopover({
 													<Select
 														value={fpsLabel ?? "project"}
 														onValueChange={(value) =>
-															setFpsLabel(value === "project" ? undefined : value)
+															setChoices({
+																choices: {
+																	fpsLabel: value === "project" ? null : value,
+																},
+															})
 														}
 													>
 														<SelectTrigger variant="outline">
@@ -556,16 +683,16 @@ function ExportPopover({
 												<div className="flex items-center space-x-2">
 													<Checkbox
 														id="include-audio"
-														checked={shouldIncludeAudio}
+														checked={hasAudio}
 														onCheckedChange={(checked) =>
-															setShouldIncludeAudio(!!checked)
+															setChoices({ choices: { hasAudio: !!checked } })
 														}
 													/>
 													<Label htmlFor="include-audio">
 														Include audio in export
 													</Label>
 												</div>
-												{shouldIncludeAudio && (
+												{hasAudio && (
 													<div className="grid grid-cols-3 gap-2">
 														<Select
 															value={audioCodec}
@@ -574,8 +701,12 @@ function ExportPopover({
 																	(candidate) => candidate === value,
 																);
 																if (!codec) return;
-																setAudioCodec(codec);
-																setAudioKbps(DEFAULT_AUDIO_KBPS[codec]);
+																setChoices({
+																	choices: {
+																		audioCodec: codec,
+																		audioKbps: DEFAULT_AUDIO_KBPS[codec],
+																	},
+																});
 															}}
 														>
 															<SelectTrigger variant="outline" className="w-full">
@@ -591,7 +722,9 @@ function ExportPopover({
 														</Select>
 														<Select
 															value={String(audioKbps)}
-															onValueChange={(value) => setAudioKbps(Number(value))}
+															onValueChange={(value) =>
+																setChoices({ choices: { audioKbps: Number(value) } })
+															}
 														>
 															<SelectTrigger variant="outline" className="w-full">
 																<SelectValue />
@@ -607,7 +740,7 @@ function ExportPopover({
 														<Select
 															value={String(channels)}
 															onValueChange={(value) =>
-																setChannels(value === "1" ? 1 : 2)
+																setChoices({ choices: { channels: value === "1" ? 1 : 2 } })
 															}
 														>
 															<SelectTrigger variant="outline" className="w-full">
