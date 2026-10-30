@@ -9,14 +9,14 @@ use std::path::Path;
 use windows::Win32::Media::MediaFoundation::{
     CODECAPI_AVEncCommonMeanBitRate, CODECAPI_AVEncCommonRateControlMode, CODECAPI_AVEncMPVGOPSize,
     IMFAttributes, IMFByteStream, IMFMediaBuffer, IMFMediaType, IMFSinkWriter,
-    MF_MPEG4SINK_MOOV_BEFORE_MDAT, MF_MT_DEFAULT_STRIDE, MF_MT_MPEG2_PROFILE,
-    MF_MT_TRANSFER_FUNCTION, MF_MT_VIDEO_NOMINAL_RANGE, MF_MT_VIDEO_PRIMARIES, MF_MT_YUV_MATRIX,
-    MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_TRANSCODE_CONTAINERTYPE, MFAudioFormat_AAC,
-    MFAudioFormat_PCM, MFCreateSinkWriterFromURL, MFMediaType_Video, MFNominalRange_16_235,
-    MFT_CATEGORY_VIDEO_ENCODER, MFTranscodeContainerType_MPEG4, MFVideoFormat_H264,
-    MFVideoFormat_HEVC, MFVideoFormat_RGB32, MFVideoPrimaries_BT709, MFVideoTransFunc_709,
-    MFVideoTransferMatrix_BT709, eAVEncCommonRateControlMode_UnconstrainedVBR,
-    eAVEncH264VProfile_High, eAVEncH265VProfile_Main_420_8,
+    MF_MT_DEFAULT_STRIDE, MF_MT_MPEG2_PROFILE, MF_MT_TRANSFER_FUNCTION, MF_MT_VIDEO_NOMINAL_RANGE,
+    MF_MT_VIDEO_PRIMARIES, MF_MT_YUV_MATRIX, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
+    MF_TRANSCODE_CONTAINERTYPE, MFAudioFormat_AAC, MFAudioFormat_PCM, MFCreateSinkWriterFromURL,
+    MFMediaType_Video, MFNominalRange_16_235, MFT_CATEGORY_VIDEO_ENCODER,
+    MFTranscodeContainerType_MPEG4, MFVideoFormat_H264, MFVideoFormat_HEVC, MFVideoFormat_RGB32,
+    MFVideoPrimaries_BT709, MFVideoTransFunc_709, MFVideoTransferMatrix_BT709,
+    eAVEncCommonRateControlMode_UnconstrainedVBR, eAVEncH264VProfile_High,
+    eAVEncH265VProfile_Main_420_8,
 };
 use windows::core::{GUID, PCWSTR};
 
@@ -175,13 +175,12 @@ impl Writer {
             _ => {}
         }
         let url = wide(path)?;
-        // An MP4 whatever the name, its index at the start so it plays as it
-        // downloads.
+        // An MP4 whatever the name. Its index stays at the end: put first
+        // (MF_MPEG4SINK_MOOV_BEFORE_MDAT), files finished at the same time
+        // were refused ("Access is denied"), as if they shared the sink's
+        // scratch file.
         let settings = attributes(
-            &[
-                (MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1),
-                (MF_MPEG4SINK_MOOV_BEFORE_MDAT, 1),
-            ],
+            &[(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, 1)],
             &[(MF_TRANSCODE_CONTAINERTYPE, MFTranscodeContainerType_MPEG4)],
         )?;
         let writer = unsafe {
