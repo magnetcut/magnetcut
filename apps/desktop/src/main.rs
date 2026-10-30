@@ -3,6 +3,7 @@
 // No console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod export;
 mod media;
 mod menu;
 #[cfg(target_os = "linux")]
@@ -11,6 +12,25 @@ mod webkit;
 use serde::Serialize;
 use tauri::webview::PageLoadEvent;
 use tauri::{Emitter, Manager};
+
+/// The commands the editor calls, and any more given.
+macro_rules! commands {
+    ($($more:path),*) => {
+        tauri::generate_handler![
+            app_info,
+            media::pick_media_files,
+            media::dropped_media_files,
+            media::media_file_info,
+            media::read_media_file,
+            export::pick_export_file,
+            export::open_export_file,
+            export::write_export_file,
+            export::close_export_file,
+            export::reveal_export_file,
+            $($more),*
+        ]
+    };
+}
 
 /// With MAGNETCUT_PROBE set, each page reports what the system's web view can
 /// do (src/probe.js), the report is printed as one JSON line, and the app quits.
@@ -57,6 +77,7 @@ fn main() {
     }
     builder = builder.setup(|app| {
         app.manage(media::MediaFiles::load(app.handle()));
+        app.manage(export::Exports::default());
         // Before the first page loads: the window exists, and with_webview
         // runs at once on the main thread, which serves the page.
         #[cfg(target_os = "linux")]
@@ -83,14 +104,7 @@ fn main() {
 
     if std::env::var_os(PROBE_ENV).is_some() {
         builder = builder
-            .invoke_handler(tauri::generate_handler![
-                app_info,
-                probe_report,
-                media::pick_media_files,
-                media::dropped_media_files,
-                media::media_file_info,
-                media::read_media_file,
-            ])
+            .invoke_handler(commands![probe_report])
             .on_page_load(|webview, payload| {
                 if payload.event() == PageLoadEvent::Finished
                     && let Err(error) = webview.eval(include_str!("probe.js"))
@@ -99,13 +113,7 @@ fn main() {
                 }
             });
     } else {
-        builder = builder.invoke_handler(tauri::generate_handler![
-            app_info,
-            media::pick_media_files,
-            media::dropped_media_files,
-            media::media_file_info,
-            media::read_media_file,
-        ]);
+        builder = builder.invoke_handler(commands![]);
     }
     builder
         .run(tauri::generate_context!())

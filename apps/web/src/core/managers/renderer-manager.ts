@@ -3,6 +3,7 @@ import type { RootNode } from "@/services/renderer/nodes/root-node";
 import type { ExportOptions, ExportResult } from "@/export";
 import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import { SceneExporter } from "@/services/renderer/scene-exporter";
+import { openExportFile } from "@/export/disk-target";
 import { buildScene } from "@/services/renderer/scene-builder";
 import { createTimelineAudioBuffer } from "@/media/audio";
 import { formatTimecode } from "magnetcut-wasm";
@@ -147,7 +148,7 @@ export class RendererManager {
 		onProgress?: ({ progress }: { progress: number }) => void;
 		onCancel?: () => boolean;
 	}): Promise<ExportResult> {
-		const { format, quality, fps, includeAudio } = options;
+		const { format, quality, fps, includeAudio, path } = options;
 
 		try {
 			const tracks = this.editor.scenes.getActiveScene().tracks;
@@ -192,6 +193,7 @@ export class RendererManager {
 				quality,
 				shouldIncludeAudio: !!includeAudio,
 				audioBuffer: audioBuffer || undefined,
+				file: path ? await openExportFile({ path }) : undefined,
 			});
 
 			exporter.on("progress", (progress) => {
@@ -212,21 +214,20 @@ export class RendererManager {
 			const cancelInterval = setInterval(checkCancel, 100);
 
 			try {
-				const buffer = await exporter.export({ rootNode: scene });
+				const output = await exporter.export({ rootNode: scene });
 				clearInterval(cancelInterval);
 
 				if (cancelled) {
 					return { success: false, cancelled: true };
 				}
 
-				if (!buffer) {
+				if (!output) {
 					return { success: false, error: "Export failed to produce buffer" };
 				}
 
-				return {
-					success: true,
-					buffer,
-				};
+				return "buffer" in output
+					? { success: true, buffer: output.buffer }
+					: { success: true, path };
 			} finally {
 				clearInterval(cancelInterval);
 			}

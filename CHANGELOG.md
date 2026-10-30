@@ -11,6 +11,12 @@ All notable changes to this project are documented here. The format is based on
   its own storage, so a file of any size can go in (on Linux that storage held 1 GB). That's
   files picked with Import, and on macOS files dropped on the window; a file moved or renamed
   is still found. If one is gone when a project opens, MagnetCut says which.
+- Export in the desktop app asks where to save, starting in your footage's folder, and writes
+  the file as it's made instead of keeping the whole film in memory first. When it's done, Show
+  in Finder (or Explorer, or the file manager) takes you to it.
+
+### Fixed
+- Exporting to MP4 on macOS stopped after a few frames and never finished.
 
 ## [0.1.0] - 2026-10-30
 

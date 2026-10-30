@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 import { TransitionTopIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -34,6 +35,12 @@ import {
 } from "@/components/section";
 import { useEditor } from "@/editor/use-editor";
 import { DEFAULT_EXPORT_OPTIONS } from "@/export/defaults";
+import {
+	getRevealLabel,
+	pickExportFile,
+	revealExportFile,
+} from "@/export/disk-target";
+import { canReadDiskFiles } from "@/media/disk-file";
 
 function isExportFormat(value: string): value is ExportFormat {
 	return EXPORT_FORMAT_VALUES.some((formatValue) => formatValue === value);
@@ -114,17 +121,49 @@ function ExportPopover({
 	const handleExport = async () => {
 		if (!activeProject) return;
 
+		// The desktop app asks where first, and writes the file as it goes.
+		let path: string | undefined;
+		if (canReadDiskFiles()) {
+			// Beside the footage, as HandBrake does.
+			const footage = editor.media.getAssets().find((asset) => asset.path);
+			const picked = await pickExportFile({
+				name: activeProject.metadata.name,
+				extension: format,
+				besidePath: footage?.path,
+			});
+			if (!picked) return;
+			path = picked;
+		}
+
 		const result = await editor.project.export({
 			options: {
 				format,
 				quality,
 				fps: activeProject.settings.fps,
 				includeAudio: shouldIncludeAudio,
+				path,
 			},
 		});
 
 		if (result.cancelled) {
 			editor.project.clearExportState();
+			return;
+		}
+
+		if (result.success && result.path) {
+			const savedPath = result.path;
+			toast.success(`Exported ${savedPath.split(/[\\/]/).pop()}`, {
+				action: {
+					label: getRevealLabel(),
+					onClick: () => {
+						revealExportFile({ path: savedPath }).catch((error: unknown) =>
+							console.error("Couldn't show the export:", error),
+						);
+					},
+				},
+			});
+			editor.project.clearExportState();
+			onOpenChange(false);
 			return;
 		}
 

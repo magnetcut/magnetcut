@@ -88,10 +88,19 @@ and give it constant quality and the encoders the web views lack.
   it's back. Relink, to point at it somewhere else, is still to do.
 
 ### 2. Export to a file, as it goes
-- A save dialog (Tauri's dialog plugin, MIT/Apache) with the container's extension; the App
-  Store edition gets write access to what's picked.
-- `StreamTarget` → Rust writes each chunk at its position. The web keeps `BufferTarget` and
-  the download.
+- In the desktop app, Export opens a save dialog first (Tauri's dialog plugin), with the
+  container's extension, in the folder of the project's first file on disk, as HandBrake does.
+  The App Store edition may write what's picked (`files.user-selected.read-write`).
+- mediabunny writes through a `StreamTarget` in 16 MB chunks (`export/disk-target.ts`), each
+  sent to Rust as the raw body of an IPC call with its position in a header; Rust
+  (`apps/desktop/src/export.rs`) writes it there, and only to a file picked in the dialog. MP4
+  puts its index at the end (`fastStart: false`), so nothing is held back. A cancelled or failed
+  export deletes its file; a finished one gets a toast with Show in Finder. The web build keeps
+  `BufferTarget` and the download.
+- H.264 in WebKit (macOS, and Safari) is encoded in real-time mode. In quality mode
+  VideoToolbox holds frames back until it has several, while mediabunny waits for one to come
+  out once four are queued: every MP4 export stopped after about seven frames, 0.1.0's too.
+  HEVC and VP9 don't stall.
 - Audio mixed per stretch (a few seconds at a time) through the same mixer, fed to an
   `AudioSampleSource`.
 
@@ -151,3 +160,6 @@ and give it constant quality and the encoders the web views lack.
   disk, imported with its thumbnail in 0.1 s, saved by path and reopened from it, frames
   decoded at 1.8 ms each through IPC reads; other paths refused; the list and the bookmark
   surviving a relaunch and a rename.
+- Phase 2's file writing: in the app on macOS, a save dialog opening in the folder given, and
+  an H.264 MP4 written to the file picked as it was encoded, which mediabunny then read back
+  whole (2 s, 60 frames).

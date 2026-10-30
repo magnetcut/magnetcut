@@ -18,11 +18,15 @@ export interface ExportOptions {
 	quality: ExportQuality;
 	fps?: FrameRate;
 	includeAudio?: boolean;
+	/** In the desktop app, the file picked in its save dialog, written as it's made. */
+	path?: string;
 }
 
 export interface ExportResult {
 	success: boolean;
 	buffer?: ArrayBuffer;
+	/** Where it was saved, when it went to a file. */
+	path?: string;
 	error?: string;
 	cancelled?: boolean;
 }
