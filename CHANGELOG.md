@@ -7,6 +7,9 @@ All notable changes to this project are documented here. The format is based on
 ## Unreleased
 
 ### Added
+- The Adjustment tab: Color (exposure, contrast, highlights, shadows, saturation, vibrance,
+  temperature, tint and hue), Vignette and Sharpen. Drop one on a clip to adjust it, or add it
+  to the timeline to adjust everything beneath it; its sliders are in the properties panel.
 - Export settings, as in HandBrake: MP4, MOV, MKV or WebM; H.264, HEVC, VP9 or AV1, whichever
   your computer can encode; quality as a level, a bitrate or a file size to fit in; a smaller
   size (4K down to 480p) and another frame rate; and the sound's codec, bitrate and stereo or
