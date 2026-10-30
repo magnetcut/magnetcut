@@ -12,6 +12,7 @@
     "dev:web": "turbo run dev --filter=@magnetcut/web",
     "format:web": "prettier apps/web/src/services/renderer --write",
     "generate:fonts": "npx tsx apps/web/scripts/generate-font-sprites.ts",
+    "licenses": "bun apps/web/scripts/licenses.ts",
     "lint:web": "eslint apps/web/src --ext .ts,.tsx",
     "lint:web:fix": "eslint apps/web/src --ext .ts,.tsx --fix",
     "test": "bun test"

@@ -58,6 +58,9 @@ cargo tauri dev     # the editor in a window, reloading as you edit
 cargo tauri build   # the installers, in target/release/bundle
 ```
 
+After adding or updating a dependency, `bun run licenses` checks that its licence can ship and
+updates the notices in About (`apps/web/public/acknowledgements.txt`); CI checks it too.
+
 Releases are made as [docs/RELEASING.md](docs/RELEASING.md) says.
 
 ### The Rust core

@@ -1,5 +1,6 @@
 {
 	"$schema": "https://turborepo.com/schema.json",
+	"envMode": "loose",
 	"tasks": {
 		"build": {
 			"dependsOn": ["^build"],
@@ -16,15 +17,7 @@
 				"$TURBO_ROOT$/Cargo.lock",
 				"package.json"
 			],
-			"outputs": ["pkg/**"],
-			"passThroughEnv": [
-				"CARGO_HOME",
-				"RUSTUP_HOME",
-				"RUSTUP_TOOLCHAIN",
-				"USERPROFILE",
-				"LOCALAPPDATA",
-				"APPDATA"
-			]
+			"outputs": ["pkg/**"]
 		},
 		"check-types": {
 			"dependsOn": ["^check-types"]

@@ -6,6 +6,7 @@ import { useAppDialogsStore } from "../app-dialogs-store";
 import { useAppInfo } from "../app-info";
 import { useSettingsStore } from "../settings-store";
 import { checkForUpdatesNow } from "../updates";
+import { AcknowledgementsDialog } from "./acknowledgements-dialog";
 
 export const SOURCE_URL = "https://github.com/magnetcut/magnetcut";
 const OPENCUT_URL = "https://github.com/OpenCut-app/opencut-classic";
@@ -19,6 +20,8 @@ export function AboutDialog({
 }) {
 	const info = useAppInfo();
 	const storage = useStorageEstimate({ isOpen });
+	const [isShowingAcknowledgements, setIsShowingAcknowledgements] =
+		useState(false);
 
 	return (
 		<Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -67,15 +70,28 @@ export function AboutDialog({
 						</a>
 						, under the MIT licence.
 					</p>
-					<a
-						href={SOURCE_URL}
-						target="_blank"
-						rel="noreferrer"
-						className="text-sm underline-offset-4 hover:underline"
-					>
-						Source
-					</a>
+					<div className="flex items-center gap-5 text-sm">
+						<a
+							href={SOURCE_URL}
+							target="_blank"
+							rel="noreferrer"
+							className="underline-offset-4 hover:underline"
+						>
+							Source
+						</a>
+						<button
+							type="button"
+							onClick={() => setIsShowingAcknowledgements(true)}
+							className="underline-offset-4 hover:underline"
+						>
+							Acknowledgements
+						</button>
+					</div>
 				</div>
+				<AcknowledgementsDialog
+					isOpen={isShowingAcknowledgements}
+					onOpenChange={setIsShowingAcknowledgements}
+				/>
 			</DialogContent>
 		</Dialog>
 	);

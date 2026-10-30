@@ -93,7 +93,9 @@ telemetry: everything stays on the computer. Not for iOS or Android.
   additional permission (GPLv3 section 7) for app-store distribution. Third-party code can't
   get that permission from us, so CI still fails on any GPL/LGPL/AGPL/SSPL dependency without
   a permissive alternative licence (that keeps x264/x265 out too, and their patents), and the
-  build generates the third-party notices that MIT/BSD/Apache require in a binary.
+  third-party notices that MIT/BSD/Apache require in a binary are in About (Acknowledgements).
+  Both come from `apps/web/scripts/licenses.ts`, over every Rust crate and JavaScript package
+  that ships; CI fails if the notices are out of date.
   `soundtouchjs` (LGPL-2.1) is gone: pitch-preserving speed changes use a Rust time-stretch
   (`rust/crates/audio`, WSOLA).
 - **Name and marks.** OpenCut's guidelines forbid its name or logo on another product, so every
@@ -103,8 +105,7 @@ telemetry: everything stays on the computer. Not for iOS or Android.
 
 ## Order
 
-Done: 1, 2, 3, 4 on macOS, and 5 but for making the first release (and About's
-Acknowledgements, which wait for step 7's notices).
+Done: 1, 2, 3, 4 on macOS, 5 but for making the first release, and 7.
 
 1. Strip the server, accounts, analytics and website; static export; editor works in a browser.
 2. Rebrand: names, package scopes, storage keys, logo and icon.

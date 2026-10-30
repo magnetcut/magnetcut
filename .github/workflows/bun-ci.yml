@@ -77,6 +77,12 @@ jobs:
       - name: Run the Rust core's tests
         run: cargo test -p audio -p time
 
+      # Nothing under a licence MagnetCut can't ship, and About's notices
+      # current (apps/web/scripts/licenses.ts). The same on every system.
+      - name: Check licences
+        if: runner.os == 'Linux'
+        run: bun run licenses --check
+
       - name: Build
         working-directory: apps/web
         run: bun run build
