@@ -176,10 +176,12 @@ and give it constant quality and the encoders the web views lack.
 - Its speed without the editor, on an M4 in a release build (`native_speed`, an ignored test):
   4K decoded at 230 frames a second; 4K to 4K HEVC at 40 to 55, the hardware HEVC encoder
   being the limit (each frame waits on it about as long as it takes to decode, draw and read
-  back); 4K to 1080p H.264 at 113. Using the decoded picture as a Metal texture without the
-  copy would gain little at 4K: decoding the next frame while one's drawn would gain more.
-- Still to do: decoding ahead while drawing, the decoded frame used as a Metal texture without
-  the copy, and 10-bit HEVC.
+  back); 4K to 1080p H.264 at 113. Decoding ahead on a thread of its own, three frames before
+  the one drawn, was tried and measured: no faster (107), since AVAssetReader already decodes
+  ahead in hardware; what's left of a frame's time there is copying the decoded picture into
+  its texture and the frame back out. Using the decoded picture as a Metal texture without the
+  copy is what would gain, for outputs smaller than 4K.
+- Still to do: the decoded frame used as a Metal texture without the copy, and 10-bit HEVC.
 - What the web view can't decode (ProRes, DNxHR) can work there too, once the editor can show
   it.
 
