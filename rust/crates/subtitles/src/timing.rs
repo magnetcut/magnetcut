@@ -199,6 +199,30 @@ pub fn snap(time: f64, edges: &[f64], reach: f64) -> f64 {
         .unwrap_or(time)
 }
 
+/// Each line's start moved to the nearest of `starts` and its end to the
+/// nearest of `ends` within `reach` seconds (where speech starts and ends, and
+/// cuts, in both), keeping it at least `shortest` long: how many moved.
+pub fn snap_edges(
+    cues: &mut [Cue],
+    starts: &[f64],
+    ends: &[f64],
+    reach: f64,
+    shortest: f64,
+) -> usize {
+    let mut moved = 0;
+    for cue in cues {
+        let start = snap(cue.start, starts, reach);
+        let end = snap(cue.end, ends, reach);
+        if end - start < shortest || (start == cue.start && end == cue.end) {
+            continue;
+        }
+        cue.start = start;
+        cue.end = end;
+        moved += 1;
+    }
+    moved
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,6 +310,19 @@ mod tests {
         let joined = join(&[a, b]).unwrap();
         assert_eq!((joined.start, joined.end), (0.0, 3.0));
         assert_eq!(joined.text, "One two\nthree four five");
+    }
+
+    #[test]
+    fn snaps_lines_to_speech_and_cuts() {
+        let mut cues = vec![cue(1.1, 2.9, "a"), cue(5.0, 5.2, "b"), cue(8.0, 9.0, "c")];
+        // Speech from 1.0 to 3.0 and 5.1 to 5.15; a cut at 9.2.
+        let starts = [1.0, 5.1, 9.2];
+        let ends = [3.0, 5.15, 9.2];
+        assert_eq!(snap_edges(&mut cues, &starts, &ends, 0.3, 0.2), 2);
+        assert_eq!((cues[0].start, cues[0].end), (1.0, 3.0));
+        // Snapped, it'd be too short: left as it was.
+        assert_eq!((cues[1].start, cues[1].end), (5.0, 5.2));
+        assert_eq!((cues[2].start, cues[2].end), (8.0, 9.2));
     }
 
     #[test]

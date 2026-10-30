@@ -4,7 +4,12 @@ import {
 	twoPointRetime,
 	type SubtitleFormat,
 } from "magnetcut-wasm";
-import { UpdateElementsCommand } from "@/commands";
+import {
+	AddTrackCommand,
+	BatchCommand,
+	InsertElementCommand,
+	UpdateElementsCommand,
+} from "@/commands";
 import {
 	Section,
 	SectionContent,
@@ -14,6 +19,8 @@ import {
 	SectionTitle,
 } from "@/components/section";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import {
 	Select,
@@ -30,15 +37,22 @@ import type { TextTrack } from "@/timeline";
 import { cn } from "@/utils/ui";
 import { mediaTimeFromSeconds, mediaTimeToSeconds } from "@/wasm";
 import { SUBTITLE_FORMAT_NAMES, saveSubtitleFile } from "../save";
-import { findTimelineSpeech, fitTrackToSpeech } from "../sync";
+import { buildSubtitleTextElement } from "../build-subtitle-text-element";
+import {
+	findTimelineSpeech,
+	fitTrackToSpeech,
+	snapTrackToSpeech,
+} from "../sync";
 import {
 	fixTrackDurations,
 	fixTrackOverlaps,
 	formatClock,
 	getLineUpdates,
+	getOriginalLine,
 	getReadingSpeed,
 	getSubtitleLines,
 	getSubtitleTracks,
+	getTypedCaption,
 	parseClock,
 	retimeTrack,
 	saveTrack,
@@ -72,11 +86,14 @@ interface SyncMark {
 
 function LineEditor({
 	line,
+	original,
 	now,
 	onApply,
 	onMark,
 }: {
 	line: SubtitleLine;
+	/** The line it translates, when it's a translation's. */
+	original?: string;
 	now: number;
 	onApply: ({
 		start,
@@ -111,6 +128,11 @@ function LineEditor({
 					onChange={(event) => setEnd(event.target.value)}
 				/>
 			</div>
+			{original !== undefined && (
+				<p className="text-muted-foreground text-xs whitespace-pre-line">
+					{original}
+				</p>
+			)}
 			<Textarea
 				aria-label="Text"
 				rows={2}
@@ -144,8 +166,10 @@ function SubtitleTools({
 	track,
 	onApply,
 	onMessage,
+	onSelectTrack,
 }: {
 	track: TextTrack;
+	onSelectTrack: ({ trackId }: { trackId: string }) => void;
 	onApply: ({
 		updates,
 		done,
@@ -194,6 +218,50 @@ function SubtitleTools({
 		} finally {
 			setIsBusy(false);
 		}
+	};
+
+	const handleSnap = async () => {
+		setIsBusy(true);
+		try {
+			onApply({
+				updates: await snapTrackToSpeech({ editor, track }),
+				done: "Snapped to where speech starts and ends, and to cuts.",
+			});
+		} catch (error) {
+			onMessage({
+				message:
+					error instanceof Error ? error.message : "Couldn't find the speech.",
+			});
+		} finally {
+			setIsBusy(false);
+		}
+	};
+
+	// A track timed as this one, to put each line's translation in.
+	const handleTranslate = () => {
+		const addTrack = new AddTrackCommand({
+			type: "text",
+			index: 0,
+			subtitles: true,
+			name: `${track.name} (translation)`,
+			translationOf: track.id,
+		});
+		const trackId = addTrack.getTrackId();
+		const inserts = track.elements.map(
+			({ id: _id, ...element }) =>
+				new InsertElementCommand({
+					placement: { mode: "explicit", trackId },
+					element,
+				}),
+		);
+		editor.command.execute({
+			command: new BatchCommand([addTrack, ...inserts]),
+		});
+		onSelectTrack({ trackId });
+		onMessage({
+			message:
+				"A translation track, timed as this one: write each line's translation over it, the original beside it.",
+		});
 	};
 
 	const handleSave = async () => {
@@ -299,6 +367,17 @@ function SubtitleTools({
 				<Button
 					size="sm"
 					variant="outline"
+					disabled={isBusy}
+					onClick={() => void handleSnap()}
+				>
+					Snap to speech and cuts
+				</Button>
+				<Button size="sm" variant="outline" onClick={handleTranslate}>
+					Translate
+				</Button>
+				<Button
+					size="sm"
+					variant="outline"
 					onClick={() =>
 						onApply({
 							updates: fixTrackOverlaps({ track, gap: OVERLAP_GAP }),
@@ -352,6 +431,79 @@ function SubtitleTools({
 	);
 }
 
+/** Lines typed while the film plays, each from where its typing began, as
+ * in YouTube's editor; the film paused while typing if chosen. */
+function TypeAlong({ track }: { track: TextTrack }) {
+	const editor = useEditor();
+	const canvasSize = useEditor(
+		(e) => e.project.getActive().settings.canvasSize,
+	);
+	const [text, setText] = useState("");
+	const [start, setStart] = useState<number | null>(null);
+	const [pausesWhileTyping, setPausesWhileTyping] = useState(true);
+	const [didPause, setDidPause] = useState(false);
+
+	const finish = () => {
+		setText("");
+		setStart(null);
+		if (didPause) {
+			editor.playback.play();
+			setDidPause(false);
+		}
+	};
+
+	return (
+		<div className="flex flex-col gap-1.5">
+			<Input
+				aria-label="Type a line as it plays"
+				placeholder="Type a line as it plays, Enter to add it"
+				value={text}
+				onChange={(event) => {
+					const value = event.target.value;
+					if (start === null && value.trim()) {
+						setStart(
+							mediaTimeToSeconds({ time: editor.playback.getCurrentTime() }),
+						);
+						if (pausesWhileTyping && editor.playback.getIsPlaying()) {
+							editor.playback.pause();
+							setDidPause(true);
+						}
+					}
+					setText(value);
+				}}
+				onKeyDown={(event) => {
+					if (event.key === "Escape") {
+						finish();
+						return;
+					}
+					if (event.key !== "Enter" || start === null || !text.trim()) return;
+					event.preventDefault();
+					const caption = getTypedCaption({ track, text: text.trim(), start });
+					editor.command.execute({
+						command: new InsertElementCommand({
+							placement: { mode: "explicit", trackId: track.id },
+							element: buildSubtitleTextElement({
+								index: track.elements.length,
+								caption,
+								canvasSize,
+							}),
+						}),
+					});
+					finish();
+				}}
+			/>
+			<div className="flex items-center space-x-2">
+				<Checkbox
+					id="subtitles-pause-while-typing"
+					checked={pausesWhileTyping}
+					onCheckedChange={(checked) => setPausesWhileTyping(!!checked)}
+				/>
+				<Label htmlFor="subtitles-pause-while-typing">Pause while typing</Label>
+			</div>
+		</div>
+	);
+}
+
 /** The subtitle tracks' lines and tools: nothing until there's a track. */
 export function SubtitleList() {
 	const editor = useEditor();
@@ -370,10 +522,36 @@ export function SubtitleList() {
 		() => (track ? getSubtitleLines({ track }) : []),
 		[track],
 	);
-	if (!track) return null;
+	if (!track) {
+		return (
+			<Button
+				variant="outline"
+				className="w-full"
+				onClick={() =>
+					editor.command.execute({
+						command: new AddTrackCommand({
+							type: "text",
+							index: 0,
+							subtitles: true,
+						}),
+					})
+				}
+			>
+				New subtitle track
+			</Button>
+		);
+	}
 
 	const now = mediaTimeToSeconds({ time: currentTime });
 	const selected = lines.find(({ elementId }) => elementId === selectedId);
+	const originalTrack = track.translationOf
+		? tracks.find(({ id }) => id === track.translationOf)
+		: undefined;
+	const original =
+		selected && originalTrack
+			? (getOriginalLine({ original: originalTrack, cue: selected.cue })?.cue
+					.text ?? "")
+			: undefined;
 	const apply = ({
 		updates,
 		done,
@@ -454,6 +632,7 @@ export function SubtitleList() {
 					<LineEditor
 						key={selected.elementId}
 						line={selected}
+						original={original}
 						now={now}
 						onApply={({ start, end, text }) =>
 							apply({
@@ -496,8 +675,10 @@ export function SubtitleList() {
 						Sync on the two lines marked
 					</Button>
 				)}
+				<TypeAlong track={track} />
 				<SubtitleTools
 					track={track}
+					onSelectTrack={({ trackId: next }) => setTrackId(next)}
 					onApply={apply}
 					onMessage={({ message: next }) => setMessage(next)}
 				/>

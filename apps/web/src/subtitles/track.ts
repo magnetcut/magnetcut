@@ -3,11 +3,13 @@ import {
 	fixSubtitleOverlaps,
 	retimeCues,
 	saveSubtitles,
+	snapSubtitleEdges,
 	type Retime,
 	type SubtitleCueData,
 	type SubtitleFormat,
 } from "magnetcut-wasm";
 import type { SceneTracks, TextTrack, TimelineElement } from "@/timeline";
+import type { CaptionChunk } from "@/transcription/types";
 import { mediaTimeFromSeconds, mediaTimeToSeconds } from "@/wasm";
 
 // A subtitle track's lines (docs/SUBTITLES.md, phase 3): its text elements
@@ -184,4 +186,96 @@ export function parseClock({ text }: { text: string }): number | null {
 		return null;
 	}
 	return parts.reduce((total, part) => total * 60 + Number(part), 0);
+}
+
+/** Where the timeline cuts: each clip's start and end on its video and
+ * audio tracks, in seconds. */
+export function getCuts({ tracks }: { tracks: SceneTracks }): number[] {
+	const cuts = new Set<number>();
+	for (const track of [tracks.main, ...tracks.overlay, ...tracks.audio]) {
+		if (track.type !== "video" && track.type !== "audio") continue;
+		for (const element of track.elements) {
+			const start = mediaTimeToSeconds({ time: element.startTime });
+			cuts.add(start);
+			cuts.add(start + mediaTimeToSeconds({ time: element.duration }));
+		}
+	}
+	return [...cuts].sort((a, b) => a - b);
+}
+
+// How far a line's edge is pulled to one nearby, and the shortest it's left.
+const SNAP_REACH = 0.3;
+const SHORTEST_LINE = 0.2;
+
+/** The track's lines with their starts snapped to the nearest of `starts`,
+ * their ends to the nearest of `ends`, within reach. */
+export function snapTrack({
+	track,
+	starts,
+	ends,
+}: {
+	track: TextTrack;
+	starts: number[];
+	ends: number[];
+}): ElementUpdate[] {
+	const lines = getSubtitleLines({ track });
+	const cues = snapSubtitleEdges(
+		lines.map(({ cue }) => cue),
+		Float64Array.from(starts),
+		Float64Array.from(ends),
+		SNAP_REACH,
+		SHORTEST_LINE,
+	);
+	return getLineUpdates({ track, lines, cues });
+}
+
+// A line typed while the film plays shows long enough to be read at this
+// speed, within these bounds, and ends this long before the next line.
+const TYPED_READING_SPEED = 15;
+const TYPED_SHORTEST = 1;
+const TYPED_LONGEST = 7;
+const TYPED_GAP = 2 / 24;
+
+/** A line typed while it plays, from where the typing began. */
+export function getTypedCaption({
+	track,
+	text,
+	start,
+}: {
+	track: TextTrack;
+	text: string;
+	start: number;
+}): CaptionChunk {
+	const wanted = Math.min(
+		TYPED_LONGEST,
+		Math.max(TYPED_SHORTEST, text.length / TYPED_READING_SPEED),
+	);
+	const next = getSubtitleLines({ track }).find(({ cue }) => cue.start > start);
+	const end = next
+		? Math.max(
+				start + 0.1,
+				Math.min(start + wanted, next.cue.start - TYPED_GAP),
+			)
+		: start + wanted;
+	return { text, startTime: start, duration: end - start };
+}
+
+/** The line of `original` a translated line stands for: the one it
+ * overlaps most in time, if any. */
+export function getOriginalLine({
+	original,
+	cue,
+}: {
+	original: TextTrack;
+	cue: SubtitleCueData;
+}): SubtitleLine | null {
+	let best: { line: SubtitleLine; overlap: number } | null = null;
+	for (const line of getSubtitleLines({ track: original })) {
+		const overlap =
+			Math.min(cue.end, line.cue.end) - Math.max(cue.start, line.cue.start);
+		if (overlap > 0 && (!best || overlap > best.overlap)) {
+			best = { line, overlap };
+		}
+	}
+	return best?.line ?? null;
 }

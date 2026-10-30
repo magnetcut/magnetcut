@@ -15,22 +15,31 @@ export class AddTrackCommand extends Command {
 		type,
 		index,
 		subtitles,
+		name,
+		translationOf,
 	}: {
 		type: TrackType;
 		index?: number;
 		/** A text track of subtitles. */
 		subtitles?: boolean;
+		name?: string;
+		/** Subtitles translating another track's, by its id. */
+		translationOf?: string;
 	}) {
 		super();
 		this.type = type;
 		this.index = index;
 		this.subtitles = subtitles;
+		this.name = name;
+		this.translationOf = translationOf;
 		this.trackId = generateUUID();
 	}
 
 	private type: TrackType;
 	private index?: number;
 	private subtitles?: boolean;
+	private name?: string;
+	private translationOf?: string;
 
 	execute(): CommandResult | undefined {
 		const editor = EditorCore.getInstance();
@@ -55,7 +64,9 @@ export class AddTrackCommand extends Command {
 						insertIndex,
 						trackId: this.trackId,
 						trackType: this.type,
-						subtitles: this.subtitles,
+						subtitles: this.subtitles
+							? { name: this.name, translationOf: this.translationOf }
+							: undefined,
 					});
 
 		editor.timeline.updateTracks(updatedTracks);
@@ -109,7 +120,7 @@ function buildOverlayTrackState({
 	insertIndex: number;
 	trackId: string;
 	trackType: Exclude<TrackType, "audio">;
-	subtitles?: boolean;
+	subtitles?: { name?: string; translationOf?: string };
 }): SceneTracks {
 	const overlayInsertIndex = Math.min(insertIndex, tracks.overlay.length);
 	const newTrack =
@@ -118,8 +129,15 @@ function buildOverlayTrackState({
 			: trackType === "text"
 				? subtitles
 					? {
-							...buildEmptyTrack({ id: trackId, type: "text", name: "Subtitles" }),
+							...buildEmptyTrack({
+								id: trackId,
+								type: "text",
+								name: subtitles.name ?? "Subtitles",
+							}),
 							subtitles: true,
+							...(subtitles.translationOf
+								? { translationOf: subtitles.translationOf }
+								: {}),
 						}
 					: buildEmptyTrack({ id: trackId, type: "text" })
 				: trackType === "graphic"

@@ -235,3 +235,18 @@ pub fn fit_subtitles_to_speech(
 pub fn detect_speech(samples: &[f32], sample_rate: u32) -> Result<JsValue, JsValue> {
     to_js(&align::speech_spans(samples, sample_rate))
 }
+
+/// Each line's start and end snapped to the nearest of `starts` and `ends`
+/// within `reach` seconds, none made shorter than `shortest`.
+#[wasm_bindgen(js_name = snapSubtitleEdges, unchecked_return_type = "SubtitleCueData[]")]
+pub fn snap_subtitle_edges(
+    #[wasm_bindgen(unchecked_param_type = "SubtitleCueData[]")] cues: JsValue,
+    starts: Vec<f64>,
+    ends: Vec<f64>,
+    reach: f64,
+    shortest: f64,
+) -> Result<JsValue, JsValue> {
+    let mut cues: Vec<Cue> = from_js(cues, "cues")?;
+    timing::snap_edges(&mut cues, &starts, &ends, reach, shortest);
+    to_js(&cues)
+}

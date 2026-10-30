@@ -11,7 +11,13 @@ import { extractTimelineAudio } from "@/media/mediabunny";
 import { decodeAudioToFloat32 } from "@/media/audio";
 import type { TextTrack } from "@/timeline";
 import type { CaptionChunk, TranscriptionSegment } from "@/transcription/types";
-import { getSubtitleLines, retimeTrack, type ElementUpdate } from "./track";
+import {
+	getCuts,
+	getSubtitleLines,
+	retimeTrack,
+	snapTrack,
+	type ElementUpdate,
+} from "./track";
 
 // Syncing subtitles to the speech, in the editor (docs/SUBTITLES.md, phase
 // 4), with the Rust core's alignment.
@@ -95,4 +101,21 @@ export function fitTrackToSpeech({
 	const fit = fitSubtitlesToSpeech(cues, speech);
 	if (!fit) return null;
 	return { fit, updates: retimeTrack({ track, retime: fit.retime }) };
+}
+
+/** The track's lines snapped to where speech starts and ends, and to cuts. */
+export async function snapTrackToSpeech({
+	editor,
+	track,
+}: {
+	editor: EditorCore;
+	track: TextTrack;
+}): Promise<ElementUpdate[]> {
+	const speech = await findTimelineSpeech({ editor });
+	const cuts = getCuts({ tracks: editor.scenes.getActiveScene().tracks });
+	return snapTrack({
+		track,
+		starts: [...speech.map(({ start }) => start), ...cuts],
+		ends: [...speech.map(({ end }) => end), ...cuts],
+	});
 }

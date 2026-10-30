@@ -80,6 +80,8 @@ export interface TextTrack extends BaseTrack {
 	 * saved as subtitle files, and exported as a track or in the picture
 	 * (docs/SUBTITLES.md). */
 	subtitles?: boolean;
+	/** Subtitles translating another track's, by its id: edited beside it. */
+	translationOf?: string;
 }
 
 export interface AudioTrack extends BaseTrack {

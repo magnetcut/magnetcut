@@ -9,6 +9,9 @@ import {
 import {
 	fixTrackOverlaps,
 	formatClock,
+	getOriginalLine,
+	getTypedCaption,
+	snapTrack,
 	parseClock,
 	getReadingSpeed,
 	getSubtitleLines,
@@ -123,5 +126,46 @@ describe("subtitle tracks", () => {
 		expect(parseClock({ text: "1:02:03,25" })).toBe(3723.25);
 		expect(parseClock({ text: "7" })).toBe(7);
 		expect(parseClock({ text: "1:x" })).toBeNull();
+	});
+
+	test("snap to speech and cuts", () => {
+		const track = subtitleTrack({ lines: [[1.1, 2.9, "a"]] });
+		const [update] = snapTrack({ track, starts: [1], ends: [3] });
+		expect(
+			mediaTimeToSeconds({ time: update.patch.startTime ?? ZERO_MEDIA_TIME }),
+		).toBeCloseTo(1, 6);
+		expect(
+			mediaTimeToSeconds({ time: update.patch.duration ?? ZERO_MEDIA_TIME }),
+		).toBeCloseTo(2, 6);
+	});
+
+	test("take a typed line, readable and before the next", () => {
+		const track = subtitleTrack({ lines: [[10, 12, "next"]] });
+		expect(getTypedCaption({ track, text: "Hi", start: 2 })).toEqual({
+			text: "Hi",
+			startTime: 2,
+			duration: 1,
+		});
+		const long = "x".repeat(60);
+		expect(
+			getTypedCaption({ track, text: long, start: 7 }).duration,
+		).toBeCloseTo(3 - 2 / 24, 6);
+	});
+
+	test("find the original line a translated one stands for", () => {
+		const original = subtitleTrack({
+			lines: [
+				[1, 3, "Hello"],
+				[3.5, 5, "Bye"],
+			],
+		});
+		const line = getOriginalLine({
+			original,
+			cue: { start: 2.5, end: 4.8, text: "Au revoir" },
+		});
+		expect(line?.cue.text).toBe("Bye");
+		expect(
+			getOriginalLine({ original, cue: { start: 6, end: 7, text: "?" } }),
+		).toBeNull();
 	});
 });

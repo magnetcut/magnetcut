@@ -79,5 +79,12 @@ made by Whisper, which runs on the computer (`apps/web/src/transcription`).
     off, or both (`export/subtitles.ts`): each a WebVTT track, through mediabunny, in MP4, MKV
     or WebM, the picture without them if they go only in tracks. QuickTime files can't hold them
     yet, nor does the native export write them: an export with them goes through the web view.
-  - Still to do: typing while it plays, edges snapping to speech and cuts, translation side by
-    side; mov_text (tx3g) for Apple's players, which don't show WebVTT in MP4.
+  - Typed while it plays: a line starts where its typing began, the film paused while typing
+    if chosen, and lasts long enough to read (15 characters a second, 1 to 7 s) or until the
+    next line. With no subtitle track, the panel offers to start one.
+  - Snapped: each line's start to the nearest speech start or cut within 0.3 s, its end to the
+    nearest speech end or cut (`snap_edges`), none left shorter than 0.2 s.
+  - Translated side by side: a copy of the track's timing (`translationOf` the original), each
+    line edited with the original it overlaps most shown above it.
+  - Still to do: holding a key while a line is spoken; mov_text (tx3g) for Apple's players,
+    which don't show WebVTT in MP4; Whisper's own word timings for auto-sync.
