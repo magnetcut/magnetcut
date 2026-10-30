@@ -28,6 +28,7 @@ import {
 import { DEFAULT_NEW_ELEMENT_DURATION } from "@/timeline/creation";
 import { mediaTimeFromSeconds, type MediaTime } from "@/wasm";
 import { useEditor } from "@/editor/use-editor";
+import type { MediaFile } from "@/media/disk-file";
 import { useFileUpload } from "@/media/use-file-upload";
 import { invokeAction } from "@/actions";
 import { processMediaAssets } from "@/media/processing";
@@ -77,7 +78,7 @@ export function MediaView() {
 	const [isProcessing, setIsProcessing] = useState(false);
 	const [progress, setProgress] = useState(0);
 
-	const processFiles = async ({ files }: { files: File[] }) => {
+	const processFiles = async ({ files }: { files: MediaFile[] }) => {
 		if (!files || files.length === 0) return;
 		if (!activeProject) {
 			toast.error("No active project");

@@ -1,9 +1,16 @@
 import { isTauri } from "@tauri-apps/api/core";
+import { ALL_FORMATS, Input } from "mediabunny";
 import { toast } from "sonner";
 import { getMediaTypeFromFile } from "@/media/media-utils";
 import { formatStorageBytes } from "@/services/storage/quota";
 import { storageService } from "@/services/storage/service";
 import type { MediaAsset } from "@/media/types";
+import {
+	createMediaSource,
+	createObjectUrl,
+	DiskFile,
+	type MediaFile,
+} from "./disk-file";
 import { readVideoFile } from "./mediabunny";
 import type { VideoFileData } from "./mediabunny";
 import { renderThumbnailDataUrl } from "./thumbnail";
@@ -96,7 +103,7 @@ export async function processMediaAssets({
 	files,
 	onProgress,
 }: {
-	files: FileList | File[];
+	files: FileList | MediaFile[];
 	onProgress?: ({ progress }: { progress: number }) => void;
 }): Promise<ProcessedMediaAsset[]> {
 	const fileArray = Array.from(files);
@@ -105,17 +112,25 @@ export async function processMediaAssets({
 	const total = fileArray.length;
 	let completed = 0;
 
-	for (const file of fileArray) {
-		const fileType = getMediaTypeFromFile({ file });
+	for (const input of fileArray) {
+		const fileType = getMediaTypeFromFile({ file: input });
 
 		if (!fileType) {
-			toast.error(`Unsupported file type: ${file.name}`);
+			toast.error(`Unsupported file type: ${input.name}`);
 			continue;
 		}
 
-		const storageCheck = await storageService.canStoreFile({
-			size: file.size,
-		});
+		// A file on disk stays there, and isn't copied into storage. An image
+		// is drawn from an object URL, so it's read into memory.
+		const path = input instanceof DiskFile ? input.path : undefined;
+		const file =
+			input instanceof DiskFile && fileType === "image"
+				? await input.toFile()
+				: input;
+
+		const storageCheck = path
+			? { canStore: true, availableBytes: null }
+			: await storageService.canStoreFile({ size: file.size });
 
 		if (!storageCheck.canStore) {
 			toast.error(`Not enough browser storage for ${file.name}`, {
@@ -127,7 +142,7 @@ export async function processMediaAssets({
 			continue;
 		}
 
-		const url = URL.createObjectURL(file);
+		const url = createObjectUrl({ file });
 		let thumbnailUrl: string | undefined;
 		let duration: number | undefined;
 		let width: number | undefined;
@@ -136,7 +151,7 @@ export async function processMediaAssets({
 		let hasAudio: boolean | undefined;
 
 		try {
-			if (fileType === "image") {
+			if (fileType === "image" && file instanceof File) {
 				const result = await generateImageThumbnail({ imageFile: file });
 				thumbnailUrl = result.thumbnailUrl;
 				width = result.width;
@@ -179,6 +194,7 @@ export async function processMediaAssets({
 				type: fileType,
 				file,
 				url,
+				path,
 				thumbnailUrl,
 				duration,
 				width,
@@ -197,14 +213,27 @@ export async function processMediaAssets({
 		} catch (error) {
 			console.error("Error processing file:", file.name, error);
 			toast.error(`Failed to process ${file.name}`);
-			URL.revokeObjectURL(url);
+			if (url) URL.revokeObjectURL(url);
 		}
 	}
 
 	return processedAssets;
 }
 
-const getMediaDuration = ({ file }: { file: File }): Promise<number> => {
+async function getDiskMediaDuration({ file }: { file: DiskFile }) {
+	const input = new Input({
+		source: createMediaSource({ file }),
+		formats: ALL_FORMATS,
+	});
+	try {
+		return await input.computeDuration();
+	} finally {
+		input.dispose();
+	}
+}
+
+const getMediaDuration = ({ file }: { file: MediaFile }): Promise<number> => {
+	if (file instanceof DiskFile) return getDiskMediaDuration({ file });
 	return new Promise((resolve, reject) => {
 		const element = document.createElement(
 			file.type.startsWith("video/") ? "video" : "audio",

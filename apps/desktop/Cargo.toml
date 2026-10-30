@@ -29,6 +29,19 @@ tauri-plugin-process = { version = "2", optional = true }
 # Opens web links (the About box's, the release notes') in the browser:
 # the window itself only ever shows the editor.
 tauri-plugin-opener = "2"
+# The open and save dialogs, from Rust: the editor gets the files picked,
+# never a path of its own choosing (src/media.rs).
+tauri-plugin-dialog = "2"
+# The bookmarks of the media files the editor reads where they are.
+base64 = "0.22"
+
+# The drag pasteboard, for the paths of dropped files, and bookmarks, which
+# the App Store sandbox needs to open a file again (src/media.rs). The
+# versions Tauri itself uses.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSError", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3", features = ["NSPasteboard"] }
 
 # The web view on Linux: its settings, to switch on the features the editor
 # needs (src/webkit.rs). The versions Tauri itself uses.

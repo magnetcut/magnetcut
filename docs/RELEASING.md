@@ -81,7 +81,8 @@ The same app without the updater (`--no-default-features`: no Check for Updates 
 Settings or About), sandboxed, under its own bundle id so that its settings and projects stay
 apart from the direct download's. It goes to App Store Connect as an installer package, and the
 App Store updates it. The sandbox (`apps/desktop/AppStore.entitlements`) lets it open and save
-the files the user picks, write to Downloads and make outgoing connections (fonts, transcription
+the files the user picks, keep bookmarks to the media it reads where it is (to open it again
+after a relaunch), write to Downloads and make outgoing connections (fonts, transcription
 models).
 
 ### Once

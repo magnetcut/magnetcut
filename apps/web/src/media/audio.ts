@@ -19,7 +19,8 @@ import { canElementHaveAudio, hasMediaId } from "@/timeline/element-utils";
 import { canTrackHaveAudio } from "@/timeline";
 import { mediaSupportsAudio } from "@/media/media-utils";
 import { getSourceTimeAtClipTime, renderRetimedBuffer } from "@/retime";
-import { Input, ALL_FORMATS, BlobSource, AudioBufferSink } from "mediabunny";
+import { Input, ALL_FORMATS, AudioBufferSink } from "mediabunny";
+import { createMediaSource, type MediaFile } from "@/media/disk-file";
 import { TICKS_PER_SECOND } from "@/wasm";
 import {
 	computeRmsBuckets,
@@ -304,7 +305,7 @@ async function resolveAudioBufferForAsset({
 	}
 
 	const input = new Input({
-		source: new BlobSource(asset.file),
+		source: createMediaSource({ file: asset.file }),
 		formats: ALL_FORMATS,
 	});
 
@@ -381,7 +382,7 @@ async function resolveAudioBufferForAsset({
 
 interface AudioMixSource {
 	timelineElement: AudioCapableElement;
-	file: File;
+	file: MediaFile;
 	startTime: number;
 	duration: number;
 	trimStart: number;
@@ -394,7 +395,7 @@ export interface AudioClipSource {
 	timelineElement: AudioCapableElement;
 	id: string;
 	sourceKey: string;
-	file: File;
+	file: MediaFile;
 	startTime: number;
 	duration: number;
 	trimStart: number;

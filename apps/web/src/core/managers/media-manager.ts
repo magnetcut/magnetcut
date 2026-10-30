@@ -7,6 +7,17 @@ import { videoCache } from "@/services/video-cache/service";
 import { waveformCache } from "@/services/waveform-cache/service";
 import { BatchCommand, RemoveMediaAssetCommand } from "@/commands";
 
+/** Which of a project's files on disk can't be found. */
+function reportMissingMedia({ names }: { names: string[] }) {
+	const one = names.length === 1;
+	toast.error(
+		one ? `${names[0]} can't be found` : `${names.length} media files can't be found`,
+		{
+			description: `Deleted, or on a drive that isn't connected: ${names.join(", ")}. Their clips stay empty until ${one ? "the file is" : "the files are"} back.`,
+		},
+	);
+}
+
 export class MediaManager {
 	private assets: MediaAsset[] = [];
 	private isLoading = false;
@@ -91,6 +102,7 @@ export class MediaManager {
 		try {
 			const mediaAssets = await storageService.loadAllMediaAssets({
 				projectId,
+				onMissing: reportMissingMedia,
 			});
 			this.assets = mediaAssets;
 			this.notify();

@@ -1,6 +1,7 @@
 "use client";
 
 import { createAudioContext } from "@/media/audio";
+import type { MediaFile } from "@/media/disk-file";
 import {
 	buildSourceWaveformSummary,
 	type SourceWaveformSummary,
@@ -9,7 +10,7 @@ import {
 interface GetSourceWaveformSummaryArgs {
 	sourceKey: string;
 	audioBuffer?: AudioBuffer;
-	sourceFile?: File;
+	sourceFile?: MediaFile;
 	audioUrl?: string;
 }
 

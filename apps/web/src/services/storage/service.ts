@@ -1,6 +1,12 @@
 import type { TProject, TProjectMetadata } from "@/project/types";
 import { getProjectDurationFromScenes } from "@/timeline/scenes";
 import type { MediaAsset } from "@/media/types";
+import {
+	createObjectUrl,
+	DiskFile,
+	type MediaFile,
+	openDiskFile,
+} from "@/media/disk-file";
 import { IndexedDBAdapter } from "./indexeddb-adapter";
 import { OPFSAdapter } from "./opfs-adapter";
 import {
@@ -48,6 +54,31 @@ function normalizeBookmarks({ raw }: { raw: unknown }): Bookmark[] {
 			};
 		})
 		.filter((b): b is Bookmark => b !== null);
+}
+
+/**
+ * A media file kept where it is on disk, as it is now: images in memory, which
+ * the editor draws from object URLs, the rest read by the piece. Null if it has
+ * gone, or outside the desktop app.
+ */
+async function openMediaOnDisk({
+	path,
+	type,
+}: {
+	path: string;
+	type: MediaAssetData["type"];
+}): Promise<MediaFile | null> {
+	try {
+		const file = await openDiskFile({ path });
+		if (!file) {
+			console.warn(`Media file not found: ${path}`);
+			return null;
+		}
+		return type === "image" ? await file.toFile() : file;
+	} catch (error) {
+		console.warn(`Couldn't open ${path}`, error);
+		return null;
+	}
 }
 
 class StorageService {
@@ -291,6 +322,7 @@ class StorageService {
 			type: mediaAsset.type,
 			size: mediaAsset.file.size,
 			lastModified: mediaAsset.file.lastModified,
+			path: mediaAsset.path,
 			width: mediaAsset.width,
 			height: mediaAsset.height,
 			duration: mediaAsset.duration,
@@ -299,10 +331,16 @@ class StorageService {
 		};
 
 		try {
-			await mediaAssetsAdapter.set({
-				key: mediaAsset.id,
-				value: mediaAsset.file,
-			});
+			// A file on disk stays there: only what describes it is kept.
+			if (!mediaAsset.path) {
+				if (mediaAsset.file instanceof DiskFile) {
+					throw new Error(`${mediaAsset.name} is on disk but has no path`);
+				}
+				await mediaAssetsAdapter.set({
+					key: mediaAsset.id,
+					value: mediaAsset.file,
+				});
+			}
 			await mediaMetadataAdapter.set({
 				key: mediaAsset.id,
 				value: metadata,
@@ -334,15 +372,19 @@ class StorageService {
 		const { mediaMetadataAdapter, mediaAssetsAdapter } =
 			this.getProjectMediaAdapters({ projectId });
 
-		const [file, metadata] = await Promise.all([
-			mediaAssetsAdapter.get(id),
-			mediaMetadataAdapter.get(id),
-		]);
+		const metadata = await mediaMetadataAdapter.get(id);
+		if (!metadata) return null;
+		const file = metadata.path
+			? await openMediaOnDisk({ path: metadata.path, type: metadata.type })
+			: await mediaAssetsAdapter.get(id);
+		if (!file) return null;
 
-		if (!file || !metadata) return null;
-
-		let url: string;
-		if (metadata.type === "image" && (!file.type || file.type === "")) {
+		let url: string | undefined;
+		if (
+			file instanceof File &&
+			metadata.type === "image" &&
+			(!file.type || file.type === "")
+		) {
 			try {
 				const text = await file.text();
 				if (text.trim().startsWith("<svg")) {
@@ -355,7 +397,7 @@ class StorageService {
 				url = URL.createObjectURL(file);
 			}
 		} else {
-			url = URL.createObjectURL(file);
+			url = createObjectUrl({ file });
 		}
 
 		return {
@@ -364,6 +406,7 @@ class StorageService {
 			type: metadata.type,
 			file,
 			url,
+			path: metadata.path,
 			width: metadata.width,
 			height: metadata.height,
 			duration: metadata.duration,
@@ -374,8 +417,11 @@ class StorageService {
 
 	async loadAllMediaAssets({
 		projectId,
+		onMissing,
 	}: {
 		projectId: string;
+		/** The files on disk that have gone, by name. */
+		onMissing?: ({ names }: { names: string[] }) => void;
 	}): Promise<MediaAsset[]> {
 		const { mediaMetadataAdapter } = this.getProjectMediaAdapters({
 			projectId,
@@ -383,14 +429,19 @@ class StorageService {
 
 		const mediaIds = await mediaMetadataAdapter.list();
 		const mediaItems: MediaAsset[] = [];
+		const missing: string[] = [];
 
 		for (const id of mediaIds) {
 			const item = await this.loadMediaAsset({ projectId, id });
 			if (item) {
 				mediaItems.push(item);
+				continue;
 			}
+			const metadata = await mediaMetadataAdapter.get(id);
+			if (metadata?.path) missing.push(metadata.name);
 		}
 
+		if (missing.length > 0) onMissing?.({ names: missing });
 		return mediaItems;
 	}
 

@@ -1,5 +1,6 @@
 import { Command, type CommandResult } from "@/commands/base-command";
 import { EditorCore } from "@/core";
+import { createObjectUrl } from "@/media/disk-file";
 import type { MediaAsset } from "@/media/types";
 import { buildWaveformSourceKey } from "@/media/waveform-summary";
 import { storageService } from "@/services/storage/service";
@@ -93,7 +94,7 @@ export class RemoveMediaAssetCommand extends Command {
 		if (this.savedAssets && this.removedAsset) {
 			const restoredAsset: MediaAsset = {
 				...this.removedAsset,
-				url: URL.createObjectURL(this.removedAsset.file),
+				url: createObjectUrl({ file: this.removedAsset.file }),
 			};
 
 			editor.media.setAssets({

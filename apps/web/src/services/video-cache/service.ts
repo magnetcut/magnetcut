@@ -1,10 +1,5 @@
-import {
-	Input,
-	ALL_FORMATS,
-	BlobSource,
-	CanvasSink,
-	type WrappedCanvas,
-} from "mediabunny";
+import { Input, ALL_FORMATS, CanvasSink, type WrappedCanvas } from "mediabunny";
+import { createMediaSource, type MediaFile } from "@/media/disk-file";
 
 interface VideoSinkData {
 	mediaId: string;
@@ -45,7 +40,7 @@ export class VideoCache {
 		streamKey,
 	}: {
 		mediaId: string;
-		file: File;
+		file: MediaFile;
 		time: number;
 		streamKey?: string;
 	}): Promise<WrappedCanvas | null> {
@@ -257,7 +252,7 @@ export class VideoCache {
 	}: {
 		key: string;
 		mediaId: string;
-		file: File;
+		file: MediaFile;
 	}): Promise<void> {
 		if (this.sinks.has(key)) return;
 
@@ -282,10 +277,10 @@ export class VideoCache {
 	}: {
 		key: string;
 		mediaId: string;
-		file: File;
+		file: MediaFile;
 	}): Promise<void> {
 		const input = new Input({
-			source: new BlobSource(file),
+			source: createMediaSource({ file }),
 			formats: ALL_FORMATS,
 		});
 

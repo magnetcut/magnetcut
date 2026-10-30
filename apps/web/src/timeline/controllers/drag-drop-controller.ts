@@ -1,4 +1,5 @@
 import type { DragEvent } from "react";
+import { findDroppedDiskFiles } from "@/media/disk-file";
 import { processMediaAssets } from "@/media/processing";
 import { showMediaUploadToast } from "@/media/upload-toast";
 import {
@@ -572,7 +573,9 @@ export class DragDropController {
 		await showMediaUploadToast({
 			filesCount: files.length,
 			promise: async () => {
-				const processedAssets = await processMediaAssets({ files });
+				const processedAssets = await processMediaAssets({
+					files: await findDroppedDiskFiles({ files }),
+				});
 
 				// Sequential on purpose: each iteration reads getSceneTracks()
 				// to decide placement (reuse empty main vs new track) and that

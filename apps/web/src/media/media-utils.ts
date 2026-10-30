@@ -1,3 +1,4 @@
+import type { MediaFile } from "@/media/disk-file";
 import type { MediaAsset, MediaType } from "@/media/types";
 
 export const SUPPORTS_AUDIO: readonly MediaType[] = ["audio", "video"];
@@ -14,7 +15,7 @@ export function mediaSupportsAudio({
 export const getMediaTypeFromFile = ({
 	file,
 }: {
-	file: File;
+	file: MediaFile;
 }): MediaType | null => {
 	const { type } = file;
 

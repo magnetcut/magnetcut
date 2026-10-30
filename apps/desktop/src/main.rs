@@ -3,13 +3,14 @@
 // No console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod media;
 mod menu;
 #[cfg(target_os = "linux")]
 mod webkit;
 
 use serde::Serialize;
-use tauri::Emitter;
 use tauri::webview::PageLoadEvent;
+use tauri::{Emitter, Manager};
 
 /// With MAGNETCUT_PROBE set, each page reports what the system's web view can
 /// do (src/probe.js), the report is printed as one JSON line, and the app quits.
@@ -39,7 +40,9 @@ fn app_info(app: tauri::AppHandle) -> AppInfo {
 
 fn main() {
     // Links with target="_blank" open in the browser.
-    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init());
     #[cfg(feature = "updater")]
     {
         // The feed and the public key that every update must be signed with
@@ -52,25 +55,23 @@ fn main() {
     {
         builder = builder.menu(menu::build);
     }
-    #[cfg(target_os = "linux")]
-    {
+    builder = builder.setup(|app| {
+        app.manage(media::MediaFiles::load(app.handle()));
         // Before the first page loads: the window exists, and with_webview
         // runs at once on the main thread, which serves the page.
-        builder = builder.setup(|app| {
-            use tauri::Manager;
-            if let Some(window) = app.get_webview_window("main") {
-                let probing = std::env::var_os(PROBE_ENV).is_some();
-                window.with_webview(move |webview| {
-                    let features = webkit::enable_needed(&webview.inner());
-                    if probing {
-                        let features = serde_json::to_string(&features).unwrap_or_default();
-                        println!("MAGNETCUT_WEBKIT_FEATURES {features}");
-                    }
-                })?;
-            }
-            Ok(())
-        });
-    }
+        #[cfg(target_os = "linux")]
+        if let Some(window) = app.get_webview_window("main") {
+            let probing = std::env::var_os(PROBE_ENV).is_some();
+            window.with_webview(move |webview| {
+                let features = webkit::enable_needed(&webview.inner());
+                if probing {
+                    let features = serde_json::to_string(&features).unwrap_or_default();
+                    println!("MAGNETCUT_WEBKIT_FEATURES {features}");
+                }
+            })?;
+        }
+        Ok(())
+    });
     builder = builder.on_menu_event(|app, event| {
         let id = event.id().as_ref();
         if menu::is_forwarded(id)
@@ -82,7 +83,14 @@ fn main() {
 
     if std::env::var_os(PROBE_ENV).is_some() {
         builder = builder
-            .invoke_handler(tauri::generate_handler![app_info, probe_report])
+            .invoke_handler(tauri::generate_handler![
+                app_info,
+                probe_report,
+                media::pick_media_files,
+                media::dropped_media_files,
+                media::media_file_info,
+                media::read_media_file,
+            ])
             .on_page_load(|webview, payload| {
                 if payload.event() == PageLoadEvent::Finished
                     && let Err(error) = webview.eval(include_str!("probe.js"))
@@ -91,7 +99,13 @@ fn main() {
                 }
             });
     } else {
-        builder = builder.invoke_handler(tauri::generate_handler![app_info]);
+        builder = builder.invoke_handler(tauri::generate_handler![
+            app_info,
+            media::pick_media_files,
+            media::dropped_media_files,
+            media::media_file_info,
+            media::read_media_file,
+        ]);
     }
     builder
         .run(tauri::generate_context!())

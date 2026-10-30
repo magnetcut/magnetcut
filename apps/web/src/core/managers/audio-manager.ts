@@ -3,6 +3,7 @@ import { TICKS_PER_SECOND } from "@/wasm";
 import { clampRetimeRate, shouldMaintainPitch } from "@/retime/rate";
 import type { AudioClipSource } from "@/media/audio";
 import { createAudioContext, collectAudioClips } from "@/media/audio";
+import { createMediaSource } from "@/media/disk-file";
 import {
 	hasAnimatedVolume,
 	resolveEffectiveAudioGain,
@@ -17,7 +18,6 @@ import {
 import {
 	ALL_FORMATS,
 	AudioBufferSink,
-	BlobSource,
 	Input,
 	type WrappedAudioBuffer,
 } from "mediabunny";
@@ -622,7 +622,7 @@ export class AudioManager {
 		}
 
 		const input = new Input({
-			source: new BlobSource(clip.file),
+			source: createMediaSource({ file: clip.file }),
 			formats: ALL_FORMATS,
 		});
 
@@ -706,7 +706,7 @@ export class AudioManager {
 
 		try {
 			const input = new Input({
-				source: new BlobSource(clip.file),
+				source: createMediaSource({ file: clip.file }),
 				formats: ALL_FORMATS,
 			});
 			const audioTrack = await input.getPrimaryAudioTrack();

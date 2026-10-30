@@ -3,10 +3,10 @@ import {
 	type ResolvedVisualSourceNodeState,
 	type VisualNodeParams,
 } from "./visual-node";
+import type { MediaFile } from "@/media/disk-file";
 
 export interface VideoNodeParams extends VisualNodeParams {
-	url: string;
-	file: File;
+	file: MediaFile;
 	mediaId: string;
 	/**
 	 * Which of the file's decoders it takes frames from: clips side by side in

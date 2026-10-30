@@ -71,14 +71,21 @@ and give it constant quality and the encoders the web views lack.
 ## The phases
 
 ### 1. Media where it is
-- Desktop only; the web build keeps OPFS. An asset gets `path` (and on macOS, a
-  security-scoped bookmark, which the App Store sandbox needs to reopen it after a relaunch:
-  entitlement `com.apple.security.files.bookmarks.app-scope`).
-- Rust serves files on a custom protocol with range requests; the web view reads them with
-  mediabunny's `UrlSource`, and images by URL. Only files the user opened or dropped: the
-  protocol refuses other paths (a list kept by Rust, from the dialog and drop events).
-- Import by Tauri's drop events and an open dialog, which give paths.
-- A file that has moved or gone: the project says so and offers to find it (Relink).
+- Desktop only; the web build keeps OPFS. An asset gets `path`, and its file is a `DiskFile`
+  (`media/disk-file.ts`) where it was a `File`: mediabunny reads it through a `StreamSource`
+  whose reads are IPC calls returning bytes (`read_media_file`, at most 64 MB each), not a
+  custom protocol, which would have needed CORS for the canvas and range handling. Images are
+  read into memory once, as they're drawn from object URLs.
+- Rust (`apps/desktop/src/media.rs`) reads only files the user gave: picked in the open dialog
+  or dropped. The list survives a relaunch (`media-files.json` in the app's data folder), on
+  macOS with a security-scoped bookmark each, which the App Store sandbox needs to open a file
+  again (entitlement `com.apple.security.files.bookmarks.app-scope`), and which follows a file
+  that's moved or renamed.
+- Import: the Import button opens the app's dialog. Drops arrive as HTML5 `File`s, whose paths
+  WebKit hides; on macOS they're on the drag pasteboard, which Rust reads, and the editor
+  matches them by name and size. On Windows and Linux a dropped file is still copied.
+- A file that's gone when the project opens: a toast names it, and its clips stay empty until
+  it's back. Relink, to point at it somewhere else, is still to do.
 
 ### 2. Export to a file, as it goes
 - A save dialog (Tauri's dialog plugin, MIT/Apache) with the container's extension; the App
@@ -125,10 +132,17 @@ and give it constant quality and the encoders the web views lack.
 ## Risks
 - The App Store sandbox and bookmarks: a project made in the direct download and opened in the
   store edition has no bookmarks; it asks for the files again.
-- WKWebView's custom-protocol responses are whole bodies in memory per request: range requests
-  must stay small (mediabunny reads in chunks, so they do).
+- Whether a file dropped on the App Store edition can be read: the sandbox grants a dropped
+  file to whoever reads it from the drag pasteboard, which WebKit does in the app's process; not
+  tried yet (no store profile).
+- The waveform and the audio still read a whole file into memory (`arrayBuffer`), as they did
+  from OPFS: phase 2's audio in pieces fixes both.
 - Constant quality waits for phase 4: until then quality is a bitrate.
 - Native code for Windows and Linux written without the machines to try it on.
 
 ## Done
-Nothing yet.
+- Phase 1 but for Relink and drops on Windows and Linux. Checked in the app on macOS (a test
+  page, then the editor's own import code, run in the web view): a dropped 1080p file found on
+  disk, imported with its thumbnail in 0.1 s, saved by path and reopened from it, frames
+  decoded at 1.8 ms each through IPC reads; other paths refused; the list and the bookmark
+  surviving a relaunch and a rename.

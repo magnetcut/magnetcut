@@ -1,10 +1,17 @@
 import { useState, useRef } from "react";
+import { toast } from "sonner";
 import { useEditor } from "@/editor/use-editor";
+import {
+	canReadDiskFiles,
+	findDroppedDiskFiles,
+	type MediaFile,
+	pickDiskFiles,
+} from "./disk-file";
 
 interface UseFileUploadOptions {
 	accept?: string;
 	multiple?: boolean;
-	onFilesSelected?: (files: File[]) => void;
+	onFilesSelected?: (files: MediaFile[]) => void;
 }
 
 export function useFileUpload({
@@ -25,6 +32,20 @@ export function useFileUpload({
 	}
 
 	function openFilePicker() {
+		// The desktop app's own dialog, which says where the files are: they
+		// stay there.
+		if (canReadDiskFiles()) {
+			pickDiskFiles()
+				.then((files) => {
+					const picked = multiple ? files : files.slice(0, 1);
+					if (picked.length > 0) onFilesSelected?.(picked);
+				})
+				.catch((error: unknown) => {
+					console.error("Open dialog failed:", error);
+					toast.error("Couldn't open the files");
+				});
+			return;
+		}
 		if (!inputRef.current) return;
 
 		inputRef.current.accept = accept || "*";
@@ -75,14 +96,10 @@ export function useFileUpload({
 		dragCounterRef.current = 0;
 
 		if (onFilesSelected && containsFiles(e.dataTransfer)) {
-			const files = Array.from(e.dataTransfer.files);
-			const shouldUseMultiple = multiple ?? false;
-
-			if (shouldUseMultiple) {
-				onFilesSelected(files);
-			} else if (files.length > 0) {
-				onFilesSelected([files[0]]);
-			}
+			const dropped = Array.from(e.dataTransfer.files);
+			const files = (multiple ?? false) ? dropped : dropped.slice(0, 1);
+			if (files.length === 0) return;
+			void findDroppedDiskFiles({ files }).then(onFilesSelected);
 		}
 	}
 

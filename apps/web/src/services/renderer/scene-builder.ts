@@ -70,14 +70,13 @@ function buildElementNode({
 
 	if (element.type === "video" || element.type === "image") {
 		const mediaAsset = mediaMap.get(element.mediaId);
-		if (!mediaAsset?.file || !mediaAsset?.url) {
+		if (!mediaAsset?.file) {
 			return null;
 		}
 
 		if (element.type === "video" && mediaAsset.type === "video") {
 			return new VideoNode({
 				mediaId: mediaAsset.id,
-				url: mediaAsset.url,
 				file: mediaAsset.file,
 				duration: element.duration,
 				timeOffset: element.startTime,
@@ -94,7 +93,11 @@ function buildElementNode({
 				streamKey,
 			});
 		}
-		if (element.type === "image" && mediaAsset.type === "image") {
+		if (
+			element.type === "image" &&
+			mediaAsset.type === "image" &&
+			mediaAsset.url
+		) {
 			return new ImageNode({
 				url: mediaAsset.url,
 				duration: element.duration,
@@ -302,7 +305,7 @@ function buildBlurBackgroundNodes({
 		const mediaAsset = mediaMap.get(element.mediaId);
 		if (
 			!mediaAsset?.file ||
-			!mediaAsset?.url ||
+			(mediaAsset.type === "image" && !mediaAsset.url) ||
 			(mediaAsset.type !== "video" && mediaAsset.type !== "image")
 		) {
 			continue;

@@ -1,11 +1,13 @@
 import type { EffectPass } from "@/effects/types";
 import type { RetimeConfig } from "@/timeline";
+import type { MediaFile } from "@/media/disk-file";
 import { BaseNode } from "./base-node";
 
 export type BlurBackgroundNodeParams = {
 	mediaId: string;
-	url: string;
-	file: File;
+	/** An image's; a video's frames come from its file. */
+	url?: string;
+	file: MediaFile;
 	mediaType: "video" | "image";
 	duration: number;
 	timeOffset: number;

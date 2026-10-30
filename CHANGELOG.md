@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## Unreleased
 
+### Changed
+- The desktop app reads imported media where it is on your computer instead of copying it into
+  its own storage, so a file of any size can go in (on Linux that storage held 1 GB). That's
+  files picked with Import, and on macOS files dropped on the window; a file moved or renamed
+  is still found. If one is gone when a project opens, MagnetCut says which.
+
 ## [0.1.0] - 2026-10-30
 
 The first version: OpenCut's editor as a desktop app for macOS, Windows and Linux, with no

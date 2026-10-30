@@ -9,6 +9,7 @@ import {
 	sampleSourceWaveformSummary,
 	type SourceWaveformSummary,
 } from "@/media/waveform-summary";
+import type { MediaFile } from "@/media/disk-file";
 import type { RetimeConfig } from "@/timeline";
 import { getBarFractionFromOutputAmplitude } from "@/timeline/audio-display";
 import { waveformCache } from "@/services/waveform-cache/service";
@@ -43,7 +44,7 @@ function sampleGainAtClipTime({
 
 interface AudioWaveformProps {
 	sourceKey: string;
-	sourceFile?: File;
+	sourceFile?: MediaFile;
 	audioUrl?: string;
 	audioBuffer?: AudioBuffer;
 	gainSamples?: number[];

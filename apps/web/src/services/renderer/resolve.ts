@@ -465,6 +465,7 @@ async function resolveBackdropSource({
 		};
 	}
 
+	if (!node.params.url) return null;
 	const source = await loadImageSource({ url: node.params.url });
 	return {
 		source: source.source,
