@@ -3,34 +3,38 @@
 A video editor for macOS, Windows and Linux that keeps everything on your computer. Free and
 open source: no account, no ads, no telemetry.
 
-> **Early days.** MagnetCut is being built: the desktop app runs from source, and the first
-> release is next. [docs/PLAN.md](docs/PLAN.md) has the decisions and the order.
+> **Early days.** The first release is next, and the Mac App Store edition is in testing
+> (TestFlight). Until then the desktop app runs from source. [docs/PLAN.md](docs/PLAN.md) has
+> the decisions and the order.
 
 ## What it does
 
-Today, from OpenCut:
-
-- A timeline for video, audio, images, text and stickers, with effects, masks, keyframes and
-  speed changes.
+- A timeline for video, audio, images, text and stickers, with effects, masks, keyframes, speed
+  changes and colour adjustments (exposure, contrast, saturation, vignette and more).
+- Transitions between clips (dissolves, dips, wipes, slides, zooms), with audio crossfades.
+- Export that does HandBrake's job: MP4, MOV, MKV or WebM in H.264, HEVC, VP9 or AV1 (and
+  ProRes on a Mac); quality as a level, a bitrate or a file size to fit in; size presets, crop
+  with the black bars found for you, frame rate; deinterlace, denoise and sharpen; presets of
+  your own. A Simple mode asks in everyday words. On a Mac it decodes, draws and encodes on the
+  GPU, with the system's own encoders.
+- A subtitle editor: SRT, WebVTT, ASS, SSA, SubViewer and MicroDVD, in any text encoding;
+  synced to the speech in one click, or timed as you type while it plays; burned into the
+  picture or embedded as a track on export.
 - Captions from speech, transcribed on your computer (Whisper).
-- Export to MP4 or WebM.
+- Media is read where it is on your disk, not copied, so a file of any size goes in.
 
 Planned:
 
-- Signed releases for macOS, Windows and Linux, which update themselves, and a Mac App Store
+- Signed releases for macOS, Windows and Linux, which update themselves, and the Mac App Store
   edition.
-- Transitions between clips (dissolves, dips, wipes, slides, zooms), with audio crossfades.
-- HandBrake's export settings: formats and codecs, size presets, quality, frame rate, and
-  subtitles embedded as a track or burned in.
-- A subtitle editor, with subtitles synced to the speech in one click.
-- GPU from decoding to encoding.
+- Export natively on the GPU on Windows and Linux too, as it does on a Mac.
 
 ## Privacy
 
-Your projects and media stay on your computer, in the app's own storage. MagnetCut has no
-servers and sends nothing about you anywhere. It goes online only when you use something that
-needs a download: a font from Google Fonts, a transcription model from Hugging Face (once), the
-platform logos in the safe-area guides.
+Your projects and media stay on your computer. MagnetCut has no servers and sends nothing about
+you anywhere. It goes online only when you use something that needs a download: a font from
+Google Fonts, a transcription model from Hugging Face and the code that runs it from jsDelivr
+(once), the platform logos in the safe-area guides.
 
 The desktop app also checks once a day whether there's a new version, by downloading a small file
 from GitHub; Settings turns that off. An update installs only when you say so, and only if it's
