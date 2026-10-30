@@ -2,6 +2,7 @@
 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
+	ClosedCaptionIcon,
 	Delete02Icon,
 	MagicWand05Icon,
 	MusicNote03Icon,
@@ -907,6 +908,14 @@ function TimelineGutter({
 }
 
 function TrackIcon({ track }: { track: TimelineTrack }) {
+	if (track.type === "text" && track.subtitles) {
+		return (
+			<HugeiconsIcon
+				icon={ClosedCaptionIcon}
+				className="text-muted-foreground size-4 shrink-0"
+			/>
+		);
+	}
 	return <>{TRACK_ICONS[track.type]}</>;
 }
 

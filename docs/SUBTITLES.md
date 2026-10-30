@@ -61,3 +61,19 @@ made by Whisper, which runs on the computer (`apps/web/src/transcription`).
 - Phase 2: the import offers .srt, .vtt, .ass, .ssa and .sub, and maps ASS styles as before
   (tested in `bun test`); a line in italics or bold throughout keeps it, partly styled ones are
   said to be left plain. Not yet tried in the app.
+- Phases 3 to 6 in part, in the Captions panel (`subtitles/components/subtitle-list.tsx`), not
+  yet tried in the app; the logic behind them tested in `bun test` (`subtitles/track.ts`,
+  `subtitles/sync.ts`):
+  - A text track can be one of subtitles (`subtitles` on it, set by the import and by Whisper's
+    captions), with a captions icon in the timeline. Its lines listed with when they start and
+    how fast they ask to be read, the one showing marked; a line clicked moves the playhead to
+    it and opens its start, end and text to edit.
+  - Lined up with the speech in one click: the timeline's sound mixed down to 16 kHz, speech
+    found by its loudness (`speech_spans`: 12 dB above its quiet, music counting too), and the
+    core's fit applied. Two-point sync: "Spoken now" on two lines, then sync on them. A script
+    pasted in, timed to Whisper's segments (their words spread over each by length, until
+    Whisper gives words).
+  - Shift, another frame rate, overlaps and durations fixed; saved as any of the six formats
+    (in the desktop app through its save dialog).
+  - Still to do: typing while it plays, edges snapping to speech and cuts, translation side by
+    side, and subtitles exported as tracks.

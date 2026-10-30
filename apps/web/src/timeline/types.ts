@@ -76,6 +76,10 @@ export interface TextTrack extends BaseTrack {
 	type: "text";
 	elements: TextElement[];
 	hidden: boolean;
+	/** Its lines are subtitles: listed and synced in the Captions panel,
+	 * saved as subtitle files, and exported as a track or in the picture
+	 * (docs/SUBTITLES.md). */
+	subtitles?: boolean;
 }
 
 export interface AudioTrack extends BaseTrack {

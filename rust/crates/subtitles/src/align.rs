@@ -443,9 +443,111 @@ pub fn fit(cues: &[Cue], speech: &[Span]) -> Option<Fit> {
     })
 }
 
+// Speech found by its loudness, in frames of 20 ms: louder than the quiet
+// between lines by 12 dB to start, 300 ms quieter to end. Music counts as
+// speech too: good enough to line subtitles up by, without a model.
+const FRAME: f64 = 0.02;
+const ABOVE_FLOOR: f64 = 12.0;
+const STARTS_AFTER: usize = 3;
+const ENDS_AFTER: usize = 15;
+const JOIN_GAP: f64 = 0.25;
+const SHORTEST: f64 = 0.2;
+
+/// When someone's speaking in a mono soundtrack, roughly: by loudness above
+/// the soundtrack's quiet.
+pub fn speech_spans(samples: &[f32], sample_rate: u32) -> Vec<Span> {
+    let frame = ((f64::from(sample_rate) * FRAME) as usize).max(1);
+    let levels: Vec<f64> = samples
+        .chunks(frame)
+        .map(|chunk| {
+            let power = chunk
+                .iter()
+                .map(|&x| f64::from(x) * f64::from(x))
+                .sum::<f64>()
+                / chunk.len() as f64;
+            10.0 * (power + 1e-12).log10()
+        })
+        .collect();
+    if levels.is_empty() {
+        return Vec::new();
+    }
+    let mut sorted = levels.clone();
+    sorted.sort_by(f64::total_cmp);
+    let floor = sorted[sorted.len() * 15 / 100];
+    let threshold = floor + ABOVE_FLOOR;
+    let mut spans: Vec<Span> = Vec::new();
+    let (mut speaking, mut run, mut start) = (false, 0, 0);
+    for (index, &level) in levels.iter().enumerate() {
+        let loud = level > if speaking { threshold - 3.0 } else { threshold };
+        if loud == speaking {
+            run = 0;
+            continue;
+        }
+        run += 1;
+        if !speaking && run >= STARTS_AFTER {
+            (speaking, run, start) = (true, 0, index + 1 - STARTS_AFTER);
+        } else if speaking && run >= ENDS_AFTER {
+            let end = index + 1 - ENDS_AFTER;
+            spans.push(Span {
+                start: start as f64 * FRAME,
+                end: end as f64 * FRAME,
+            });
+            (speaking, run) = (false, 0);
+        }
+    }
+    if speaking {
+        spans.push(Span {
+            start: start as f64 * FRAME,
+            end: levels.len() as f64 * FRAME,
+        });
+    }
+    let mut joined: Vec<Span> = Vec::new();
+    for span in spans {
+        match joined.last_mut() {
+            Some(last) if span.start - last.end < JOIN_GAP => last.end = span.end,
+            _ => joined.push(span),
+        }
+    }
+    joined.retain(|span| span.end - span.start >= SHORTEST);
+    joined
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_speech_by_its_loudness() {
+        // Quiet noise, and a tone from 1 to 2.5 s and from 4 to 4.6 s, with a
+        // 0.1 s dip in the first that doesn't end it, and a 0.05 s click.
+        let rate = 16_000;
+        let mut seed = 7u32;
+        let samples: Vec<f32> = (0..rate * 6)
+            .map(|i| {
+                seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                let noise = ((seed >> 16) as f32 / 32_768.0 - 1.0) * 0.001;
+                let t = i as f64 / f64::from(rate);
+                let loud = ((1.0..2.5).contains(&t) && !(1.7..1.8).contains(&t))
+                    || (4.0..4.6).contains(&t)
+                    || (5.5..5.55).contains(&t);
+                let tone = if loud {
+                    (t * 300.0 * std::f64::consts::TAU).sin() as f32 * 0.1
+                } else {
+                    0.0
+                };
+                noise + tone
+            })
+            .collect();
+        let spans = speech_spans(&samples, rate as u32);
+        assert_eq!(spans.len(), 2, "{spans:?}");
+        for (span, (start, end)) in spans.iter().zip([(1.0, 2.5), (4.0, 4.6)]) {
+            assert!(
+                (span.start - start).abs() < 0.05 && (span.end - end).abs() < 0.05,
+                "{spans:?}"
+            );
+        }
+        assert!(speech_spans(&[], 16_000).is_empty());
+    }
 
     fn heard(words: &[(&str, f64, f64)]) -> Vec<Word> {
         words

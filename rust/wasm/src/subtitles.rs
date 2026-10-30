@@ -228,3 +228,10 @@ pub fn fit_subtitles_to_speech(
         None => Ok(JsValue::UNDEFINED),
     }
 }
+
+/// When someone's speaking in a mono soundtrack, roughly, by loudness: for
+/// lining subtitles up without a speech model.
+#[wasm_bindgen(js_name = detectSpeech, unchecked_return_type = "SpeechSpan[]")]
+pub fn detect_speech(samples: &[f32], sample_rate: u32) -> Result<JsValue, JsValue> {
+    to_js(&align::speech_spans(samples, sample_rate))
+}

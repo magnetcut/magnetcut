@@ -17,12 +17,16 @@ import type {
 	CaptionChunk,
 	TranscriptionLanguage,
 	TranscriptionProgress,
+	TranscriptionSegment,
 } from "@/transcription/types";
 import { transcriptionService } from "@/services/transcription/service";
 import { decodeAudioToFloat32 } from "@/media/audio";
 import { buildCaptionChunks } from "@/transcription/caption";
 import { insertCaptionChunksAsTextTrack } from "@/subtitles/insert";
 import { SUBTITLE_FILE_TYPES, openSubtitleFile } from "@/subtitles/open";
+import { syncLinesToSpeech } from "@/subtitles/sync";
+import { SubtitleList } from "@/subtitles/components/subtitle-list";
+import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
 import {
 	Section,
@@ -87,6 +91,7 @@ export function Captions() {
 	const [selectedLanguage, setSelectedLanguage] =
 		useState<TranscriptionLanguage>("auto");
 	const [processing, dispatch] = useReducer(processingReducer, IDLE_STATE);
+	const [script, setScript] = useState("");
 	const containerRef = useRef<HTMLDivElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const editor = useEditor();
@@ -117,29 +122,67 @@ export function Captions() {
 		return trackId !== null;
 	};
 
+	/** What Whisper hears on the timeline. */
+	const transcribeTimeline = async (): Promise<TranscriptionSegment[]> => {
+		const audioBlob = await extractTimelineAudio({
+			tracks: editor.scenes.getActiveScene().tracks,
+			mediaAssets: editor.media.getAssets(),
+			totalDuration: editor.timeline.getTotalDuration(),
+		});
+
+		dispatch({ type: "update_step", step: "Preparing audio..." });
+		const { samples } = await decodeAudioToFloat32({
+			audioBlob,
+			sampleRate: DEFAULT_TRANSCRIPTION_SAMPLE_RATE,
+		});
+
+		const result = await transcriptionService.transcribe({
+			audioData: samples,
+			language: selectedLanguage === "auto" ? undefined : selectedLanguage,
+			onProgress: handleProgress,
+		});
+		return result.segments;
+	};
+
+	// A script pasted in, timed to the speech (auto-sync).
+	const handleSyncScript = async () => {
+		dispatch({ type: "start", step: "Extracting audio..." });
+		try {
+			const segments = await transcribeTimeline();
+			dispatch({ type: "update_step", step: "Timing the script..." });
+			const captions = syncLinesToSpeech({ text: script, segments });
+			if (!captions) {
+				dispatch({
+					type: "fail",
+					error: "None of the script's words were heard on the timeline",
+				});
+				return;
+			}
+			if (!insertCaptions({ captions })) {
+				dispatch({ type: "fail", error: "No captions were generated" });
+				return;
+			}
+			setScript("");
+			dispatch({ type: "succeed", warnings: [] });
+		} catch (error) {
+			console.error("Timing the script failed:", error);
+			dispatch({
+				type: "fail",
+				error:
+					error instanceof Error
+						? error.message
+						: "An unexpected error occurred",
+			});
+		}
+	};
+
 	const handleGenerateTranscript = async () => {
 		dispatch({ type: "start", step: "Extracting audio..." });
 		try {
-			const audioBlob = await extractTimelineAudio({
-				tracks: editor.scenes.getActiveScene().tracks,
-				mediaAssets: editor.media.getAssets(),
-				totalDuration: editor.timeline.getTotalDuration(),
-			});
-
-			dispatch({ type: "update_step", step: "Preparing audio..." });
-			const { samples } = await decodeAudioToFloat32({
-				audioBlob,
-				sampleRate: DEFAULT_TRANSCRIPTION_SAMPLE_RATE,
-			});
-
-			const result = await transcriptionService.transcribe({
-				audioData: samples,
-				language: selectedLanguage === "auto" ? undefined : selectedLanguage,
-				onProgress: handleProgress,
-			});
+			const segments = await transcribeTimeline();
 
 			dispatch({ type: "update_step", step: "Generating captions..." });
-			const captionChunks = buildCaptionChunks({ segments: result.segments });
+			const captionChunks = buildCaptionChunks({ segments });
 
 			if (!insertCaptions({ captions: captionChunks })) {
 				dispatch({ type: "fail", error: "No captions were generated" });
@@ -304,6 +347,30 @@ export function Captions() {
 							</Select>
 						</SectionField>
 					</SectionFields>
+
+					<SubtitleList />
+
+					<SectionFields>
+						<SectionField label="Or paste a script, to time it to the speech">
+							<Textarea
+								rows={3}
+								value={script}
+								onChange={(event) => setScript(event.target.value)}
+								placeholder="One subtitle a line"
+							/>
+						</SectionField>
+					</SectionFields>
+					<Button
+						type="button"
+						variant="outline"
+						className="w-full"
+						onClick={() => void handleSyncScript()}
+						disabled={
+							isProcessing || activeDiagnostics.length > 0 || !script.trim()
+						}
+					>
+						Time the script to the speech
+					</Button>
 
 					<Button
 						type="button"
