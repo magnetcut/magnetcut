@@ -13,11 +13,13 @@ use tauri::ipc::{InvokeBody, Request};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
-/// The files picked in the save dialog, and those being written.
+/// The files picked in the save dialog, each good for one export; those being
+/// written; and those finished, which may be shown.
 #[derive(Default)]
 pub struct Exports {
     picked: Mutex<HashSet<PathBuf>>,
     open: Mutex<HashMap<u32, (PathBuf, File)>>,
+    saved: Mutex<HashSet<PathBuf>>,
     next_id: AtomicU32,
 }
 
@@ -58,11 +60,11 @@ pub async fn pick_export_file(
 }
 
 /// Starts writing an export to a file picked in the save dialog, replacing
-/// what was there.
+/// what was there. A pick is used up: another export asks again.
 #[tauri::command]
 pub fn open_export_file(exports: State<'_, Exports>, path: String) -> Result<u32, String> {
     let path = PathBuf::from(path);
-    if !lock(&exports.picked).contains(&path) {
+    if !lock(&exports.picked).remove(&path) {
         return Err("not a file picked in the save dialog".into());
     }
     let file = File::create(&path).map_err(|error| error.to_string())?;
@@ -100,18 +102,20 @@ pub fn write_export_file(exports: State<'_, Exports>, request: Request<'_>) -> R
 pub fn close_export_file(exports: State<'_, Exports>, id: u32, keep: bool) -> Result<(), String> {
     let (path, file) = lock(&exports.open).remove(&id).ok_or("no such export")?;
     if keep {
-        return file.sync_all().map_err(|error| error.to_string());
+        file.sync_all().map_err(|error| error.to_string())?;
+        lock(&exports.saved).insert(path);
+        return Ok(());
     }
     drop(file);
     fs::remove_file(&path).map_err(|error| error.to_string())
 }
 
-/// Shows an export in Finder, Explorer or the file manager.
+/// Shows a finished export in Finder, Explorer or the file manager.
 #[tauri::command]
 pub fn reveal_export_file(exports: State<'_, Exports>, path: String) -> Result<(), String> {
     let path = PathBuf::from(path);
-    if !lock(&exports.picked).contains(&path) {
-        return Err("not a file picked in the save dialog".into());
+    if !lock(&exports.saved).contains(&path) {
+        return Err("not an export saved here".into());
     }
     tauri_plugin_opener::reveal_item_in_dir(&path).map_err(|error| error.to_string())
 }
