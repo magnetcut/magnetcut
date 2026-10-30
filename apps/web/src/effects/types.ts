@@ -35,6 +35,10 @@ export interface EffectRendererConfig {
 export interface EffectDefinition {
 	type: string;
 	name: string;
+	/** Listed in the Adjustment tab rather than Effects. */
+	category?: "adjustment";
+	/** What its card shows it with, if not its defaults. */
+	previewParams?: ParamValues;
 	keywords: string[];
 	params: ParamDefinition[];
 	renderer: EffectRendererConfig;

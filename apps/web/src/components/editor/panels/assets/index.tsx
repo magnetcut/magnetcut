@@ -8,7 +8,7 @@ import { MediaView } from "./views/assets";
 import { SettingsView } from "./views/settings";
 import { StickersView } from "@/stickers/components/assets-view";
 import { TextView } from "@/text/components/assets-view";
-import { EffectsView } from "@/effects/components/assets-view";
+import { AdjustmentView, EffectsView } from "@/effects/components/assets-view";
 import { TransitionsView } from "@/transitions/components/assets-view";
 
 export function AssetsPanel() {
@@ -21,11 +21,7 @@ export function AssetsPanel() {
 		effects: <EffectsView />,
 		transitions: <TransitionsView />,
 		captions: <Captions />,
-		adjustment: (
-			<div className="text-muted-foreground p-4">
-				Adjustment view coming soon...
-			</div>
-		),
+		adjustment: <AdjustmentView />,
 		settings: <SettingsView />,
 	};
 

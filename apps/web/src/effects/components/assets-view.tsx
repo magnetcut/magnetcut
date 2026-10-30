@@ -10,11 +10,31 @@ import { buildEffectElement } from "@/timeline/element-utils";
 import type { EffectDefinition } from "@/effects/types";
 
 export function EffectsView() {
-	const effects = effectsRegistry.getAll();
+	const effects = effectsRegistry
+		.getAll()
+		.filter(({ category }) => category !== "adjustment");
 
 	return (
 		<PanelView title="Effects">
 			<EffectsGrid effects={effects} />
+		</PanelView>
+	);
+}
+
+/** Colour, vignette and sharpening: on a clip, or on an effect track to
+ * adjust all beneath it. */
+export function AdjustmentView() {
+	const adjustments = effectsRegistry
+		.getAll()
+		.filter(({ category }) => category === "adjustment");
+
+	return (
+		<PanelView title="Adjustment">
+			<p className="text-muted-foreground mb-3 text-xs">
+				Drop one on a clip to adjust it, or add it to the timeline to adjust
+				everything beneath it. Its settings are in the properties panel.
+			</p>
+			<EffectsGrid effects={adjustments} />
 		</PanelView>
 	);
 }
@@ -32,15 +52,15 @@ function EffectsGrid({ effects }: { effects: EffectDefinition[] }) {
 	);
 }
 
-function EffectPreviewCanvas({ effectType }: { effectType: string }) {
+function EffectPreviewCanvas({ effect }: { effect: EffectDefinition }) {
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 
 	useEffect(() => {
 		const render = () => {
 			if (canvasRef.current) {
 				effectPreviewService.renderPreview({
-					effectType,
-					params: {},
+					effectType: effect.type,
+					params: effect.previewParams ?? {},
 					targetCanvas: canvasRef.current,
 				});
 			}
@@ -48,7 +68,7 @@ function EffectPreviewCanvas({ effectType }: { effectType: string }) {
 
 		render();
 		return effectPreviewService.onPreviewImageReady({ callback: render });
-	}, [effectType]);
+	}, [effect]);
 
 	return <canvas ref={canvasRef} className="size-full" />;
 }
@@ -69,7 +89,7 @@ function EffectItem({ effect }: { effect: EffectDefinition }) {
 		});
 	}, [editor, effect.type]);
 
-	const preview = <EffectPreviewCanvas effectType={effect.type} />;
+	const preview = <EffectPreviewCanvas effect={effect} />;
 
 	return (
 		<DraggableItem

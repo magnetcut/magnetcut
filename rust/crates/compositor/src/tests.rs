@@ -497,3 +497,105 @@ fn sharpening_steepens_an_edge_over_the_frame() {
         at(middle + 1)
     );
 }
+
+fn color_pass(uniforms: &[(&str, f32)]) -> Vec<EffectPassDescriptor> {
+    let mut all = vec![
+        ("u_exposure", 0.0),
+        ("u_contrast", 0.0),
+        ("u_highlights", 0.0),
+        ("u_shadows", 0.0),
+        ("u_saturation", 0.0),
+        ("u_vibrance", 0.0),
+        ("u_temperature", 0.0),
+        ("u_tint", 0.0),
+        ("u_hue", 0.0),
+    ];
+    for &(name, value) in uniforms {
+        if let Some(entry) = all.iter_mut().find(|(key, _)| *key == name) {
+            entry.1 = value;
+        }
+    }
+    pass("color-adjust", &all)
+}
+
+fn adjusted(
+    context: &GpuContext,
+    compositor: &mut Compositor,
+    id: &str,
+    effect: Vec<EffectPassDescriptor>,
+) -> Vec<[u8; 4]> {
+    render_items(
+        context,
+        compositor,
+        vec![FrameItemDescriptor::Layer(LayerDescriptor {
+            effect_pass_groups: vec![effect],
+            ..layer(id)
+        })],
+    )
+}
+
+#[test]
+fn colour_adjustments_change_what_they_say() {
+    let Some((context, mut compositor)) = gpu() else {
+        return;
+    };
+    upload_grey(&context, &mut compositor, "mid", |_, _| 128);
+    let middle = (SIZE / 2 * SIZE + SIZE / 2) as usize;
+    // Nothing asked, nothing changed.
+    let unchanged = adjusted(&context, &mut compositor, "red", color_pass(&[]));
+    assert_near(unchanged[middle], RED, "no adjustment");
+    // No saturation: red as grey.
+    let grey = adjusted(
+        &context,
+        &mut compositor,
+        "red",
+        color_pass(&[("u_saturation", -1.0)]),
+    );
+    let [r, g, b, _] = grey[middle];
+    assert!(
+        r.abs_diff(g) <= 2 && g.abs_diff(b) <= 2 && r > 20,
+        "{:?}",
+        grey[middle]
+    );
+    // A stop brighter.
+    let brighter = adjusted(
+        &context,
+        &mut compositor,
+        "mid",
+        color_pass(&[("u_exposure", 0.5)]),
+    );
+    assert!(brighter[middle][0] > 160, "{:?}", brighter[middle]);
+    // Red's hue turned a third of the way round: towards green.
+    let turned = adjusted(
+        &context,
+        &mut compositor,
+        "red",
+        color_pass(&[("u_hue", 120.0)]),
+    );
+    let [r, g, _, _] = turned[middle];
+    assert!(g > r, "{:?}", turned[middle]);
+}
+
+#[test]
+fn a_vignette_darkens_the_corners_only() {
+    let Some((context, mut compositor)) = gpu() else {
+        return;
+    };
+    upload_grey(&context, &mut compositor, "mid", |_, _| 200);
+    let pixels = adjusted(
+        &context,
+        &mut compositor,
+        "mid",
+        pass(
+            "vignette",
+            &[("u_amount", 0.8), ("u_size", 0.4), ("u_softness", 0.4)],
+        ),
+    );
+    let at = |x: u32, y: u32| pixels[(y * SIZE + x) as usize][0];
+    assert!(
+        at(SIZE / 2, SIZE / 2).abs_diff(200) <= 1,
+        "middle {}",
+        at(SIZE / 2, SIZE / 2)
+    );
+    assert!(at(0, 0) < 100, "corner {}", at(0, 0));
+}

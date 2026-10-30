@@ -16,6 +16,11 @@ const DENOISE_SHADER_ID: &str = "denoise";
 const DENOISE_SHADER_SOURCE: &str = include_str!("shaders/denoise.wgsl");
 const SHARPEN_SHADER_ID: &str = "sharpen";
 const SHARPEN_SHADER_SOURCE: &str = include_str!("shaders/sharpen.wgsl");
+// The Adjustment tab's.
+const COLOR_ADJUST_SHADER_ID: &str = "color-adjust";
+const COLOR_ADJUST_SHADER_SOURCE: &str = include_str!("shaders/color_adjust.wgsl");
+const VIGNETTE_SHADER_ID: &str = "vignette";
+const VIGNETTE_SHADER_SOURCE: &str = include_str!("shaders/vignette.wgsl");
 
 pub struct ApplyEffectsOptions<'a> {
     pub source: &'a wgpu::Texture,
@@ -57,6 +62,9 @@ struct EffectUniformBuffer {
     resolution: [f32; 2],
     direction: [f32; 2],
     scalars: [f32; 4],
+    // For shaders with more to say than four numbers (the colour's); the
+    // others' uniforms stop before it.
+    extra: [f32; 8],
 }
 
 impl EffectPipeline {
@@ -143,6 +151,8 @@ impl EffectPipeline {
             (DEINTERLACE_SHADER_ID, DEINTERLACE_SHADER_SOURCE),
             (DENOISE_SHADER_ID, DENOISE_SHADER_SOURCE),
             (SHARPEN_SHADER_ID, SHARPEN_SHADER_SOURCE),
+            (COLOR_ADJUST_SHADER_ID, COLOR_ADJUST_SHADER_SOURCE),
+            (VIGNETTE_SHADER_ID, VIGNETTE_SHADER_SOURCE),
         ]
         .into_iter()
         .map(|(id, source)| (id.to_string(), create_pipeline(id, source)))
@@ -282,7 +292,51 @@ fn pack_effect_uniforms(
     height: u32,
 ) -> Result<EffectUniformBuffer, EffectsError> {
     let shader = pass.shader.as_str();
+    let number = |name: &str| read_number_uniform(pass, name);
+    let mut extra = [0.0; 8];
     let (names, direction, scalars): (&[&str], [f32; 2], [f32; 4]) = match shader {
+        COLOR_ADJUST_SHADER_ID => {
+            extra = [
+                number("u_saturation")?,
+                number("u_vibrance")?,
+                number("u_temperature")?,
+                number("u_tint")?,
+                number("u_hue")?,
+                0.0,
+                0.0,
+                0.0,
+            ];
+            (
+                &[
+                    "u_exposure",
+                    "u_contrast",
+                    "u_highlights",
+                    "u_shadows",
+                    "u_saturation",
+                    "u_vibrance",
+                    "u_temperature",
+                    "u_tint",
+                    "u_hue",
+                ],
+                [0.0, 0.0],
+                [
+                    number("u_exposure")?,
+                    number("u_contrast")?,
+                    number("u_highlights")?,
+                    number("u_shadows")?,
+                ],
+            )
+        }
+        VIGNETTE_SHADER_ID => (
+            &["u_amount", "u_size", "u_softness"],
+            [0.0, 0.0],
+            [
+                number("u_amount")?,
+                number("u_size")?,
+                number("u_softness")?,
+                0.0,
+            ],
+        ),
         DEINTERLACE_SHADER_ID => (
             &["u_field"],
             [0.0, 0.0],
@@ -329,6 +383,7 @@ fn pack_effect_uniforms(
         resolution: [width as f32, height as f32],
         direction,
         scalars,
+        extra,
     })
 }
 
