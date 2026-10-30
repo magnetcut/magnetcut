@@ -253,10 +253,12 @@ case "$flags" in
 esac
 EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")
 ARCHS=$(lipo -archs "$APP/Contents/MacOS/$EXECUTABLE")
-case " $ARCHS " in
-    *" x86_64 "*" arm64 "* | *" arm64 "*" x86_64 "*) ;;
-    *) die "the app isn't universal: $ARCHS" ;;
-esac
+for arch in arm64 x86_64; do
+    case " $ARCHS " in
+        *" $arch "*) ;;
+        *) die "the app isn't universal: $ARCHS" ;;
+    esac
+done
 
 say "3/6  Notarize and staple the app (usually a few minutes)"
 ZIP="$OUT/$APP_NAME.zip"
