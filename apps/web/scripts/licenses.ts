@@ -131,6 +131,17 @@ function elect({ expression }: { expression: Expression }): string[] | null {
 
 // ---- Licence files ----------------------------------------------------------
 
+// By name and version, in code points: locales sort differently.
+function compareIds({ a, b }: { a: Package; b: Package }): number {
+	const [x, y] = [`${a.name}@${a.version}`, `${b.name}@${b.version}`];
+	return x < y ? -1 : x > y ? 1 : 0;
+}
+
+// Sorted: file systems list in different orders, and the output mustn't vary.
+function list({ dir }: { dir: string }): string[] {
+	return readdirSync(dir).sort();
+}
+
 const LICENSE_FILE =
 	/^(licen[cs]e|copying|unlicense|notice|copyright|third[-_]party)/i;
 
@@ -183,7 +194,7 @@ function licenseTexts({
 	licenses: string[];
 }): string[] {
 	const files = existsSync(pkg.dir)
-		? readdirSync(pkg.dir).filter(
+		? list({ dir: pkg.dir }).filter(
 				(name) =>
 					LICENSE_FILE.test(name) && statSync(join(pkg.dir, name)).isFile(),
 			)
@@ -464,7 +475,7 @@ function packageDir({
 }): string | null {
 	const store = join(ROOT, "node_modules/.bun");
 	const prefix = `${name.replace("/", "+")}@${version}`;
-	const entry = readdirSync(store).find(
+	const entry = list({ dir: store }).find(
 		(dir) => dir === prefix || dir.startsWith(`${prefix}+`),
 	);
 	return entry ? join(store, entry, "node_modules", name) : null;
@@ -493,9 +504,7 @@ function section({
 }): string {
 	// Identical texts once, with every package under them.
 	const groups = new Map<string, string[]>();
-	for (const pkg of packages.sort((a, b) =>
-		`${a.name}@${a.version}`.localeCompare(`${b.name}@${b.version}`),
-	)) {
+	for (const pkg of packages.sort((a, b) => compareIds({ a, b }))) {
 		const licenses = elect({ expression: parseSpdx({ text: pkg.license }) });
 		if (!pkg.license || !licenses) {
 			problems.push(
@@ -539,12 +548,14 @@ named after it. Written by apps/web/scripts/licenses.ts.`;
 }
 
 async function main() {
-	// Standard texts for packages that ship none, taken from ones that do.
+	// Standard texts for packages that ship none, taken from ones that do:
+	// the first, by name.
 	const rust = rustPackages();
 	const { packages: js, skipped } = jsPackages();
-	for (const pkg of [...rust, ...js]) {
+	const byName = [...rust, ...js].sort((a, b) => compareIds({ a, b }));
+	for (const pkg of byName) {
 		if (!existsSync(pkg.dir)) continue;
-		for (const name of readdirSync(pkg.dir)) {
+		for (const name of list({ dir: pkg.dir })) {
 			if (!LICENSE_FILE.test(name) || !statSync(join(pkg.dir, name)).isFile()) {
 				continue;
 			}

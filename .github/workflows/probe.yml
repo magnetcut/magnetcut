@@ -3,7 +3,9 @@ name: Web view probe
 # What each system's web view supports of what the editor needs
 # (apps/desktop/src/probe.js: WebGPU, WebGL2, WebCodecs per codec, OPFS…),
 # from the app itself, in the job summary. Run by hand: the runners have no
-# GPU, so it tells what works without one.
+# GPU, so it tells what works without one. Linux is 24.04, as on desktops:
+# on 22.04's runner image, WebKit's web process loads two GStreamers and
+# aborts.
 on:
   workflow_dispatch:
 
@@ -20,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-22.04, macos-latest]
+        os: [windows-latest, ubuntu-24.04, macos-latest]
 
     steps:
       - name: Checkout repository
