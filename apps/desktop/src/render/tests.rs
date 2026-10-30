@@ -620,3 +620,89 @@ fn turns_a_source_as_it_is_shown() {
     });
     assert!(right > 200 && left < 50, "left {left}, right {right}");
 }
+
+/// How fast the native export goes without the editor: decoding alone, then
+/// whole exports, from a 4K film. `cargo test --release -p magnetcut
+/// native_speed -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn native_speed() {
+    use std::time::Instant;
+
+    const FRAMES: usize = 120;
+    let source = temporary("speed-source.mp4");
+    let video = VideoSettings {
+        codec: VideoCodec::Avc,
+        width: 3840,
+        height: 2160,
+        bitrate: 40_000_000,
+        quality: None,
+        fps: FPS,
+    };
+    let mut writer = Writer::new(&source, Container::Mp4, &video, None).unwrap();
+    for i in 0..FRAMES {
+        let buffer = writer.pixel_buffer().unwrap();
+        with_pixels(&buffer, |pixels, row| {
+            for (y, line) in pixels.chunks_exact_mut(row).enumerate() {
+                let level = ((y + i * 8) % 256) as u8;
+                for pixel in line.as_chunks_mut::<4>().0 {
+                    *pixel = [level, 255 - level, level / 2, 255];
+                }
+            }
+        });
+        writer.add_frame(&buffer).unwrap();
+    }
+    writer.finish().unwrap();
+
+    let started = Instant::now();
+    let mut reader = VideoReader::open(&source, 0.0).unwrap();
+    for i in 0..FRAMES {
+        reader.frame_at(i as f64 / 30.0).unwrap().unwrap();
+    }
+    let decoding = started.elapsed().as_secs_f64();
+    eprintln!(
+        "decoding 4K: {:.0} frames a second",
+        FRAMES as f64 / decoding
+    );
+
+    for (name, codec, size) in [
+        ("4K HEVC", VideoCodec::Hevc, (3840, 2160)),
+        ("4K to 1080p H.264", VideoCodec::Avc, (1920, 1080)),
+    ] {
+        let path = temporary("speed.mp4");
+        let options = StartOptions {
+            path: path.to_str().unwrap().to_owned(),
+            format: Container::Mp4,
+            width: 3840,
+            height: 2160,
+            crop: Crop::default(),
+            output_width: size.0,
+            output_height: size.1,
+            fps: FPS,
+            video_codec: codec,
+            video_bitrate: 20_000_000,
+            video_quality: None,
+            audio: None,
+            audio_copy: None,
+        };
+        let started = Instant::now();
+        let mut worker = Worker::new(&path, &options).unwrap();
+        for i in 0..FRAMES {
+            let video = VideoFrame {
+                texture_id: "video".into(),
+                location: source.clone(),
+                stream: String::new(),
+                time: i as f64 / 30.0,
+            };
+            let message = Message::Frame {
+                frame: frame_sized("video", 3840, 2160),
+                videos: vec![video],
+                released: vec![],
+            };
+            worker.handle(message).unwrap();
+        }
+        worker.finish().unwrap();
+        let seconds = started.elapsed().as_secs_f64();
+        eprintln!("{name}: {:.0} frames a second", FRAMES as f64 / seconds);
+    }
+}

@@ -173,7 +173,13 @@ and give it constant quality and the encoders the web views lack.
   1 to 100, on Apple silicon. Where the native export can't make the film, ProRes fails with
   why (`findNativeSources` says: a blurred background, a file the Mac can't decode) and a
   constant quality becomes a bitrate like it: Medium's at 60, twice as much each 10 more.
-- Still to do: the decoded frame used as a Metal texture without the copy, and 10-bit HEVC.
+- Its speed without the editor, on an M4 in a release build (`native_speed`, an ignored test):
+  4K decoded at 230 frames a second; 4K to 4K HEVC at 40 to 55, the hardware HEVC encoder
+  being the limit (each frame waits on it about as long as it takes to decode, draw and read
+  back); 4K to 1080p H.264 at 113. Using the decoded picture as a Metal texture without the
+  copy would gain little at 4K: decoding the next frame while one's drawn would gain more.
+- Still to do: decoding ahead while drawing, the decoded frame used as a Metal texture without
+  the copy, and 10-bit HEVC.
 - What the web view can't decode (ProRes, DNxHR) can work there too, once the editor can show
   it.
 
