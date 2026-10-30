@@ -72,6 +72,7 @@ fn make_source(path: &Path) {
         width: 64,
         height: 64,
         bitrate: 2_000_000,
+        quality: None,
         fps: FPS,
     };
     let mut writer = Writer::new(path, Container::Mp4, &video, None).unwrap();
@@ -164,6 +165,7 @@ fn draws_a_source_into_a_film_cut_and_scaled() {
         fps: FPS,
         video_codec: VideoCodec::Hevc,
         video_bitrate: 1_000_000,
+        video_quality: None,
         audio: Some(AudioSettings {
             channels: 2,
             sample_rate: 44_100,
@@ -245,6 +247,7 @@ fn a_cancelled_export_leaves_no_file() {
         fps: FPS,
         video_codec: VideoCodec::Avc,
         video_bitrate: 1_000_000,
+        video_quality: None,
         audio: None,
         audio_copy: None,
     };
@@ -271,6 +274,7 @@ fn prores_goes_only_in_a_quicktime_file() {
         width: 64,
         height: 64,
         bitrate: 0,
+        quality: None,
         fps: FPS,
     };
     assert!(Writer::new(&temporary("prores.mp4"), Container::Mp4, &video, None).is_err());
@@ -305,6 +309,7 @@ fn writer_with_sound(name: &str) -> Writer {
         width: 320,
         height: 240,
         bitrate: 2_000_000,
+        quality: None,
         fps: FPS,
     };
     let audio = AudioSettings {
@@ -395,6 +400,7 @@ fn copies_a_files_sound_as_it_is() {
             width: 64,
             height: 64,
             bitrate: 1_000_000,
+            quality: None,
             fps: FPS,
         },
         Some(Audio::Mix(AudioSettings {
@@ -430,6 +436,7 @@ fn copies_a_files_sound_as_it_is() {
         fps: FPS,
         video_codec: VideoCodec::Hevc,
         video_bitrate: 1_000_000,
+        video_quality: None,
         audio: None,
         audio_copy: Some(super::AudioCopy {
             path: source.clone(),
@@ -460,4 +467,34 @@ fn copies_a_files_sound_as_it_is() {
     let (original, _) = stored_sound(&source, 1.0);
     assert_eq!(copied, original, "the packets aren't the source's");
     assert!((copied_end - 1.0).abs() < 0.05, "{copied_end}");
+}
+
+#[test]
+fn constant_quality_steers_the_encoder() {
+    if !super::encode::constant_quality() {
+        eprintln!("No constant quality on this Mac: skipped");
+        return;
+    }
+    let size_at = |codec: VideoCodec, quality: f32| {
+        let path = temporary(&format!("quality-{codec:?}-{quality}.mp4"));
+        let video = VideoSettings {
+            codec,
+            width: 320,
+            height: 240,
+            bitrate: 0,
+            quality: Some(quality),
+            fps: FPS,
+        };
+        let mut writer = Writer::new(&path, Container::Mp4, &video, None).unwrap();
+        add_noisy_frames(&mut writer, 0..60).unwrap();
+        writer.finish().unwrap();
+        std::fs::metadata(&path).unwrap().len()
+    };
+    for codec in [VideoCodec::Avc, VideoCodec::Hevc] {
+        let (low, high) = (size_at(codec, 0.2), size_at(codec, 0.9));
+        assert!(
+            high > low * 2,
+            "{codec:?}: {low} bytes at 0.2, {high} at 0.9"
+        );
+    }
 }

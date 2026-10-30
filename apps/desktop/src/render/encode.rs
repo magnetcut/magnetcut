@@ -19,7 +19,7 @@ use objc2_av_foundation::{
     AVVideoCodecTypeH264, AVVideoCodecTypeHEVC, AVVideoColorPrimaries_ITU_R_709_2,
     AVVideoColorPrimariesKey, AVVideoColorPropertiesKey, AVVideoCompressionPropertiesKey,
     AVVideoExpectedSourceFrameRateKey, AVVideoHeightKey, AVVideoMaxKeyFrameIntervalDurationKey,
-    AVVideoProfileLevelH264HighAutoLevel, AVVideoProfileLevelKey,
+    AVVideoProfileLevelH264HighAutoLevel, AVVideoProfileLevelKey, AVVideoQualityKey,
     AVVideoTransferFunction_ITU_R_709_2, AVVideoTransferFunctionKey, AVVideoWidthKey,
     AVVideoYCbCrMatrix_ITU_R_709_2, AVVideoYCbCrMatrixKey,
 };
@@ -76,7 +76,16 @@ pub struct VideoSettings {
     pub height: u32,
     /// In bits a second; ProRes has none, its rate is the codec's.
     pub bitrate: u32,
+    /// Constant quality instead of a bitrate, from 0 to 1: H.264 and HEVC
+    /// on Apple silicon (`constant_quality`).
+    pub quality: Option<f32>,
     pub fps: FrameRate,
+}
+
+/// Whether this Mac's H.264 and HEVC encoders take a constant quality: the
+/// hardware ones on Apple silicon do; on Intel the setting would be ignored.
+pub fn constant_quality() -> bool {
+    cfg!(target_arch = "aarch64")
 }
 
 /// AAC, from the mix the editor makes.
@@ -183,6 +192,15 @@ impl Writer {
         unsafe { writer.setShouldOptimizeForNetworkUse(container == Container::Mp4) };
 
         let settings = video_output_settings(video)?;
+        // An input raises an exception for settings it won't take.
+        if !unsafe {
+            writer.canApplyOutputSettings_forMediaType(Some(&settings), av!(AVMediaTypeVideo))
+        } {
+            return Err(format!(
+                "This Mac can't encode {:?} at {}x{}",
+                video.codec, video.width, video.height
+            ));
+        }
         let video_input = unsafe {
             AVAssetWriterInput::assetWriterInputWithMediaType_outputSettings(
                 av!(AVMediaTypeVideo),
@@ -413,12 +431,19 @@ fn video_output_settings(
         ),
     ]);
     let bitrate = NSNumber::new_u32(video.bitrate);
+    let quality = video
+        .quality
+        .map(|quality| NSNumber::new_f32(quality.clamp(0.0, 1.0)));
     let fps = NSNumber::new_f64(f64::from(video.fps.numerator) / f64::from(video.fps.denominator));
     let key_frames = NSNumber::new_f64(KEY_FRAME_INTERVAL);
     // HEVC's Main profile (VideoToolbox's kVTProfileLevel_HEVC_Main_AutoLevel).
     let hevc_main = NSString::from_str("HEVC_Main_AutoLevel");
+    let rate = match &quality {
+        Some(quality) => (av!(AVVideoQualityKey), any(quality)),
+        None => (av!(AVVideoAverageBitRateKey), any(&bitrate)),
+    };
     let mut compression = vec![
-        (av!(AVVideoAverageBitRateKey), any(&bitrate)),
+        rate,
         (av!(AVVideoExpectedSourceFrameRateKey), any(&fps)),
         (av!(AVVideoMaxKeyFrameIntervalDurationKey), any(&key_frames)),
     ];
@@ -458,6 +483,14 @@ impl AudioInput {
             (av!(AVNumberOfChannelsKey), any(&channels)),
             (av!(AVEncoderBitRateKey), any(&bitrate)),
         ]);
+        if !unsafe {
+            writer.canApplyOutputSettings_forMediaType(Some(&output), av!(AVMediaTypeAudio))
+        } {
+            return Err(format!(
+                "This Mac can't encode AAC at {} Hz in {} channels and {} bit/s",
+                settings.sample_rate, settings.channels, settings.bitrate
+            ));
+        }
         let input = unsafe {
             AVAssetWriterInput::assetWriterInputWithMediaType_outputSettings(
                 av!(AVMediaTypeAudio),

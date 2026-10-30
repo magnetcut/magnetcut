@@ -40,7 +40,7 @@ base64 = "0.22"
 # versions Tauri itself uses.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSError", "NSString", "NSURL"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSError", "NSProcessInfo", "NSString", "NSURL"] }
 objc2-app-kit = { version = "0.3", features = ["NSPasteboard"] }
 # The native export (src/render/): AVFoundation decodes the sources and
 # encodes the film, and the editor's own compositor (rust/crates) draws each

@@ -21,10 +21,11 @@ use std::thread::{self, JoinHandle};
 
 use compositor::FrameDescriptor;
 use gpu::GpuContext;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 use tauri::ipc::{InvokeBody, Request};
 
+use crate::activity::Activity;
 use crate::export::Exports;
 use crate::media::MediaFiles;
 use decode::{SourceInfo, VideoReader};
@@ -44,6 +45,7 @@ struct Session {
     /// Why the export stopped, once it has.
     failure: Arc<Mutex<Option<String>>>,
     path: PathBuf,
+    _activity: Activity,
 }
 
 enum Message {
@@ -82,6 +84,20 @@ const IDLE_FRAMES: u64 = 120;
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// What the native export can do on this Mac, besides H.264, HEVC and ProRes.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Capabilities {
+    constant_quality: bool,
+}
+
+#[tauri::command]
+pub fn native_export_capabilities() -> Capabilities {
+    Capabilities {
+        constant_quality: encode::constant_quality(),
+    }
 }
 
 /// What each source is, by the path the editor knows it by: none for one
@@ -124,6 +140,9 @@ pub struct StartOptions {
     video_codec: VideoCodec,
     /// In bits a second.
     video_bitrate: u32,
+    /// Constant quality instead, from 0 to 1, where the Mac takes it.
+    #[serde(default)]
+    video_quality: Option<f32>,
     /// AAC, from the mix the editor sends.
     audio: Option<AudioSettings>,
     /// Or a source's sound, copied: the timeline's when it plays it uncut.
@@ -188,6 +207,7 @@ pub async fn native_export_start(
             worker,
             failure,
             path,
+            _activity: Activity::begin("Exporting a film"),
         },
     );
     Ok(id)
@@ -317,11 +337,13 @@ pub async fn native_export_finish(
         .remove(&session)
         .ok_or("no such export")?;
     let (reply, finished) = mpsc::channel();
+    // The activity lasts until the file's finished.
     let Session {
         sender,
         worker,
         failure,
         path,
+        _activity,
     } = session;
     let result = tauri::async_runtime::spawn_blocking(move || {
         let sent = sender.send(Message::Finish(reply));
@@ -438,6 +460,7 @@ impl Worker {
             width: output_size.0,
             height: output_size.1,
             bitrate: options.video_bitrate,
+            quality: options.video_quality.filter(|_| encode::constant_quality()),
             fps: options.fps,
         };
         let audio = match (&options.audio_copy, options.audio) {

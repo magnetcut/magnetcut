@@ -13,12 +13,14 @@ use tauri::ipc::{InvokeBody, Request};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
+use crate::activity::Activity;
+
 /// The files picked in the save dialog, each good for one export; those being
 /// written; and those finished, which may be shown.
 #[derive(Default)]
 pub struct Exports {
     picked: Mutex<HashSet<PathBuf>>,
-    open: Mutex<HashMap<u32, (PathBuf, File)>>,
+    open: Mutex<HashMap<u32, (PathBuf, File, Activity)>>,
     saved: Mutex<HashSet<PathBuf>>,
     next_id: AtomicU32,
 }
@@ -82,7 +84,8 @@ pub fn open_export_file(exports: State<'_, Exports>, path: String) -> Result<u32
     exports.take_pick(&path)?;
     let file = File::create(&path).map_err(|error| error.to_string())?;
     let id = exports.next_id.fetch_add(1, Ordering::Relaxed);
-    lock(&exports.open).insert(id, (path, file));
+    let activity = Activity::begin("Exporting a film");
+    lock(&exports.open).insert(id, (path, file, activity));
     Ok(id)
 }
 
@@ -104,7 +107,7 @@ pub fn write_export_file(exports: State<'_, Exports>, request: Request<'_>) -> R
         return Err("the chunk isn't raw bytes".into());
     };
     let mut open = lock(&exports.open);
-    let (_, file) = open.get_mut(&id).ok_or("no such export")?;
+    let (_, file, _) = open.get_mut(&id).ok_or("no such export")?;
     file.seek(SeekFrom::Start(position))
         .and_then(|_| file.write_all(bytes))
         .map_err(|error| error.to_string())
@@ -113,7 +116,7 @@ pub fn write_export_file(exports: State<'_, Exports>, request: Request<'_>) -> R
 /// Finishes an export: kept, or deleted when it was cancelled or failed.
 #[tauri::command]
 pub fn close_export_file(exports: State<'_, Exports>, id: u32, keep: bool) -> Result<(), String> {
-    let (path, file) = lock(&exports.open).remove(&id).ok_or("no such export")?;
+    let (path, file, _activity) = lock(&exports.open).remove(&id).ok_or("no such export")?;
     if keep {
         file.sync_all().map_err(|error| error.to_string())?;
         exports.add_saved(path);

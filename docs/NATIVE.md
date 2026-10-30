@@ -159,8 +159,15 @@ and give it constant quality and the encoders the web views lack.
 - Export takes this road on macOS when it can: MP4 or MOV, H.264 or HEVC, AAC or no sound, and
   every video a file on disk that AVFoundation decodes, none of them turned, none blurred
   behind itself. Otherwise the web view's export, as before.
-- Still to do: constant quality (`AVVideoQualityKey`), ProRes in the panel, turned videos,
-  the decoded frame used as a Metal texture without the copy, and 10-bit HEVC.
+- Constant quality instead of a bitrate (`AVVideoQualityKey`) for H.264 and HEVC on Apple
+  silicon, whose hardware encoders take it (`native_export_capabilities` says so). Settings are
+  checked with `canApplyOutputSettings` first: an input raises an exception for settings it
+  won't take, which would end the app.
+- While an export runs, on either road, the app holds a user-initiated activity
+  (`activity.rs`): hidden behind other windows, App Nap would otherwise slow it, and idle sleep
+  would stop it. Windows and Linux have no equivalent yet.
+- Still to do: constant quality and ProRes in the panel, turned videos, the decoded frame used
+  as a Metal texture without the copy, and 10-bit HEVC.
 - What the web view can't decode (ProRes, DNxHR) can work there too, once the editor can show
   it.
 
@@ -200,6 +207,10 @@ and give it constant quality and the encoders the web views lack.
   and a content security policy (none today: it would have to allow the fonts and models the
   editor fetches).
 - Native code for Windows and Linux written without the machines to try it on.
+- Speed measured in the app is unreliable while its window is hidden: a release build ran
+  slower than a debug one behind other windows. WebKit throttles a hidden page, and App Nap a
+  hidden app; the activity above answers App Nap, and `backgroundThrottling` in the window's
+  settings may be needed for WebKit. To measure with the window in front.
 
 ## Done
 - Phase 1 but for Relink and drops on Windows and Linux. Checked in the app on macOS (a test

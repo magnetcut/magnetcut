@@ -3,6 +3,7 @@
 // No console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod activity;
 mod export;
 mod media;
 mod menu;
@@ -29,6 +30,8 @@ macro_rules! commands {
             export::write_export_file,
             export::close_export_file,
             export::reveal_export_file,
+            #[cfg(target_os = "macos")]
+            render::native_export_capabilities,
             #[cfg(target_os = "macos")]
             render::native_export_probe,
             #[cfg(target_os = "macos")]
