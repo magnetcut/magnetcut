@@ -69,3 +69,8 @@ jobs:
       # Without a GPU, the tests that need one say so and pass.
       - name: Tests
         run: cargo test -p magnetcut
+
+      # What Media Foundation has to encode with on the runner, for phase 5.
+      - name: Windows's encoders
+        if: runner.os == 'Windows'
+        run: cargo test -p magnetcut lists_the_encoders -- --nocapture

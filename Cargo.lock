@@ -2584,6 +2584,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-updater",
  "webkit2gtk",
+ "windows",
 ]
 
 [[package]]

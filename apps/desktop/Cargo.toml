@@ -64,6 +64,11 @@ rav1e = { version = "0.8", default-features = false, features = ["threading", "a
 [target.'cfg(all(target_os = "macos", not(target_arch = "aarch64")))'.dependencies]
 rav1e = { version = "0.8", default-features = false, features = ["threading"] }
 
+# Media Foundation, for the native export on Windows (src/media_foundation.rs):
+# the version Tauri itself uses.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Media_MediaFoundation", "Win32_System_Com"] }
+
 # The web view on Linux: its settings, to switch on the features the editor
 # needs (src/webkit.rs). The versions Tauri itself uses.
 [target.'cfg(target_os = "linux")'.dependencies]

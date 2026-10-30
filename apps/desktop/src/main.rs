@@ -6,6 +6,8 @@
 mod activity;
 mod export;
 mod media;
+#[cfg(windows)]
+mod media_foundation;
 mod menu;
 #[cfg(target_os = "macos")]
 mod render;
