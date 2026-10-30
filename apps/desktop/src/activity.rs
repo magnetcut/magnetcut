@@ -49,6 +49,7 @@ impl Drop for Activity {
 mod tests {
     #[test]
     fn begins_and_ends() {
-        drop(super::Activity::begin("Testing"));
+        // Ended as it goes out of scope.
+        let _activity = super::Activity::begin("Testing");
     }
 }
