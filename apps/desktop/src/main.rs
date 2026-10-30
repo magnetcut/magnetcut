@@ -6,7 +6,8 @@
 mod activity;
 mod export;
 mod media;
-#[cfg(windows)]
+// Phase 5's start: what the system has, so far only for the tests.
+#[cfg(all(windows, test))]
 mod media_foundation;
 mod menu;
 #[cfg(target_os = "macos")]
