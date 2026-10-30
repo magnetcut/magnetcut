@@ -107,6 +107,41 @@
 			throw new Error(`${step}: ${error?.name}: ${error?.message}`);
 		}
 	});
+	// Without createWritable, the app writes through a sync access handle in a
+	// worker (apps/web/src/services/storage/opfs-write-worker.ts).
+	report.opfsSyncAccess = await attempt(
+		() =>
+			new Promise((resolve, reject) => {
+				const code = `onmessage = async () => {
+					try {
+						const root = await navigator.storage.getDirectory();
+						const file = await root.getFileHandle("magnetcut-probe-sync", { create: true });
+						const access = await file.createSyncAccessHandle();
+						await access.truncate(0);
+						await access.write(new TextEncoder().encode("probe"), { at: 0 });
+						await access.flush();
+						await access.close();
+						const text = await (await file.getFile()).text();
+						await root.removeEntry("magnetcut-probe-sync");
+						postMessage(text === "probe");
+					} catch (error) {
+						postMessage("error: " + error?.message);
+					}
+				};`;
+				const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+				const worker = new Worker(url);
+				const done = (finish) => {
+					worker.terminate();
+					URL.revokeObjectURL(url);
+					finish();
+				};
+				worker.onmessage = (event) => done(() => resolve(event.data));
+				worker.onerror = (event) =>
+					done(() => reject(new Error(event.message || "worker failed")));
+				setTimeout(() => done(() => reject(new Error("timed out"))), 10000);
+				worker.postMessage(null);
+			}),
+	);
 	report.storagePersisted = await attempt(() => navigator.storage.persisted());
 	report.storageQuotaGB = await attempt(async () => {
 		const { quota } = await navigator.storage.estimate();

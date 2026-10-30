@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { getMediaTypeFromFile } from "@/media/media-utils";
 import { formatStorageBytes } from "@/services/storage/quota";
@@ -6,6 +7,7 @@ import type { MediaAsset } from "@/media/types";
 import { readVideoFile } from "./mediabunny";
 import type { VideoFileData } from "./mediabunny";
 import { renderThumbnailDataUrl } from "./thumbnail";
+import { isLinux } from "@/utils/platform";
 
 export interface ProcessedMediaAsset extends Omit<MediaAsset, "id"> {}
 
@@ -15,6 +17,14 @@ const getUnsupportedVideoDescription = ({
 	codec: VideoFileData["codec"];
 }): string => {
 	const codecLabel = codec ? codec.toUpperCase() : "this video codec";
+
+	// The desktop app on Linux decodes through the system's GStreamer plugins.
+	if (isTauri() && isLinux()) {
+		return `${codecLabel} cannot be decoded without GStreamer's codec plugins, so this clip may not preview correctly. Install them (gstreamer1.0-plugins-bad and gstreamer1.0-libav on Debian and Ubuntu), restart MagnetCut and reimport it.`;
+	}
+	if (isTauri()) {
+		return `${codecLabel} cannot be decoded on this system, so this clip may not preview correctly. Convert it to H.264 MP4 and reimport it.`;
+	}
 
 	return codec === "hevc"
 		? `${codecLabel} cannot be decoded in this browser, so this clip may not preview correctly. Convert it to H.264 MP4 or try importing it in Safari.`

@@ -133,16 +133,31 @@ From `MAGNETCUT_PROBE=1` (apps/desktop), on the app's own origin:
   decode H.264, HEVC, VP9, AAC and Opus (no AV1 on that Mac); IndexedDB and OPFS, quota 21 GB;
   module workers. Not cross-origin isolated, so no SharedArrayBuffer: transcription runs
   single-threaded.
-- Windows (WebView2) and Linux (WebKitGTK): to run, in CI.
+- Windows (WebView2, Edge 155, http://tauri.localhost; GitHub's runner): WebGL2; WebGPU, but no
+  adapter (the runner has no GPU); WebCodecs encode and decode H.264, VP9, AV1, AAC and Opus, no
+  HEVC (WebView2 needs a hardware decoder and Microsoft's HEVC Video Extensions); IndexedDB and
+  OPFS, quota 11 GB; module workers.
+- Linux (WebKitGTK on Ubuntu 24.04, tauri://localhost): WebGL2, no WebGPU (off in WebKitGTK).
+  The Storage API and the file system are off by default: the app switches them on
+  (`apps/desktop/src/webkit.rs`). OPFS then opens files but has no `createWritable`, so the app
+  writes through a sync access handle in a worker (`services/storage/opfs-write-worker.ts`);
+  quota 1 GB. WebCodecs goes through GStreamer: with the base plugins only, it encodes VP9 and
+  Opus and decodes Opus; with `gstreamer1.0-plugins-bad` and `gstreamer1.0-libav`, everything
+  (H.264, HEVC, VP9, AV1, AAC and Opus, both ways). The deb and rpm recommend those packages,
+  which apt and dnf install by default; without them, importing a video says what to install.
 
 ## Risks
 
-- Imported media is copied into the web view's storage (OPFS), whose quota was 21 GB on macOS.
-  The desktop app should reference media files where they are, through Rust, instead.
+- Imported media is copied into the web view's storage (OPFS): quota 21 GB on macOS, 11 GB on
+  the Windows runner, 1 GB on Linux, where a large file won't fit. The desktop app should
+  reference media files where they are, through Rust, instead (step 9 reads them natively).
 
 - WKWebView and WebKitGTK are not Chrome (upstream recommends Chrome). Step 4 decides how much
   needs native fallbacks.
 - Hardware H.264/HEVC is fast but needs more bits than x264/x265 for the same quality; AV1 in
   software is where MagnetCut matches HandBrake's quality, slower.
-- Linux H.264 depends on the distro's GStreamer plugins (often missing on Fedora/openSUSE for
-  patent reasons); WebM (VP9/Opus) always works.
+- Linux decoding depends on the distro's GStreamer plugins. The packages recommend them, but
+  H.264 is often missing on Fedora and openSUSE for patent reasons (Fedora has an openh264
+  plugin, RPM Fusion the rest). What the AppImage decodes with is still to check.
+- The AppImage carries WebKitGTK and GTK, which are LGPL: its release has to offer their
+  source (the Ubuntu source packages it was built from). To settle before the first release.

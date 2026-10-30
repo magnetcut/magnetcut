@@ -9,3 +9,9 @@ export function getPlatformAlternateKey(): string {
 export function isAppleDevice(): boolean {
 	return /(Mac|iPhone|iPod|iPad)/i.test(navigator.platform);
 }
+
+export function isLinux(): boolean {
+	return (
+		/Linux/i.test(navigator.platform) && !/Android/i.test(navigator.userAgent)
+	);
+}

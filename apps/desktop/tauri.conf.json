@@ -42,6 +42,18 @@
     },
     "windows": {
       "nsis": { "installMode": "currentUser" }
+    },
+    "linux": {
+      "deb": {
+        "recommends": ["gstreamer1.0-plugins-bad", "gstreamer1.0-libav"]
+      },
+      "rpm": {
+        "recommends": [
+          "gstreamer1-plugins-bad-free",
+          "gstreamer1-plugin-libav",
+          "gstreamer1-plugin-openh264"
+        ]
+      }
     }
   },
   "plugins": {

@@ -1,4 +1,32 @@
 import type { StorageAdapter } from "./types";
+import type { OpfsWriteRequest, OpfsWriteResponse } from "./opfs-write-worker";
+
+/** Writes through a sync access handle, in a worker of its own. */
+function writeInWorker({
+	directoryName,
+	key,
+	file,
+}: OpfsWriteRequest): Promise<void> {
+	const worker = new Worker(new URL("./opfs-write-worker.ts", import.meta.url), {
+		type: "module",
+	});
+	return new Promise<void>((resolve, reject) => {
+		worker.onmessage = (event: MessageEvent<OpfsWriteResponse>) => {
+			worker.terminate();
+			if (event.data.ok) {
+				resolve();
+			} else {
+				reject(new Error(event.data.error));
+			}
+		};
+		worker.onerror = (event) => {
+			worker.terminate();
+			reject(new Error(event.message || "Couldn't write the file"));
+		};
+		const request: OpfsWriteRequest = { directoryName, key, file };
+		worker.postMessage(request);
+	});
+}
 
 export class OPFSAdapter implements StorageAdapter<File> {
 	private directoryName: string;
@@ -34,6 +62,11 @@ export class OPFSAdapter implements StorageAdapter<File> {
 		key: string;
 		value: File;
 	}): Promise<void> {
+		if (!("createWritable" in FileSystemFileHandle.prototype)) {
+			await writeInWorker({ directoryName: this.directoryName, key, file });
+			return;
+		}
+
 		const directory = await this.getDirectory();
 		const fileHandle = await directory.getFileHandle(key, { create: true });
 		const writable = await fileHandle.createWritable();
