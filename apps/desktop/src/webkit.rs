@@ -16,6 +16,9 @@ const NEEDED: &[&str] = &[
     "StorageAPIEstimate",
     "FileSystem",
     "FileSystemWritableStream",
+    // Sync access handles in workers: how the app writes files when the
+    // web view has no createWritable.
+    "AccessHandle",
 ];
 
 /// WebKitFeatureStatus, in its order.
