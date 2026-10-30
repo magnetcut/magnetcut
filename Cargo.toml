@@ -10,3 +10,9 @@ members = [
     "rust/wasm", "rust/crates/compositor",
     "rust/crates/audio",
 ]
+
+# Proc macros and build scripts run only while building: unstripped. Xcode 27's
+# strip breaks dylibs made for macOS 12 or later (dyld: "mis-aligned LINKEDIT
+# string pool"), and Tauri builds for 13.0, so stripped proc macros won't load.
+[profile.release.build-override]
+strip = "none"
