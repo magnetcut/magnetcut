@@ -12,7 +12,7 @@ use windows::Win32::Media::MediaFoundation::{
     MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, MF_SOURCE_READER_FIRST_VIDEO_STREAM,
     MF_SOURCE_READER_MEDIASOURCE, MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED,
     MF_SOURCE_READERF_ENDOFSTREAM, MF_SOURCE_READERF_ERROR, MFCreateMediaType,
-    MFCreateSourceReaderFromURL, MFMediaType_Video, MFVideoFormat_RGB32,
+    MFCreateSourceReaderFromURL, MFMediaType_Video, MFNominalRange_0_255, MFVideoFormat_RGB32,
 };
 use windows::Win32::System::Com::StructuredStorage::{
     PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
@@ -21,7 +21,7 @@ use windows::Win32::System::Variant::VT_I8;
 use windows::core::{GUID, PCWSTR};
 
 use super::frames::{Picture, Pixels};
-use super::media_foundation::{TICKS_PER_SECOND, attributes, start, text, unpair, wide};
+use super::media_foundation::{TICKS_PER_SECOND, attributes, hd_colors, start, text, unpair, wide};
 use super::settings::SourceInfo;
 use super::turn::Turner;
 
@@ -141,6 +141,8 @@ impl Source {
             wanted
                 .SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32)
                 .map_err(text)?;
+            // HD's colours, which the compositor works in.
+            hd_colors(&wanted, MFNominalRange_0_255)?;
             reader
                 .SetCurrentMediaType(VIDEO, None, &wanted)
                 .map_err(text)?;

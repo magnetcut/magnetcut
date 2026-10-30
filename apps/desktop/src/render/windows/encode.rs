@@ -9,12 +9,10 @@ use std::path::Path;
 use windows::Win32::Media::MediaFoundation::{
     CODECAPI_AVEncCommonMeanBitRate, CODECAPI_AVEncCommonRateControlMode, CODECAPI_AVEncMPVGOPSize,
     IMFAttributes, IMFByteStream, IMFMediaBuffer, IMFMediaType, IMFSinkWriter,
-    MF_MT_DEFAULT_STRIDE, MF_MT_MPEG2_PROFILE, MF_MT_TRANSFER_FUNCTION, MF_MT_VIDEO_NOMINAL_RANGE,
-    MF_MT_VIDEO_PRIMARIES, MF_MT_YUV_MATRIX, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
+    MF_MT_DEFAULT_STRIDE, MF_MT_MPEG2_PROFILE, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
     MF_TRANSCODE_CONTAINERTYPE, MFAudioFormat_AAC, MFAudioFormat_PCM, MFCreateSinkWriterFromURL,
-    MFMediaType_Video, MFNominalRange_16_235, MFT_CATEGORY_VIDEO_ENCODER,
+    MFMediaType_Video, MFNominalRange_0_255, MFNominalRange_16_235, MFT_CATEGORY_VIDEO_ENCODER,
     MFTranscodeContainerType_MPEG4, MFVideoFormat_H264, MFVideoFormat_HEVC, MFVideoFormat_RGB32,
-    MFVideoPrimaries_BT709, MFVideoTransFunc_709, MFVideoTransferMatrix_BT709,
     eAVEncCommonRateControlMode_UnconstrainedVBR, eAVEncH264VProfile_High,
     eAVEncH265VProfile_Main_420_8,
 };
@@ -22,8 +20,8 @@ use windows::core::{GUID, PCWSTR};
 
 use super::frames::FrameBuffer;
 use super::media_foundation::{
-    TICKS_PER_SECOND, attributes, audio_type, buffer, encoders, sample, start, text, video_type,
-    wide,
+    TICKS_PER_SECOND, attributes, audio_type, buffer, encoders, hd_colors, sample, start, text,
+    video_type, wide,
 };
 use super::settings::{
     Audio, AudioSettings, Capabilities, Container, KEY_FRAME_INTERVAL, SubtitleTrack, VideoCodec,
@@ -193,8 +191,9 @@ impl Writer {
         let video_stream = unsafe { writer.AddStream(&encoded) }
             .map_err(|error| format!("This computer can't encode {:?}: {error}", video.codec))?;
         let frames = video_type(MFVideoFormat_RGB32, size, fps, None)?;
-        // Rows top first.
+        // Rows top first, in HD's colours as the file is.
         unsafe { frames.SetUINT32(&MF_MT_DEFAULT_STRIDE, size.0 * 4) }.map_err(text)?;
+        hd_colors(&frames, MFNominalRange_0_255)?;
         // The bitrate as an average, and a key frame every two seconds, where
         // the encoder takes them; as it likes, where not.
         let gop = (f64::from(fps.0) / f64::from(fps.1) * KEY_FRAME_INTERVAL).round() as u32;
@@ -371,22 +370,7 @@ fn encoded_type(subtype: GUID, video: &VideoSettings) -> Result<IMFMediaType, St
     } else {
         eAVEncH265VProfile_Main_420_8.0 as u32
     };
-    unsafe {
-        media_type
-            .SetUINT32(&MF_MT_MPEG2_PROFILE, profile)
-            .map_err(text)?;
-        media_type
-            .SetUINT32(&MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709.0 as u32)
-            .map_err(text)?;
-        media_type
-            .SetUINT32(&MF_MT_TRANSFER_FUNCTION, MFVideoTransFunc_709.0 as u32)
-            .map_err(text)?;
-        media_type
-            .SetUINT32(&MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709.0 as u32)
-            .map_err(text)?;
-        media_type
-            .SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_16_235.0 as u32)
-            .map_err(text)?;
-    }
+    unsafe { media_type.SetUINT32(&MF_MT_MPEG2_PROFILE, profile) }.map_err(text)?;
+    hd_colors(&media_type, MFNominalRange_16_235)?;
     Ok(media_type)
 }

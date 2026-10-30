@@ -171,6 +171,45 @@ fn keeps_a_size_not_a_multiple_of_16() {
     );
 }
 
+#[test]
+fn keeps_greys_as_they_are() {
+    // A frame of each grey, from black to white, encoded and decoded: a
+    // conversion between colour spaces on the way shows as a curve.
+    const LEVELS: [u8; 9] = [16, 32, 64, 96, 128, 160, 192, 224, 235];
+    let path = temporary("greys.mp4");
+    let video = VideoSettings {
+        codec: VideoCodec::Avc,
+        width: 64,
+        height: 64,
+        bitrate: 4_000_000,
+        quality: None,
+        fps: FPS,
+    };
+    let mut writer = Writer::new(&path, Container::Mp4, &video, None).unwrap();
+    for level in LEVELS {
+        add_drawn(&mut writer, (64, 64), |pixels, _| {
+            for pixel in pixels.as_chunks_mut::<4>().0 {
+                *pixel = [level, level, level, 255];
+            }
+        })
+        .unwrap();
+    }
+    writer.finish().unwrap();
+    let mut reader = VideoReader::open(&path, 0.0).unwrap();
+    let decoded: Vec<[u8; 3]> = (0..LEVELS.len())
+        .map(|i| middle(reader.frame_at(i as f64 / 30.0).unwrap().unwrap().1))
+        .collect();
+    eprintln!("greys {LEVELS:?} came back as {decoded:?}");
+    for (level, color) in LEVELS.into_iter().zip(decoded) {
+        for channel in color {
+            assert!(
+                channel.abs_diff(level) <= 3,
+                "{level} came back as {color:?}"
+            );
+        }
+    }
+}
+
 /// A layer showing the texture `id` over the whole of a `size` canvas.
 fn frame_showing(id: &str, size: u32) -> compositor::FrameDescriptor {
     frame_sized(id, size, size)

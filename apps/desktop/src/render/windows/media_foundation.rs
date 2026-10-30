@@ -9,10 +9,12 @@ use windows::Win32::Media::MediaFoundation::{
     MF_MT_AUDIO_AVG_BYTES_PER_SECOND, MF_MT_AUDIO_BITS_PER_SAMPLE, MF_MT_AUDIO_BLOCK_ALIGNMENT,
     MF_MT_AUDIO_NUM_CHANNELS, MF_MT_AUDIO_SAMPLES_PER_SECOND, MF_MT_AVG_BITRATE, MF_MT_FRAME_RATE,
     MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE, MF_MT_PIXEL_ASPECT_RATIO,
-    MF_MT_SUBTYPE, MF_VERSION, MFCreateAttributes, MFCreateMediaType, MFCreateMemoryBuffer,
-    MFCreateSample, MFMediaType_Audio, MFMediaType_Video, MFSTARTUP_FULL, MFStartup,
-    MFT_ENUM_FLAG_ALL, MFT_FRIENDLY_NAME_Attribute, MFT_REGISTER_TYPE_INFO, MFTEnumEx,
-    MFVideoInterlace_Progressive,
+    MF_MT_SUBTYPE, MF_MT_TRANSFER_FUNCTION, MF_MT_VIDEO_NOMINAL_RANGE, MF_MT_VIDEO_PRIMARIES,
+    MF_MT_YUV_MATRIX, MF_VERSION, MFCreateAttributes, MFCreateMediaType, MFCreateMemoryBuffer,
+    MFCreateSample, MFMediaType_Audio, MFMediaType_Video, MFNominalRange, MFSTARTUP_FULL,
+    MFStartup, MFT_ENUM_FLAG_ALL, MFT_FRIENDLY_NAME_Attribute, MFT_REGISTER_TYPE_INFO, MFTEnumEx,
+    MFVideoInterlace_Progressive, MFVideoPrimaries_BT709, MFVideoTransFunc_709,
+    MFVideoTransferMatrix_BT709,
 };
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoTaskMemFree};
 use windows::core::{GUID, PWSTR};
@@ -98,6 +100,26 @@ pub fn video_type(
         }
     }
     Ok(media_type)
+}
+
+/// HD's colours (BT.709), which the compositor works in, at that range: so
+/// that nothing between the editor's pictures and the file converts them.
+/// RGB left unsaid is taken as sRGB's curve, and converted to BT.709's.
+pub fn hd_colors(media_type: &IMFMediaType, range: MFNominalRange) -> Result<(), String> {
+    unsafe {
+        media_type
+            .SetUINT32(&MF_MT_VIDEO_PRIMARIES, MFVideoPrimaries_BT709.0 as u32)
+            .map_err(text)?;
+        media_type
+            .SetUINT32(&MF_MT_TRANSFER_FUNCTION, MFVideoTransFunc_709.0 as u32)
+            .map_err(text)?;
+        media_type
+            .SetUINT32(&MF_MT_YUV_MATRIX, MFVideoTransferMatrix_BT709.0 as u32)
+            .map_err(text)?;
+        media_type
+            .SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, range.0 as u32)
+            .map_err(text)
+    }
 }
 
 /// Sound in `subtype`: AAC at `bitrate`, else 16-bit samples.

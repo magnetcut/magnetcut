@@ -73,7 +73,8 @@ jobs:
       - name: Tests
         run: cargo test -p magnetcut
 
-      # What Media Foundation has to encode with on the runner.
+      # What Media Foundation has to encode with on the runner, and how its
+      # greys come back.
       - name: Windows's encoders
         if: runner.os == 'Windows'
-        run: cargo test -p magnetcut lists_the_encoders -- --nocapture
+        run: cargo test -p magnetcut -- --nocapture lists_the_encoders keeps_greys_as_they_are
