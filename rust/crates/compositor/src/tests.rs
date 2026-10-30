@@ -5,10 +5,12 @@ use std::collections::HashMap;
 
 use gpu::{GpuContext, wgpu};
 
+use crate::frame::EffectUniformValueDescriptor;
 use crate::transition::padded_wgsl;
 use crate::{
-    BlendMode, CanvasClearDescriptor, Compositor, FrameDescriptor, FrameItemDescriptor,
-    LayerDescriptor, QuadTransformDescriptor, TransitionDescriptor, TransitionParamValue,
+    BlendMode, CanvasClearDescriptor, Compositor, EffectPassDescriptor, FrameDescriptor,
+    FrameItemDescriptor, LayerDescriptor, QuadTransformDescriptor, TransitionDescriptor,
+    TransitionParamValue,
 };
 
 const SIZE: u32 = 64;
@@ -75,6 +77,7 @@ fn layer(texture_id: &str) -> LayerDescriptor {
         opacity: 1.0,
         blend_mode: BlendMode::Normal,
         effect_pass_groups: Vec::new(),
+        source_effect_pass_groups: Vec::new(),
         mask: None,
     }
 }
@@ -96,13 +99,26 @@ fn render(
     compositor: &mut Compositor,
     transition: TransitionDescriptor,
 ) -> Vec<[u8; 4]> {
+    render_items(
+        context,
+        compositor,
+        vec![FrameItemDescriptor::Transition(transition)],
+    )
+}
+
+/// A frame of these items' pixels, RGBA, row by row from the top.
+fn render_items(
+    context: &GpuContext,
+    compositor: &mut Compositor,
+    items: Vec<FrameItemDescriptor>,
+) -> Vec<[u8; 4]> {
     let frame = FrameDescriptor {
         width: SIZE,
         height: SIZE,
         clear: CanvasClearDescriptor {
             color: [0.0, 0.0, 0.0, 1.0],
         },
-        items: vec![FrameItemDescriptor::Transition(transition)],
+        items,
     };
     let texture = compositor
         .render_frame_to_texture(context, &frame)
@@ -147,8 +163,10 @@ fn render(
         .expect("finished");
     let bytes = buffer.slice(..).get_mapped_range().to_vec();
     bytes
-        .chunks_exact(4)
-        .map(|pixel| texel(context, [pixel[0], pixel[1], pixel[2], pixel[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|&pixel| texel(context, pixel))
         .collect()
 }
 
@@ -327,4 +345,155 @@ fn every_transition_translates_for_webgl() {
         })
         .collect();
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// A SIZE x SIZE texture of that id, each pixel's grey from `level(x, y)`.
+fn upload_grey(
+    context: &GpuContext,
+    compositor: &mut Compositor,
+    id: &str,
+    level: impl Fn(u32, u32) -> u8,
+) {
+    let texture = context.create_render_texture(SIZE, SIZE, "test-grey");
+    let data: Vec<u8> = (0..SIZE)
+        .flat_map(|y| (0..SIZE).map(move |x| (x, y)))
+        .flat_map(|(x, y)| {
+            let grey = level(x, y);
+            texel(context, [grey, grey, grey, 255])
+        })
+        .collect();
+    context.queue().write_texture(
+        texture.as_image_copy(),
+        &data,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4 * SIZE),
+            rows_per_image: Some(SIZE),
+        },
+        texture.size(),
+    );
+    compositor.upsert_texture(id.to_owned(), texture);
+}
+
+fn pass(shader: &str, uniforms: &[(&str, f32)]) -> Vec<EffectPassDescriptor> {
+    vec![EffectPassDescriptor {
+        shader: shader.to_owned(),
+        uniforms: uniforms
+            .iter()
+            .map(|&(name, value)| (name.to_owned(), EffectUniformValueDescriptor::Number(value)))
+            .collect(),
+    }]
+}
+
+/// A layer of that texture, the source filtered as it is before it's placed.
+fn filtered_layer(id: &str, filter: Vec<EffectPassDescriptor>) -> FrameItemDescriptor {
+    FrameItemDescriptor::Layer(LayerDescriptor {
+        source_effect_pass_groups: vec![filter],
+        ..layer(id)
+    })
+}
+
+fn grey_at(pixels: &[[u8; 4]], x: u32, y: u32) -> u8 {
+    pixels[(y * SIZE + x) as usize][0]
+}
+
+#[test]
+fn deinterlacing_fills_the_other_field_from_the_one_kept() {
+    let Some((context, mut compositor)) = gpu() else {
+        return;
+    };
+    // Combed: the top field white, the bottom one black.
+    upload_grey(&context, &mut compositor, "combed", |_, y| {
+        if y % 2 == 0 { 255 } else { 0 }
+    });
+    for (field, expected) in [(0.0, [255, 255, 255, 255]), (1.0, [0, 0, 0, 255])] {
+        let pixels = render_items(
+            &context,
+            &mut compositor,
+            vec![filtered_layer(
+                "combed",
+                pass("deinterlace", &[("u_field", field)]),
+            )],
+        );
+        // The first and last lines have only one neighbour of the field kept.
+        for y in 1..SIZE - 1 {
+            for x in 0..SIZE {
+                let pixel = pixels[(y * SIZE + x) as usize];
+                assert_near(pixel, expected, &format!("field {field} at {x},{y}"));
+            }
+        }
+    }
+}
+
+#[test]
+fn denoising_smooths_grain_and_keeps_edges() {
+    let Some((context, mut compositor)) = gpu() else {
+        return;
+    };
+    let medium = pass("denoise", &[("u_spatial", 1.5), ("u_range", 0.1)]);
+    // Grain: a grey checkered six levels either way.
+    upload_grey(&context, &mut compositor, "grain", |x, y| {
+        if (x + y) % 2 == 0 { 134 } else { 122 }
+    });
+    let pixels = render_items(
+        &context,
+        &mut compositor,
+        vec![filtered_layer("grain", medium.clone())],
+    );
+    for (x, y) in [(10, 10), (11, 10), (30, 31)] {
+        let grey = grey_at(&pixels, x, y);
+        assert!(grey.abs_diff(128) <= 2, "grain at {x},{y}: {grey}");
+    }
+    // An edge: black then white.
+    upload_grey(&context, &mut compositor, "edge", |x, _| {
+        if x < SIZE / 2 { 0 } else { 255 }
+    });
+    let pixels = render_items(
+        &context,
+        &mut compositor,
+        vec![filtered_layer("edge", medium)],
+    );
+    let (dark, light) = (
+        grey_at(&pixels, SIZE / 2 - 1, 20),
+        grey_at(&pixels, SIZE / 2, 20),
+    );
+    assert!(dark <= 3 && light >= 252, "edge: {dark} then {light}");
+}
+
+#[test]
+fn sharpening_steepens_an_edge_over_the_frame() {
+    let Some((context, mut compositor)) = gpu() else {
+        return;
+    };
+    // A soft step from 100 to 156, through 128.
+    let middle = SIZE / 2;
+    upload_grey(&context, &mut compositor, "soft", |x, _| {
+        match x.cmp(&middle) {
+            std::cmp::Ordering::Less => 100,
+            std::cmp::Ordering::Equal => 128,
+            std::cmp::Ordering::Greater => 156,
+        }
+    });
+    let pixels = render_items(
+        &context,
+        &mut compositor,
+        vec![
+            FrameItemDescriptor::Layer(layer("soft")),
+            FrameItemDescriptor::SceneEffect {
+                effect_pass_groups: vec![pass("sharpen", &[("u_amount", 1.0)])],
+            },
+        ],
+    );
+    let at = |x| grey_at(&pixels, x, 20);
+    assert!(
+        at(10).abs_diff(100) <= 1 && at(50).abs_diff(156) <= 1,
+        "flat parts changed"
+    );
+    assert!(
+        at(middle - 1) < 95 && at(middle + 1) > 161,
+        "{} {} {}",
+        at(middle - 1),
+        at(middle),
+        at(middle + 1)
+    );
 }

@@ -18,6 +18,7 @@ import type { RootNode } from "./nodes/root-node";
 import type { ExportFormat } from "@/export";
 import type { ExportFile } from "@/export/disk-target";
 import { createOutputFormat } from "@/export/output-format";
+import type { FilterPasses } from "@/export/filters";
 import type { AudioPassthrough } from "@/export/passthrough";
 import {
 	FORMAT_CODECS,
@@ -51,6 +52,8 @@ type ExportParams = {
 	audioPassthrough?: AudioPassthrough;
 	/** Where it's written as it's made; otherwise it's kept in memory. */
 	file?: ExportFile;
+	/** Filters on each video and on the frame (`export/filters.ts`). */
+	filters?: FilterPasses;
 };
 
 /** An export in memory, or the file it was written to. */
@@ -183,6 +186,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 	private audioSettings?: ExportAudioSettings;
 	private audioPassthrough?: AudioPassthrough;
 	private file?: ExportFile;
+	private filters?: FilterPasses;
 
 	private isCancelled = false;
 
@@ -200,6 +204,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		audioSettings,
 		audioPassthrough,
 		file,
+		filters,
 	}: ExportParams) {
 		super();
 		this.renderer = new CanvasRenderer({
@@ -218,6 +223,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		this.audioSettings = audioSettings;
 		this.audioPassthrough = audioPassthrough;
 		this.file = file;
+		this.filters = filters;
 	}
 
 	cancel(): void {
@@ -346,7 +352,11 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 			const timeSeconds = mediaTimeToSeconds({ time: timeTicks });
 			await soundtrack?.addUntil({ time: timeSeconds });
 			await passthrough?.addUntil({ time: timeSeconds });
-			await this.renderer.render({ node: rootNode, time: timeTicks });
+			await this.renderer.render({
+				node: rootNode,
+				time: timeTicks,
+				filters: this.filters,
+			});
 			if (scaled && scaledContext) {
 				scaledContext.drawImage(
 					composited,

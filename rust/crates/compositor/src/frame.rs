@@ -19,6 +19,8 @@ pub struct CanvasClearDescriptor {
     pub color: [f32; 4],
 }
 
+// A frame has a handful of items: boxing transitions would only add allocations.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum FrameItemDescriptor {
@@ -64,6 +66,10 @@ pub struct LayerDescriptor {
     pub blend_mode: BlendMode,
     #[serde(default)]
     pub effect_pass_groups: Vec<Vec<EffectPassDescriptor>>,
+    /// Passes on the source picture at its own size, before it's placed:
+    /// Export's filters, which need the source's own lines.
+    #[serde(default)]
+    pub source_effect_pass_groups: Vec<Vec<EffectPassDescriptor>>,
     pub mask: Option<LayerMaskDescriptor>,
 }
 

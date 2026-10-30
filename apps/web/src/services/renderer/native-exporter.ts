@@ -12,6 +12,7 @@ import {
 	type NativeVideoFrame,
 } from "@/export/native";
 import type { ExportFormat } from "@/export";
+import type { FilterPasses } from "@/export/filters";
 import type { ExportVideoCodec } from "@/export/settings";
 import type { AnyBaseNode } from "./nodes/base-node";
 import { BlurBackgroundNode } from "./nodes/blur-background-node";
@@ -245,6 +246,8 @@ type NativeExporterParams = {
 	sources: Map<string, NativeSourceInfo>;
 	/** The mix, a window at a time (`mixTimelineAudio`), if there's sound. */
 	audio?: AsyncGenerator<AudioBuffer, void, undefined>;
+	/** Filters on each video and on the frame (`export/filters.ts`). */
+	filters?: FilterPasses;
 };
 
 export type NativeExporterEvents = {
@@ -295,7 +298,7 @@ export class NativeSceneExporter extends EventEmitter<NativeExporterEvents> {
 		rootNode: RootNode;
 		session: NativeExportSession;
 	}): Promise<boolean> {
-		const { options, sources, audio } = this.params;
+		const { options, sources, audio, filters } = this.params;
 		const { fps } = options;
 		const renderer = new CanvasRenderer({
 			width: options.width,
@@ -333,6 +336,7 @@ export class NativeSceneExporter extends EventEmitter<NativeExporterEvents> {
 			const { frame, textures: frameTextures } = await buildFrameDescriptor({
 				node: rootNode,
 				renderer,
+				filters,
 			});
 			const { videos, released } = await textures.sync({
 				textures: frameTextures,

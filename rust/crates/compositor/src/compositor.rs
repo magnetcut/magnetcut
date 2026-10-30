@@ -472,11 +472,26 @@ impl Compositor {
         frame: &FrameDescriptor,
         layer: &LayerDescriptor,
     ) -> Result<wgpu::Texture, CompositorError> {
-        let source = self.textures.get(&layer.texture_id).ok_or_else(|| {
-            CompositorError::MissingTexture {
+        let source = self
+            .textures
+            .get(&layer.texture_id)
+            .ok_or_else(|| CompositorError::MissingTexture {
                 texture_id: layer.texture_id.clone(),
-            }
-        })?;
+            })?
+            .texture()
+            .clone();
+        let source = if layer.source_effect_pass_groups.is_empty() {
+            source
+        } else {
+            self.apply_effect_groups(
+                context,
+                encoder,
+                &source,
+                source.width(),
+                source.height(),
+                &layer.source_effect_pass_groups,
+            )?
+        };
 
         let mut current =
             self.texture_pool
@@ -484,7 +499,7 @@ impl Compositor {
         self.render_source_to_texture(
             context,
             encoder,
-            source.texture(),
+            &source,
             &current,
             frame.width,
             frame.height,

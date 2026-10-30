@@ -9,6 +9,13 @@ use crate::{EffectPass, UniformValue};
 
 const GAUSSIAN_BLUR_SHADER_ID: &str = "gaussian-blur";
 const GAUSSIAN_BLUR_SHADER_SOURCE: &str = include_str!("shaders/gaussian_blur.wgsl");
+// Export's filters, on each source and on the frame (docs/NATIVE.md, phase 6).
+const DEINTERLACE_SHADER_ID: &str = "deinterlace";
+const DEINTERLACE_SHADER_SOURCE: &str = include_str!("shaders/deinterlace.wgsl");
+const DENOISE_SHADER_ID: &str = "denoise";
+const DENOISE_SHADER_SOURCE: &str = include_str!("shaders/denoise.wgsl");
+const SHARPEN_SHADER_ID: &str = "sharpen";
+const SHARPEN_SHADER_SOURCE: &str = include_str!("shaders/sharpen.wgsl");
 
 pub struct ApplyEffectsOptions<'a> {
     pub source: &'a wgpu::Texture,
@@ -77,13 +84,6 @@ impl EffectPipeline {
                     label: Some("effects-fullscreen-shader"),
                     source: wgpu::ShaderSource::Wgsl(FULLSCREEN_SHADER_SOURCE.into()),
                 });
-        let gaussian_blur_shader_module =
-            context
-                .device()
-                .create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: Some("effects-gaussian-blur-shader"),
-                    source: wgpu::ShaderSource::Wgsl(GAUSSIAN_BLUR_SHADER_SOURCE.into()),
-                });
         let pipeline_layout =
             context
                 .device()
@@ -95,11 +95,17 @@ impl EffectPipeline {
                     ],
                     immediate_size: 0,
                 });
-        let gaussian_blur_pipeline =
+        let create_pipeline = |id: &str, source: &str| {
+            let module = context
+                .device()
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some(id),
+                    source: wgpu::ShaderSource::Wgsl(source.into()),
+                });
             context
                 .device()
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("effects-gaussian-blur-pipeline"),
+                    label: Some(id),
                     layout: Some(&pipeline_layout),
                     vertex: wgpu::VertexState {
                         module: &vertex_shader_module,
@@ -116,7 +122,7 @@ impl EffectPipeline {
                         compilation_options: wgpu::PipelineCompilationOptions::default(),
                     },
                     fragment: Some(wgpu::FragmentState {
-                        module: &gaussian_blur_shader_module,
+                        module: &module,
                         entry_point: Some("fragment_main"),
                         targets: &[Some(wgpu::ColorTargetState {
                             format: context.texture_format(),
@@ -130,9 +136,17 @@ impl EffectPipeline {
                     multisample: wgpu::MultisampleState::default(),
                     multiview_mask: None,
                     cache: None,
-                });
-        let pipelines =
-            HashMap::from([(GAUSSIAN_BLUR_SHADER_ID.to_string(), gaussian_blur_pipeline)]);
+                })
+        };
+        let pipelines = [
+            (GAUSSIAN_BLUR_SHADER_ID, GAUSSIAN_BLUR_SHADER_SOURCE),
+            (DEINTERLACE_SHADER_ID, DEINTERLACE_SHADER_SOURCE),
+            (DENOISE_SHADER_ID, DENOISE_SHADER_SOURCE),
+            (SHARPEN_SHADER_ID, SHARPEN_SHADER_SOURCE),
+        ]
+        .into_iter()
+        .map(|(id, source)| (id.to_string(), create_pipeline(id, source)))
+        .collect();
 
         Self {
             uniform_bind_group_layout,
@@ -268,12 +282,41 @@ fn pack_effect_uniforms(
     height: u32,
 ) -> Result<EffectUniformBuffer, EffectsError> {
     let shader = pass.shader.as_str();
-    let sigma = read_number_uniform(pass, "u_sigma")?;
-    let step = read_number_uniform(pass, "u_step")?;
-    let direction = read_vec2_uniform(pass, "u_direction")?;
+    let (names, direction, scalars): (&[&str], [f32; 2], [f32; 4]) = match shader {
+        DEINTERLACE_SHADER_ID => (
+            &["u_field"],
+            [0.0, 0.0],
+            [read_number_uniform(pass, "u_field")?, 0.0, 0.0, 0.0],
+        ),
+        DENOISE_SHADER_ID => (
+            &["u_spatial", "u_range"],
+            [0.0, 0.0],
+            [
+                read_number_uniform(pass, "u_spatial")?,
+                read_number_uniform(pass, "u_range")?,
+                0.0,
+                0.0,
+            ],
+        ),
+        SHARPEN_SHADER_ID => (
+            &["u_amount"],
+            [0.0, 0.0],
+            [read_number_uniform(pass, "u_amount")?, 0.0, 0.0, 0.0],
+        ),
+        _ => (
+            &["u_sigma", "u_step", "u_direction"],
+            read_vec2_uniform(pass, "u_direction")?,
+            [
+                read_number_uniform(pass, "u_sigma")?,
+                read_number_uniform(pass, "u_step")?,
+                0.0,
+                0.0,
+            ],
+        ),
+    };
 
     for uniform in pass.uniforms.keys() {
-        if uniform == "u_sigma" || uniform == "u_step" || uniform == "u_direction" {
+        if names.contains(&uniform.as_str()) {
             continue;
         }
         return Err(EffectsError::UnsupportedUniform {
@@ -285,7 +328,7 @@ fn pack_effect_uniforms(
     Ok(EffectUniformBuffer {
         resolution: [width as f32, height as f32],
         direction,
-        scalars: [sigma, step, 0.0, 0.0],
+        scalars,
     })
 }
 

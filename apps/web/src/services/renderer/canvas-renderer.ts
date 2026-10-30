@@ -1,6 +1,7 @@
 import type { FrameRate } from "magnetcut-wasm";
 import type { AnyBaseNode } from "./nodes/base-node";
 import { createCanvasSurface } from "./canvas-utils";
+import type { FilterPasses } from "@/export/filters";
 import { buildFrameDescriptor } from "./compositor/frame-descriptor";
 import { wasmCompositor } from "./compositor/wasm-compositor";
 import { resolveRenderTree } from "./resolve";
@@ -50,14 +51,23 @@ export class CanvasRenderer {
 		this.context = surface.context;
 	}
 
-	async render({ node, time }: { node: AnyBaseNode; time: number }) {
+	async render({
+		node,
+		time,
+		filters,
+	}: {
+		node: AnyBaseNode;
+		time: number;
+		/** Export's, on each video and on the frame. */
+		filters?: FilterPasses;
+	}) {
 		await measureSpanAsync({
 			name: "resolve",
 			fn: () => resolveRenderTree({ node, renderer: this, time }),
 		});
 		const { frame, textures } = await measureSpanAsync({
 			name: "buildFrame",
-			fn: () => buildFrameDescriptor({ node, renderer: this }),
+			fn: () => buildFrameDescriptor({ node, renderer: this, filters }),
 		});
 		wasmCompositor.ensureInitialized({
 			width: this.width,

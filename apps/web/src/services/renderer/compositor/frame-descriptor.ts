@@ -1,4 +1,5 @@
 import { drawCssBackground } from "@/gradients";
+import type { FilterPasses } from "@/export/filters";
 import { getMaskDefinition } from "@/masks";
 import { incrementCounter } from "@/diagnostics/render-perf";
 import type { AnyBaseNode } from "../nodes/base-node";
@@ -32,9 +33,12 @@ import { DEFAULT_GRAPHIC_SOURCE_SIZE } from "@/graphics";
 export async function buildFrameDescriptor({
 	node,
 	renderer,
+	filters,
 }: {
 	node: AnyBaseNode;
 	renderer: CanvasRenderer;
+	/** Export's, on each video and on the frame. */
+	filters?: FilterPasses;
 }): Promise<{
 	frame: FrameDescriptor;
 	textures: TextureUploadDescriptor[];
@@ -48,7 +52,11 @@ export async function buildFrameDescriptor({
 		path: "root",
 		items,
 		textures,
+		filters,
 	});
+	if (filters && filters.frame.length > 0) {
+		items.push({ type: "sceneEffect", effectPassGroups: filters.frame });
+	}
 
 	incrementCounter({ name: "frameItems", by: items.length });
 	incrementCounter({ name: "frameTextures", by: textures.size });
@@ -72,12 +80,14 @@ async function collectNode({
 	path,
 	items,
 	textures,
+	filters,
 }: {
 	node: AnyBaseNode;
 	renderer: CanvasRenderer;
 	path: string;
 	items: FrameItemDescriptor[];
 	textures: Map<string, TextureUploadDescriptor>;
+	filters?: FilterPasses;
 }): Promise<void> {
 	if (node instanceof RootNode) {
 		for (let index = 0; index < node.children.length; index++) {
@@ -87,6 +97,7 @@ async function collectNode({
 				path: `${path}:${index}`,
 				items,
 				textures,
+				filters,
 			});
 		}
 		return;
@@ -192,6 +203,7 @@ async function collectNode({
 			path,
 			items,
 			textures,
+			filters,
 		});
 		return;
 	}
@@ -214,6 +226,7 @@ async function collectNode({
 			path,
 			items,
 			textures,
+			filters,
 		});
 	}
 }
@@ -224,12 +237,14 @@ async function collectTransitionNode({
 	path,
 	items,
 	textures,
+	filters,
 }: {
 	node: TransitionNode;
 	renderer: CanvasRenderer;
 	path: string;
 	items: FrameItemDescriptor[];
 	textures: Map<string, TextureUploadDescriptor>;
+	filters?: FilterPasses;
 }) {
 	if (!node.resolved) {
 		return;
@@ -252,6 +267,7 @@ async function collectTransitionNode({
 			path: `${path}:${name}`,
 			items: sideItems,
 			textures,
+			filters,
 		});
 		const layer = sideItems[0];
 		return layer?.type === "layer" ? layer : null;
@@ -273,12 +289,14 @@ async function collectVisualSourceNode({
 	path,
 	items,
 	textures,
+	filters,
 }: {
 	node: VideoNode | ImageNode | StickerNode | GraphicNode;
 	renderer: CanvasRenderer;
 	path: string;
 	items: FrameItemDescriptor[];
 	textures: Map<string, TextureUploadDescriptor>;
+	filters?: FilterPasses;
 }) {
 	if (!node.resolved) {
 		return;
@@ -344,6 +362,9 @@ async function collectVisualSourceNode({
 		opacity: node.resolved.opacity,
 		blendMode: node.params.blendMode ?? "normal",
 		effectPassGroups: node.resolved.effectPasses,
+		...(node instanceof VideoNode && filters && filters.source.length > 0
+			? { sourceEffectPassGroups: filters.source }
+			: {}),
 		mask,
 	});
 	if (strokeLayer) {

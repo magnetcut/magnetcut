@@ -192,8 +192,15 @@ and give it constant quality and the encoders the web views lack.
 
 ### 6. Software encoders and filters
 - AV1 with rav1e (BSD-2) and VP9 with libvpx (BSD-3), where the system has no hardware encoder.
-- Filters as compositor passes: deinterlace (yadif-like, written anew), denoise, sharpen,
-  HDR to SDR tone mapping.
+- Filters as compositor passes (`rust/crates/effects`), so both exports have them: the panel's
+  Filters (`export/filters.ts`). Deinterlace and denoise run on each video as it is, before
+  it's placed (a layer's `sourceEffectPassGroups`), since deinterlacing needs the source's own
+  lines; sharpen runs on the frame (a scene effect). Deinterlacing is in space alone, written
+  anew after yadif's spatial check: the top field kept, each line of the other made from those
+  above and below along whichever of three directions they match best. Denoise is a bilateral
+  filter, sharpen an unsharp mask. Checked on the GPU in the compositor's tests (a combed
+  picture made whole, grain smoothed with an edge kept, a soft edge steepened); not yet in the
+  app. HDR to SDR tone mapping is still to do.
 
 ## Risks
 - The App Store sandbox and bookmarks: a project made in the direct download and opened in the

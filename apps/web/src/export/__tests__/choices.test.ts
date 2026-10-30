@@ -25,6 +25,9 @@ describe("sanitizeChoices", () => {
 			audioCodec: "opus",
 			audioKbps: 96,
 			channels: 1,
+			deinterlace: true,
+			denoise: "strong",
+			sharpen: "light",
 		};
 		expect(sanitizeChoices({ value: choices })).toEqual(choices);
 	});
@@ -46,6 +49,8 @@ describe("sanitizeChoices", () => {
 					fpsLabel: "61",
 					hasAudio: "yes",
 					channels: 6,
+					deinterlace: 1,
+					denoise: "max",
 				},
 			}),
 		).toEqual(DEFAULT_EXPORT_CHOICES);
@@ -143,6 +148,7 @@ describe("getChosenOptions", () => {
 					shortSide: 720,
 					fpsLabel: "29.97",
 					channels: 1,
+					denoise: "light",
 				},
 			}),
 		).toEqual({
@@ -152,6 +158,7 @@ describe("getChosenOptions", () => {
 			shortSide: 720,
 			fps: { numerator: 30000, denominator: 1001 },
 			audio: { codec: "aac", kbps: 192, channels: 1, passthrough: true },
+			filters: { deinterlace: false, denoise: "light", sharpen: "off" },
 		});
 	});
 });

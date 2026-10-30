@@ -19,6 +19,8 @@ export type LayerItemDescriptor = {
 	opacity: number;
 	blendMode: BlendMode;
 	effectPassGroups: EffectPass[][];
+	/** On the source as it is, before it's placed: Export's filters. */
+	sourceEffectPassGroups?: EffectPass[][];
 	mask: LayerMaskDescriptor | null;
 };
 

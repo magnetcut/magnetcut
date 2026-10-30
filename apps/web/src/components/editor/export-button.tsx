@@ -90,6 +90,11 @@ import {
 	getNativeCapabilities,
 	type NativeCapabilities,
 } from "@/export/native";
+import {
+	FILTER_STRENGTHS,
+	hasFilters,
+	type FilterStrength,
+} from "@/export/filters";
 import { frameRateToFloat } from "@/fps/utils";
 import { TICKS_PER_SECOND } from "@/wasm";
 
@@ -147,6 +152,45 @@ export function ExportButton() {
 			</PopoverTrigger>
 			{hasProject && <ExportPopover onOpenChange={setIsExportPopoverOpen} />}
 		</Popover>
+	);
+}
+
+const FILTER_STRENGTH_LABELS: Record<FilterStrength, string> = {
+	off: "Off",
+	light: "Light",
+	medium: "Medium",
+	strong: "Strong",
+};
+
+function isFilterStrength(value: string): value is FilterStrength {
+	return FILTER_STRENGTHS.some((strength) => strength === value);
+}
+
+function FilterStrengthSelect({
+	value,
+	onChange,
+}: {
+	value: FilterStrength;
+	onChange: ({ value }: { value: FilterStrength }) => void;
+}) {
+	return (
+		<Select
+			value={value}
+			onValueChange={(next) => {
+				if (isFilterStrength(next)) onChange({ value: next });
+			}}
+		>
+			<SelectTrigger variant="outline">
+				<SelectValue />
+			</SelectTrigger>
+			<SelectContent position="popper">
+				{FILTER_STRENGTHS.map((strength) => (
+					<SelectItem key={strength} value={strength}>
+						{FILTER_STRENGTH_LABELS[strength]}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
 	);
 }
 
@@ -593,9 +637,12 @@ function ExportPopover({
 		audioCodec,
 		audioKbps,
 		channels,
+		deinterlace,
+		denoise,
+		sharpen,
 	} = choices;
 	const options = getChosenOptions({ choices });
-	const { quality, shortSide, audio } = options;
+	const { quality, shortSide, audio, filters } = options;
 
 	// The crop is the film's, not the settings': it starts afresh each time.
 	const [crop, setCrop] = useState<ExportCrop>(NO_CROP);
@@ -680,6 +727,7 @@ function ExportPopover({
 				crop: isCropped({ crop }) ? crop : undefined,
 				fps,
 				audio,
+				filters,
 				path,
 			},
 		});
@@ -729,10 +777,21 @@ function ExportPopover({
 			: audio
 				? `${AUDIO_CODEC_NAMES[audio.codec]} ${audio.kbps} kbit/s${audio.channels === 1 ? " mono" : ""}`
 				: "no sound",
+		filters && hasFilters({ filters })
+			? [
+					deinterlace && "deinterlaced",
+					denoise !== "off" && `denoised (${denoise})`,
+					sharpen !== "off" && `sharpened (${sharpen})`,
+				]
+					.filter(Boolean)
+					.join(", ")
+			: null,
 		qualityMode === "constant" && canKeepQuality && !isProRes
 			? "size varies with the picture"
 			: `about ${formatMegabytes({ bytes: estimatedBytes })}`,
-	].join(" · ");
+	]
+		.filter(Boolean)
+		.join(" · ");
 
 	return (
 		<PopoverContent className="bg-background mr-4 flex max-h-(--radix-popover-content-available-height) w-96 flex-col overflow-y-auto p-0">
@@ -1017,6 +1076,47 @@ function ExportPopover({
 															))}
 														</SelectContent>
 													</Select>
+												</SectionField>
+											</SectionFields>
+										</SectionContent>
+									</Section>
+
+									<Section collapsible defaultOpen={false}>
+										<SectionHeader>
+											<SectionTitle>Filters</SectionTitle>
+										</SectionHeader>
+										<SectionContent>
+											<SectionFields>
+												<div className="flex flex-col gap-1">
+													<div className="flex items-center space-x-2">
+														<Checkbox
+															id="filter-deinterlace"
+															checked={deinterlace}
+															onCheckedChange={(checked) =>
+																setChoices({ choices: { deinterlace: !!checked } })
+															}
+														/>
+														<Label htmlFor="filter-deinterlace">Deinterlace</Label>
+													</div>
+													<p className="text-muted-foreground text-xs">
+														{"For interlaced video, such as a camcorder's 1080i: keeps one field of each frame and makes the other from it."}
+													</p>
+												</div>
+												<SectionField label="Denoise">
+													<FilterStrengthSelect
+														value={denoise}
+														onChange={({ value }) =>
+															setChoices({ choices: { denoise: value } })
+														}
+													/>
+												</SectionField>
+												<SectionField label="Sharpen">
+													<FilterStrengthSelect
+														value={sharpen}
+														onChange={({ value }) =>
+															setChoices({ choices: { sharpen: value } })
+														}
+													/>
 												</SectionField>
 											</SectionFields>
 										</SectionContent>

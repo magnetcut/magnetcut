@@ -11,6 +11,11 @@ import {
 import type { NativeExportOptions, NativeSourceInfo } from "@/export/native";
 import { openExportFile } from "@/export/disk-target";
 import { DiskFile } from "@/media/disk-file";
+import {
+	buildFilterPasses,
+	hasFilters,
+	type FilterPasses,
+} from "@/export/filters";
 import { buildScene } from "@/services/renderer/scene-builder";
 import { EXPORT_SAMPLE_RATE, mixTimelineAudio } from "@/media/audio-mix";
 import {
@@ -172,8 +177,21 @@ export class RendererManager {
 		onProgress?: ({ progress }: { progress: number }) => void;
 		onCancel?: () => boolean;
 	}): Promise<ExportResult> {
-		const { format, videoCodec, quality, shortSide, crop, fps, audio, path } =
-			options;
+		const {
+			format,
+			videoCodec,
+			quality,
+			shortSide,
+			crop,
+			fps,
+			audio,
+			filters,
+			path,
+		} = options;
+		const filterPasses =
+			filters && hasFilters({ filters })
+				? buildFilterPasses({ filters })
+				: undefined;
 		// Closed by the exporter, or here if it never gets to run.
 		let passthrough: AudioPassthrough | null = null;
 
@@ -253,6 +271,7 @@ export class RendererManager {
 				return await this.exportNatively({
 					scene,
 					sources: native.sources,
+					filters: filterPasses,
 					path,
 					options: {
 						path,
@@ -310,6 +329,7 @@ export class RendererManager {
 				audioSettings: audio ?? undefined,
 				audioPassthrough: passthrough ?? undefined,
 				file: path ? await openExportFile({ path }) : undefined,
+				filters: filterPasses,
 			});
 
 			exporter.on("progress", (progress) => {
@@ -358,6 +378,7 @@ export class RendererManager {
 	private async exportNatively({
 		scene,
 		sources,
+		filters,
 		path,
 		options,
 		onProgress,
@@ -365,6 +386,7 @@ export class RendererManager {
 	}: {
 		scene: RootNode;
 		sources: Map<string, NativeSourceInfo>;
+		filters?: FilterPasses;
 		path: string;
 		options: NativeExportOptions;
 		onProgress?: ({ progress }: { progress: number }) => void;
@@ -381,6 +403,7 @@ export class RendererManager {
 			options: { ...options, audio: audio ? options.audio : null },
 			sources,
 			audio: audio ?? undefined,
+			filters,
 		});
 		exporter.on("progress", (progress) => {
 			onProgress?.({ progress });

@@ -1,4 +1,5 @@
 import type { FrameRate } from "magnetcut-wasm";
+import type { ExportFilters } from "./filters";
 import { EXPORT_MIME_TYPES } from "./mime-types";
 import type {
 	ExportAudioSettings,
@@ -30,6 +31,8 @@ export interface ExportOptions {
 	fps?: FrameRate;
 	/** None: no sound. */
 	audio: ExportAudioSettings | null;
+	/** None: no filters. */
+	filters?: ExportFilters;
 	/** In the desktop app, the file picked in its save dialog, written as it's made. */
 	path?: string;
 }

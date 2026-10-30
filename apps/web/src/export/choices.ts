@@ -15,6 +15,7 @@ import {
 	type ExportVideoCodec,
 	type ExportVideoQuality,
 } from "./settings";
+import { FILTER_STRENGTHS, type FilterStrength } from "./filters";
 
 // What the export panel has chosen, kept between exports and in presets. The
 // values for the quality modes and the sound not in use are kept too, so
@@ -42,6 +43,9 @@ export interface ExportChoices {
 	audioCodec: ExportAudioCodec;
 	audioKbps: number;
 	channels: 1 | 2;
+	deinterlace: boolean;
+	denoise: FilterStrength;
+	sharpen: FilterStrength;
 }
 
 export interface ExportPreset {
@@ -65,6 +69,9 @@ export const DEFAULT_EXPORT_CHOICES: ExportChoices = {
 	audioCodec: "aac",
 	audioKbps: 192,
 	channels: 2,
+	deinterlace: false,
+	denoise: "off",
+	sharpen: "off",
 };
 
 /**
@@ -182,6 +189,11 @@ export function getChosenOptions({
 		fps: FRAME_RATE_PRESETS.find((preset) => preset.label === choices.fpsLabel)
 			?.rate,
 		audio: getChosenAudio({ choices }),
+		filters: {
+			deinterlace: choices.deinterlace,
+			denoise: choices.denoise,
+			sharpen: choices.sharpen,
+		},
 	};
 }
 
@@ -248,6 +260,7 @@ export function sanitizeChoices({ value }: { value: unknown }): ExportChoices {
 	const audioKbps = read("audioKbps");
 	const hasAudio = read("hasAudio");
 	const audioPassthrough = read("audioPassthrough");
+	const deinterlace = read("deinterlace");
 	return {
 		format,
 		videoCodec,
@@ -280,6 +293,14 @@ export function sanitizeChoices({ value }: { value: unknown }): ExportChoices {
 			oneOf({ value: audioKbps, values: AUDIO_BITRATES[audioCodec] }) ??
 			DEFAULT_AUDIO_KBPS[audioCodec],
 		channels: read("channels") === 1 ? 1 : 2,
+		deinterlace:
+			typeof deinterlace === "boolean" ? deinterlace : defaults.deinterlace,
+		denoise:
+			oneOf({ value: read("denoise"), values: FILTER_STRENGTHS }) ??
+			defaults.denoise,
+		sharpen:
+			oneOf({ value: read("sharpen"), values: FILTER_STRENGTHS }) ??
+			defaults.sharpen,
 	};
 }
 
