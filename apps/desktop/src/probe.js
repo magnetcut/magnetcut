@@ -164,6 +164,10 @@
 	report.appInfo = await attempt(() =>
 		window.__TAURI_INTERNALS__.invoke("app_info"),
 	);
+	// What the app's own export makes here (src/render/): formats and codecs.
+	report.nativeExport = await attempt(() =>
+		window.__TAURI_INTERNALS__.invoke("native_export_capabilities"),
+	);
 
 	window.__TAURI_INTERNALS__.invoke("probe_report", {
 		report: JSON.stringify(report),
