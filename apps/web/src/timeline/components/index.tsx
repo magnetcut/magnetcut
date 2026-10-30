@@ -32,6 +32,7 @@ import {
 import { useContainerSize } from "@/hooks/use-container-size";
 import type { MediaTime } from "@/wasm";
 import type { ElementDragView, DropTarget } from "@/timeline";
+import type { Cut } from "@/transitions";
 import { TimelineTrackContent } from "./timeline-track";
 import { TimelinePlayhead } from "./timeline-playhead";
 import { SelectionBox } from "@/selection/selection-box";
@@ -330,7 +331,7 @@ export function Timeline() {
 			playheadRef,
 		});
 
-	const { isDragOver, dropTarget, dragProps } = useTimelineDragDrop({
+	const { isDragOver, dropTarget, dropCut, dragProps } = useTimelineDragDrop({
 		containerRef: tracksContainerRef,
 		tracksScrollRef,
 		zoomLevel,
@@ -559,6 +560,7 @@ export function Timeline() {
 										shouldIgnoreClick={shouldIgnoreClick}
 										isDragOver={isDragOver}
 										dropTarget={dropTarget}
+										dropCut={dropCut}
 									/>
 								)}
 							</div>
@@ -732,6 +734,7 @@ function TimelineTrackRows({
 	shouldIgnoreClick,
 	isDragOver,
 	dropTarget,
+	dropCut,
 }: {
 	mainTrackId: string | null;
 	zoomLevel: number;
@@ -750,6 +753,7 @@ function TimelineTrackRows({
 	shouldIgnoreClick: () => boolean;
 	isDragOver: boolean;
 	dropTarget: DropTarget | null;
+	dropCut: Cut | null;
 }) {
 	const timeline = useEditor((e) => e.timeline);
 	const scene = useEditor((e) => e.scenes.getActiveSceneOrNull());
@@ -831,6 +835,9 @@ function TimelineTrackRows({
 									isDragOver
 										? (dropTarget?.targetElement?.elementId ?? null)
 										: null
+								}
+								targetCutTime={
+									dropCut?.trackId === track.id ? dropCut.time : null
 								}
 							/>
 						</div>

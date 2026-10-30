@@ -17,7 +17,10 @@ import {
 import { AddTrackCommand, InsertElementCommand } from "@/commands/timeline";
 import { BatchCommand } from "@/commands";
 import type { Command } from "@/commands/base-command";
-import { computeDropTarget } from "@/timeline/components/drop-target";
+import {
+	computeDropTarget,
+	getTrackAtY,
+} from "@/timeline/components/drop-target";
 import type { TimelineDragSource } from "@/timeline/drag-source";
 import type {
 	TrackType,
@@ -27,10 +30,11 @@ import type {
 	TimelineTrack,
 	CreateTimelineElement,
 } from "@/timeline";
-import type { TimelineDragData } from "@/timeline/drag";
+import type { ElementDragData, TimelineDragData } from "@/timeline/drag";
+import { type Cut, getTrackCuts } from "@/transitions";
 import type { MediaAsset } from "@/media/types";
 import type { ProcessedMediaAsset } from "@/media/processing";
-import { roundFrameTime, type MediaTime } from "@/wasm";
+import { roundFrameTime, type MediaTime, TICKS_PER_SECOND } from "@/wasm";
 
 // --- Config ---
 
@@ -59,6 +63,7 @@ export interface DragDropConfig {
 		elementId: string;
 		effectType: string;
 	}) => void;
+	addTransitionAtCut: (args: { cut: Cut; type: string }) => void;
 }
 
 export interface DragDropConfigRef {
@@ -71,6 +76,8 @@ interface DragOverState {
 	kind: "over";
 	dropTarget: DropTarget | null;
 	elementType: ElementType | null;
+	/** Where a dragged transition would go. */
+	cut: Cut | null;
 }
 
 type DragDropState = { kind: "idle" } | DragOverState;
@@ -85,7 +92,7 @@ interface TimelineCoords {
 function elementTypeFromDrag({
 	dragData,
 }: {
-	dragData: TimelineDragData;
+	dragData: ElementDragData;
 }): ElementType {
 	switch (dragData.type) {
 		case "text":
@@ -121,6 +128,40 @@ function getDurationForDrag({
 	if (dragData.type !== "media") return DEFAULT_NEW_ELEMENT_DURATION;
 	const media = mediaAssets.find((asset) => asset.id === dragData.id);
 	return toElementDurationTicks({ seconds: media?.duration });
+}
+
+/**
+ * The cut nearest the mouse among those at the ends of the clip under it, on
+ * a video track.
+ */
+function findCutAtPosition({
+	mouseX,
+	mouseY,
+	sceneTracks,
+	zoomLevel,
+}: TimelineCoords & {
+	sceneTracks: SceneTracks;
+	zoomLevel: number;
+}): Cut | null {
+	const tracks = orderedTracks({ sceneTracks });
+	const hit = getTrackAtY({ mouseY, tracks });
+	const track = hit ? tracks[hit.trackIndex] : undefined;
+	if (track?.type !== "video") return null;
+
+	const time =
+		(mouseX / (BASE_TIMELINE_PIXELS_PER_SECOND * zoomLevel)) * TICKS_PER_SECOND;
+	let nearest: Cut | null = null;
+	for (const cut of getTrackCuts({ track })) {
+		const spans =
+			cut.from.startTime <= time && time < cut.to.startTime + cut.to.duration;
+		if (
+			spans &&
+			(!nearest || Math.abs(cut.time - time) < Math.abs(nearest.time - time))
+		) {
+			nearest = cut;
+		}
+	}
+	return nearest;
 }
 
 function orderedTracks({
@@ -163,6 +204,10 @@ export class DragDropController {
 		return this.state.kind === "over" ? this.state.elementType : null;
 	}
 
+	get dropCut(): Cut | null {
+		return this.state.kind === "over" ? this.state.cut : null;
+	}
+
 	subscribe(fn: () => void): () => void {
 		this.subscribers.add(fn);
 		return () => this.subscribers.delete(fn);
@@ -182,7 +227,7 @@ export class DragDropController {
 
 		this.enterCount += 1;
 		if (this.state.kind === "idle") {
-			this.setOver({ dropTarget: null, elementType: null });
+			this.setOver({ dropTarget: null, elementType: null, cut: null });
 		}
 	}
 
@@ -198,8 +243,19 @@ export class DragDropController {
 
 		if (!dragData) {
 			if (hasFiles && isExternal) {
-				this.setOver({ dropTarget: null, elementType: null });
+				this.setOver({ dropTarget: null, elementType: null, cut: null });
 			}
+			return;
+		}
+
+		if (dragData.type === "transition") {
+			const cut = findCutAtPosition({
+				...coords,
+				sceneTracks: this.config.getSceneTracks(),
+				zoomLevel: this.config.zoomLevel,
+			});
+			this.setOver({ dropTarget: null, elementType: null, cut });
+			event.dataTransfer.dropEffect = cut ? "copy" : "none";
 			return;
 		}
 
@@ -229,7 +285,7 @@ export class DragDropController {
 			? roundFrameTime({ time: target.xPosition, fps })
 			: target.xPosition;
 
-		this.setOver({ dropTarget: target, elementType });
+		this.setOver({ dropTarget: target, elementType, cut: null });
 		event.dataTransfer.dropEffect = "copy";
 	}
 
@@ -251,9 +307,19 @@ export class DragDropController {
 		if (!dragData && !hasFiles) return;
 
 		const currentTarget = this.dropTarget;
+		const currentCut = this.dropCut;
 		this.setIdle();
 
 		try {
+			if (dragData?.type === "transition") {
+				if (currentCut) {
+					this.config.addTransitionAtCut({
+						cut: currentCut,
+						type: dragData.transitionType,
+					});
+				}
+				return;
+			}
 			if (dragData) {
 				if (!currentTarget) return;
 				this.executeAssetDrop({ target: currentTarget, dragData });
@@ -279,6 +345,7 @@ export class DragDropController {
 	private setOver(state: {
 		dropTarget: DropTarget | null;
 		elementType: ElementType | null;
+		cut: Cut | null;
 	}): void {
 		this.state = { kind: "over", ...state };
 		this.notify();
@@ -356,7 +423,7 @@ export class DragDropController {
 		dragData,
 	}: {
 		target: DropTarget;
-		dragData: TimelineDragData;
+		dragData: ElementDragData;
 	}): void {
 		switch (dragData.type) {
 			case "text":

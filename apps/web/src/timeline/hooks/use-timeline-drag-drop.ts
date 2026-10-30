@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useState, type RefObject } from "react";
 import { useEditor } from "@/editor/use-editor";
 import { useCommittedRef } from "@/hooks/use-committed-ref";
+import { addTransitionAtCut } from "@/transitions/add-at-cut";
 import {
 	DragDropController,
 	type DragDropConfig,
@@ -37,6 +38,8 @@ export function useTimelineDragDrop({
 		executeCommand: (command) => editor.command.execute({ command }),
 		insertElement: (args) => editor.timeline.insertElement(args),
 		addClipEffect: (args) => editor.timeline.addClipEffect(args),
+		addTransitionAtCut: ({ cut, type }) =>
+			addTransitionAtCut({ editor, cut, type }),
 	};
 	const configRef = useCommittedRef(config);
 	const [controller] = useState(() => new DragDropController({ configRef }));
@@ -49,6 +52,7 @@ export function useTimelineDragDrop({
 		isDragOver: controller.isDragOver,
 		dropTarget: controller.dropTarget,
 		dragElementType: controller.dragElementType,
+		dropCut: controller.dropCut,
 		dragProps: {
 			onDragEnter: controller.onDragEnter,
 			onDragOver: controller.onDragOver,

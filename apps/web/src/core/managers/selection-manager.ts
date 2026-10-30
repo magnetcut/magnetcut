@@ -6,13 +6,14 @@ import type {
 	EditorSelectionSnapshot,
 	SelectedMaskPointSelection,
 } from "@/selection/editor-selection";
-import type { ElementRef } from "@/timeline/types";
+import type { ElementRef, TransitionRef } from "@/timeline/types";
 
 export class SelectionManager {
 	private selectedElements: ElementRef[] = [];
 	private selectedKeyframes: SelectedKeyframeRef[] = [];
 	private keyframeSelectionAnchor: SelectedKeyframeRef | null = null;
 	private selectedMaskPoints: SelectedMaskPointSelection | null = null;
+	private selectedTransition: TransitionRef | null = null;
 	private listeners = new Set<() => void>();
 
 	constructor(editor: EditorCore) {
@@ -35,7 +36,14 @@ export class SelectionManager {
 		return this.selectedMaskPoints;
 	}
 
+	getSelectedTransition(): TransitionRef | null {
+		return this.selectedTransition;
+	}
+
 	getActiveSelectionKind(): EditorSelectionKind | null {
+		if (this.selectedTransition) {
+			return "transition";
+		}
 		if ((this.selectedMaskPoints?.pointIds.length ?? 0) > 0) {
 			return "mask-points";
 		}
@@ -59,6 +67,7 @@ export class SelectionManager {
 						pointIds: [...this.selectedMaskPoints.pointIds],
 					}
 				: null,
+			selectedTransition: this.selectedTransition,
 		};
 	}
 
@@ -67,6 +76,21 @@ export class SelectionManager {
 		this.selectedKeyframes = [];
 		this.keyframeSelectionAnchor = null;
 		this.selectedMaskPoints = null;
+		this.selectedTransition = null;
+		this.notify();
+	}
+
+	/** A transition alone: selecting it deselects everything else. */
+	setSelectedTransition({
+		transition,
+	}: {
+		transition: TransitionRef | null;
+	}): void {
+		this.selectedElements = [];
+		this.selectedKeyframes = [];
+		this.keyframeSelectionAnchor = null;
+		this.selectedMaskPoints = null;
+		this.selectedTransition = transition;
 		this.notify();
 	}
 
@@ -78,6 +102,7 @@ export class SelectionManager {
 		anchorKeyframe?: SelectedKeyframeRef | null;
 	}): void {
 		this.selectedKeyframes = keyframes;
+		this.selectedTransition = null;
 		if (anchorKeyframe !== undefined) {
 			this.keyframeSelectionAnchor = anchorKeyframe;
 		} else if (keyframes.length === 0) {
@@ -109,6 +134,7 @@ export class SelectionManager {
 		this.selectedKeyframes = [];
 		this.keyframeSelectionAnchor = null;
 		this.selectedMaskPoints = null;
+		this.selectedTransition = null;
 		this.notify();
 	}
 
@@ -128,6 +154,10 @@ export class SelectionManager {
 
 	clearMostSpecificSelection(): boolean {
 		const activeSelectionKind = this.getActiveSelectionKind();
+		if (activeSelectionKind === "transition") {
+			this.setSelectedTransition({ transition: null });
+			return true;
+		}
 		if (activeSelectionKind === "mask-points") {
 			this.clearMaskPointSelection();
 			return true;
@@ -165,6 +195,9 @@ export class SelectionManager {
 					}
 				: null;
 		}
+		if (patch.selectedTransition !== undefined) {
+			this.selectedTransition = patch.selectedTransition;
+		}
 		this.notify();
 		return this.getSnapshot();
 	}
@@ -179,6 +212,7 @@ export class SelectionManager {
 					pointIds: [...snapshot.selectedMaskPoints.pointIds],
 				}
 			: null;
+		this.selectedTransition = snapshot.selectedTransition;
 		this.notify();
 	}
 

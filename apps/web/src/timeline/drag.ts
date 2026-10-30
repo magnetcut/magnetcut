@@ -34,9 +34,17 @@ export interface EffectDragData extends BaseDragData {
 	targetElementTypes: VisualElement["type"][];
 }
 
-export type TimelineDragData =
+/** Dropped on a cut rather than placed as an element. */
+export interface TransitionDragData extends BaseDragData {
+	type: "transition";
+	transitionType: string;
+}
+
+export type ElementDragData =
 	| MediaDragData
 	| TextDragData
 	| StickerDragData
 	| GraphicDragData
 	| EffectDragData;
+
+export type TimelineDragData = ElementDragData | TransitionDragData;

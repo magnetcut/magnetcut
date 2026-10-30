@@ -16,13 +16,11 @@ import { findTrackInSceneTracks } from "@/timeline/track-element-update";
 import {
 	lastFrameMediaTime,
 	type MediaTime,
-	mediaTimeFromSeconds,
-	roundFrameTime,
 	ZERO_MEDIA_TIME,
 } from "@/wasm";
 import {
-	DEFAULT_TRANSITION_SECONDS,
 	DEFAULT_TRANSITION_TYPE,
+	getDefaultTransitionDuration,
 } from "@/transitions";
 import {
 	canElementBeHidden,
@@ -233,10 +231,6 @@ export class TimelineManager {
 		duration?: MediaTime;
 		alignment?: TransitionAlignment;
 	}): string {
-		const fps = this.editor.project.getActive()?.settings.fps;
-		const seconds = mediaTimeFromSeconds({
-			seconds: DEFAULT_TRANSITION_SECONDS,
-		});
 		const command = new AddTransitionCommand({
 			trackId,
 			transition: {
@@ -244,7 +238,10 @@ export class TimelineManager {
 				toElementId,
 				type,
 				duration:
-					duration ?? (fps ? roundFrameTime({ time: seconds, fps }) : seconds),
+					duration ??
+					getDefaultTransitionDuration({
+						fps: this.editor.project.getActive()?.settings.fps,
+					}),
 				alignment,
 				params: {},
 				crossfadeAudio: true,

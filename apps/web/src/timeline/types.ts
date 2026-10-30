@@ -9,6 +9,11 @@ export type ElementRef = {
 	elementId: string;
 };
 
+export type TransitionRef = {
+	trackId: string;
+	transitionId: string;
+};
+
 export interface Bookmark {
 	time: MediaTime;
 	note?: string;

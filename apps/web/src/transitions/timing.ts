@@ -1,4 +1,8 @@
-import { transitionProgress, transitionWindow } from "magnetcut-wasm";
+import {
+	type FrameRate,
+	transitionProgress,
+	transitionWindow,
+} from "magnetcut-wasm";
 import { clampRetimeRate } from "@/retime/rate";
 import type {
 	ImageElement,
@@ -6,6 +10,8 @@ import type {
 	VideoElement,
 	VideoTrack,
 } from "@/timeline";
+import { mediaTimeFromSeconds, roundFrameTime } from "@/wasm";
+import { DEFAULT_TRANSITION_SECONDS } from "./catalog";
 
 export interface TransitionWindow {
 	/** When it starts: before, the outgoing clip alone. */
@@ -62,6 +68,42 @@ export function getTransitionWindow({
 		toDuration: to.duration,
 	});
 	return window ?? null;
+}
+
+/** How long a new transition lasts: whole frames, when the rate is known. */
+export function getDefaultTransitionDuration({
+	fps,
+}: {
+	fps: FrameRate | null | undefined;
+}): Transition["duration"] {
+	const time = mediaTimeFromSeconds({ seconds: DEFAULT_TRANSITION_SECONDS });
+	return fps ? roundFrameTime({ time, fps }) : time;
+}
+
+/**
+ * Where a transition that long can play media past the cut: centred if both
+ * clips have some, else on the side that does; null if neither has.
+ */
+export function getFittingAlignment({
+	duration,
+	from,
+	to,
+}: {
+	duration: Transition["duration"];
+	from: VideoElement | ImageElement;
+	to: VideoElement | ImageElement;
+}): Transition["alignment"] | null {
+	const alignments = ["center", "end", "start"] as const;
+	return (
+		alignments.find(
+			(alignment) =>
+				getTransitionWindow({
+					transition: { duration, alignment },
+					from,
+					to,
+				}) !== null,
+		) ?? null
+	);
 }
 
 function isHidden({ element }: { element: VideoElement | ImageElement }) {

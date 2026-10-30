@@ -6,6 +6,8 @@ import type { TimelineTrack } from "@/timeline";
 import type { TimelineElement as TimelineElementType } from "@/timeline";
 import { TIMELINE_LAYERS } from "./layers";
 import type { ElementDragView } from "@/timeline";
+import type { MediaTime } from "@/wasm";
+import { TimelineTransitions } from "@/transitions/components/timeline-transitions";
 
 interface TimelineTrackContentProps {
 	track: TimelineTrack;
@@ -31,6 +33,8 @@ interface TimelineTrackContentProps {
 	onTrackMouseUp?: (event: React.MouseEvent) => void;
 	shouldIgnoreClick?: () => boolean;
 	targetElementId?: string | null;
+	/** The cut a dragged transition would go on, on this track. */
+	targetCutTime?: MediaTime | null;
 }
 
 export function TimelineTrackContent({
@@ -44,6 +48,7 @@ export function TimelineTrackContent({
 	onTrackMouseUp,
 	shouldIgnoreClick,
 	targetElementId = null,
+	targetCutTime = null,
 }: TimelineTrackContentProps) {
 	const { isElementSelected } = useElementSelection();
 
@@ -107,6 +112,13 @@ export function TimelineTrackContent({
 							/>
 						);
 					})
+				)}
+				{track.type === "video" && (
+					<TimelineTransitions
+						track={track}
+						zoomLevel={zoomLevel}
+						targetCutTime={targetCutTime}
+					/>
 				)}
 			</div>
 		</div>

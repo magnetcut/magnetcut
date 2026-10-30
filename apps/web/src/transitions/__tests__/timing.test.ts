@@ -5,7 +5,11 @@ import type {
 	VideoElement,
 	VideoTrack,
 } from "@/timeline";
-import { getTransitionProgress, resolveTrackTransitions } from "@/transitions";
+import {
+	getFittingAlignment,
+	getTransitionProgress,
+	resolveTrackTransitions,
+} from "@/transitions";
 import { mediaTime, TICKS_PER_SECOND } from "@/wasm";
 
 const seconds = (value: number) =>
@@ -207,5 +211,29 @@ describe("transitions on a track", () => {
 		expect(getTransitionProgress({ window, time: seconds(4.5) })).toBe(0);
 		expect(getTransitionProgress({ window, time: seconds(5) })).toBe(0.5);
 		expect(getTransitionProgress({ window, time: seconds(5.5) })).toBe(1);
+	});
+});
+
+describe("where a new transition goes", () => {
+	const duration = seconds(1);
+	// A ends at 5 s and B starts there; trims are the media past the cut.
+	const fit = ({ tail, head }: { tail: number; head: number }) =>
+		getFittingAlignment({
+			duration,
+			from: video({ id: "a", start: 0, duration: 5, trimEnd: tail }),
+			to: video({ id: "b", start: 5, duration: 5, trimStart: head }),
+		});
+
+	test("centred when both clips have media past the cut", () => {
+		expect(fit({ tail: 2, head: 2 })).toBe("center");
+	});
+
+	test("on the side that has it", () => {
+		expect(fit({ tail: 2, head: 0 })).toBe("start");
+		expect(fit({ tail: 0, head: 2 })).toBe("end");
+	});
+
+	test("nowhere when neither has", () => {
+		expect(fit({ tail: 0, head: 0 })).toBeNull();
 	});
 });

@@ -15,6 +15,9 @@ import type { TimelineDragData } from "@/timeline/drag";
 import { cn } from "@/utils/ui";
 import type { MediaTime } from "@/wasm";
 
+// Longer names show their start and end: 16 characters, "..." and 3.
+const LABEL_MAX_LENGTH = 22;
+
 export interface DraggableItemProps {
 	name: string;
 	preview: ReactNode;
@@ -131,7 +134,7 @@ export function DraggableItem({
 							>
 								<span className="sr-only">{name}</span>
 								<span aria-hidden="true">
-									{name.length > 8
+									{name.length > LABEL_MAX_LENGTH
 										? `${name.slice(0, 16)}...${name.slice(-3)}`
 										: name}
 								</span>

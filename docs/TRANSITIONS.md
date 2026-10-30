@@ -157,13 +157,14 @@ interface Transition {
 - Commands to add, update and remove a transition (`commands/timeline/transition/`), on
   `TimelineManager`. The `add-transition` action (T) puts the default at the cut nearest the
   playhead, beside the selected clips if any: centred where both clips have media past the cut,
-  else ending or starting at it; with none, it says why.
+  else ending or starting at it; with none, it says why (`transitions/add-at-cut.ts`, which the
+  tab, the drop and the clip menu use too). At a cut that has one, it selects that one.
 - A second reactor after every command (`dropBrokenTransitions`, `transitions/edits.ts`) drops a
   transition whose clips are gone or no longer touch, or that another at the same cut replaced.
   It never moves clips, and undo brings a dropped transition back: every timeline command
   restores its snapshot of the tracks.
 - Durations stay as set. With less handle than it needs (after a trim or a speed change) a
-  transition plays shortened, and whole again when the handle comes back; the inspector will say
+  transition plays shortened, and whole again when the handle comes back; the inspector says
   so.
 - Split: a transition at the split clip's end moves to the half that now ends there
   (`followSplitEnds`, from the split command); one at its start stays with the left half, which
@@ -172,15 +173,21 @@ interface Transition {
 - Later: resize limits that keep the transition's handle.
 
 ### Interface
-- Transitions tab: the catalogue as a searchable grid, each thumbnail animated by the same
-  pipeline on two sample images (as `effect-preview.ts` does for effects).
-- Drag one onto a cut: hitting a cut (a few pixels around the boundary of two touching clips on
-  one video track) highlights it; dropping adds the transition with the defaults.
-- Right-click on a cut, or a shortcut: the default cross-dissolve.
-- On the timeline, a bar over the window, selectable: selection gets a `transitions` kind
-  (`selection/editor-selection.ts`, the selection manager, Delete in the editor actions).
-- Inspector: type, duration, alignment, the transition's parameters (from the crate's typed
-  ones), audio crossfade, and a line when the duration was clamped.
+- Transitions tab (`transitions/components/assets-view.tsx`): the catalogue as a grid. Its add
+  button changes the selected transition's type, or adds one at the cut nearest the playhead.
+  The thumbnails are gradients between two colours for now; later, animated by the same pipeline
+  on two sample images (as `effect-preview.ts` does for effects), and a search once there are
+  twelve.
+- Drag one onto a clip of a video track: the cut at its nearer end, if it touches another clip
+  there, gets a mark (`dropCut` in the drag-drop controller), and dropping puts the transition
+  there; on a cut that has one, it changes its type.
+- A clip's menu: "Add transition at start" and "at end", where it touches another clip; and T.
+- On the timeline, a bar over the window, selectable (`transitions/components/
+  timeline-transitions.tsx`): selection has a `transition` kind, exclusive with the others
+  (`selection/editor-selection.ts`, the selection manager); Delete removes it.
+- Inspector (`transition-properties.tsx`): type, duration, position (before, centred or after
+  the cut), audio crossfade, remove; a line when the clips' media shortens it, or when it can't
+  play at all. Each transition's own parameters come with phase 5.
 
 ### The first twelve
 All MIT: Fade (cross-dissolve), FadeColor (dip to black or white), FadeGrayscale, WipeLeft,
@@ -205,7 +212,8 @@ own pixels, on Metal here and Mesa's software Vulkan in CI) rather than Playwrig
 in Chrome between two files and between two times of one file. Export builds the same scene but
 hasn't been checked by eye yet. And 2, checked in Chrome too (split, delete, undo). And 3: the
 export mix checked sample by sample in tests; in Chrome, the preview's gain ramps follow the
-curves.
+curves. And 4, checked in Chrome: from the tab (add, change type), dropped on a cut, from a
+clip's menu, selected on the timeline, changed in the inspector and deleted.
 
 ## Risks
 - **Two streams at once** (4K, or one file at two times) may not hold frame rate on weak

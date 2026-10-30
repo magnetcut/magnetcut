@@ -84,6 +84,7 @@ import { usePropertiesStore } from "@/components/editor/panels/properties/stores
 import { getTrackTypeForElementType } from "@/timeline/placement/compatibility";
 import { useTimelineStore } from "@/timeline/timeline-store";
 import { KEYFRAME_LANE_HEIGHT_PX } from "./layout";
+import { TransitionMenuItems } from "@/transitions/components/transition-menu-items";
 import {
 	getExpandedRows,
 	getExpansionHeight,
@@ -437,6 +438,9 @@ export function TimelineElement({
 						>
 							Duplicate
 						</ActionMenuItem>
+					)}
+					{selectedElements.length <= 1 && (
+						<TransitionMenuItems track={track} elementId={element.id} />
 					)}
 					{canElementHaveAudio(element) && hasAudio && (
 						<MuteMenuItem
