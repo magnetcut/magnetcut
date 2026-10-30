@@ -71,9 +71,19 @@ jobs:
           bun run build:web
           cargo build -p magnetcut --features tauri/custom-protocol
 
+      # Clippy where it builds: the desktop app has code for each system.
+      - name: Clippy
+        run: cargo clippy -p magnetcut --all-targets -- -D warnings
+
+      # Twice: with base and good, then with what desktops add for codecs
+      # (bad has the parsers WebKit decodes with, libav the H.264 and AAC
+      # decoders). The second goes in the summary as "with codecs".
       - name: Probe (Linux)
         if: runner.os == 'Linux'
-        run: MAGNETCUT_PROBE=1 timeout 120 xvfb-run -a ./target/debug/magnetcut | tee probe.txt || true
+        run: |
+          MAGNETCUT_PROBE=1 timeout 120 xvfb-run -a ./target/debug/magnetcut | tee probe.txt || true
+          sudo apt-get install -y gstreamer1.0-plugins-bad gstreamer1.0-libav
+          MAGNETCUT_PROBE=1 timeout 120 xvfb-run -a ./target/debug/magnetcut | tee probe-codecs.txt || true
 
       - name: Probe (macOS)
         if: runner.os == 'macOS'
@@ -97,5 +107,22 @@ jobs:
             echo '```json'
             grep '^MAGNETCUT_PROBE ' probe.txt | sed 's/^MAGNETCUT_PROBE //' | jq .
             echo '```'
+            if [ -f probe-codecs.txt ]; then
+              echo "#### With codecs"
+              echo '```json'
+              grep '^MAGNETCUT_PROBE ' probe-codecs.txt | sed 's/^MAGNETCUT_PROBE //' | jq -c '{videoEncode, videoDecode, audioEncode, audioDecode}'
+              echo '```'
+            fi
+            # WebKitGTK's feature flags, all of them: SWITCHED marks those the
+            # app changes (src/webkit.rs).
+            if grep -q '^MAGNETCUT_WEBKIT_FEATURES ' probe.txt; then
+              echo "<details><summary>WebKitGTK features</summary>"
+              echo
+              echo '```'
+              grep '^MAGNETCUT_WEBKIT_FEATURES ' probe.txt | sed 's/^MAGNETCUT_WEBKIT_FEATURES //' \
+                | jq -r '.[] | "\(if .enabled != .default then "SWITCHED " else "" end)\(.id) \(.status) default=\(.default) enabled=\(.enabled)"' | sort
+              echo '```'
+              echo "</details>"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
           grep -q '^MAGNETCUT_PROBE ' probe.txt

@@ -29,3 +29,9 @@ tauri-plugin-process = { version = "2", optional = true }
 # Opens web links (the About box's, the release notes') in the browser:
 # the window itself only ever shows the editor.
 tauri-plugin-opener = "2"
+
+# The web view on Linux: its settings, to switch on the features the editor
+# needs (src/webkit.rs). The versions Tauri itself uses.
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2.0"
+libc = "0.2"

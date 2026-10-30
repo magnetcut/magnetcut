@@ -4,6 +4,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod menu;
+#[cfg(target_os = "linux")]
+mod webkit;
 
 use serde::Serialize;
 use tauri::Emitter;
@@ -49,6 +51,25 @@ fn main() {
     #[cfg(target_os = "macos")]
     {
         builder = builder.menu(menu::build);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // Before the first page loads: the window exists, and with_webview
+        // runs at once on the main thread, which serves the page.
+        builder = builder.setup(|app| {
+            use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                let probing = std::env::var_os(PROBE_ENV).is_some();
+                window.with_webview(move |webview| {
+                    let features = webkit::enable_needed(&webview.inner());
+                    if probing {
+                        let features = serde_json::to_string(&features).unwrap_or_default();
+                        println!("MAGNETCUT_WEBKIT_FEATURES {features}");
+                    }
+                })?;
+            }
+            Ok(())
+        });
     }
     builder = builder.on_menu_event(|app, event| {
         let id = event.id().as_ref();

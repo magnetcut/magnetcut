@@ -84,9 +84,18 @@
 	}
 
 	report.indexedDB = typeof indexedDB !== "undefined";
-	report.opfs = await attempt(
-		async () => !!(await navigator.storage.getDirectory()),
-	);
+	report.storageAPI = typeof navigator.storage !== "undefined";
+	// Written as the editor writes imported media (services/storage).
+	report.opfs = await attempt(async () => {
+		const root = await navigator.storage.getDirectory();
+		const file = await root.getFileHandle("magnetcut-probe", { create: true });
+		const writable = await file.createWritable();
+		await writable.write("probe");
+		await writable.close();
+		const text = await (await file.getFile()).text();
+		await root.removeEntry("magnetcut-probe");
+		return text === "probe";
+	});
 	report.storagePersisted = await attempt(() => navigator.storage.persisted());
 	report.storageQuotaGB = await attempt(async () => {
 		const { quota } = await navigator.storage.estimate();
