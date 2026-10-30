@@ -121,7 +121,9 @@ record and profile (docs/RELEASING.md), 7 and 8.
 8. Transitions: the cross-dissolve end to end, edits, audio crossfades, the Transitions tab
    and the other eleven (docs/TRANSITIONS.md has the phases).
 9. The native pipeline (hardware decode, wgpu, hardware encode, zero-copy); Export moves onto
-   it with HandBrake's settings, then the AV1/VP9 software encoders and the filters.
+   it with HandBrake's settings, then the AV1/VP9 software encoders and the filters. First what
+   stops a conversion today: media copied into the web view, and exports kept in memory
+   (docs/NATIVE.md has the phases).
 10. Subtitle editor and sync.
 11. Then: make it better.
 
