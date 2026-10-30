@@ -1,6 +1,6 @@
 // The native export end to end, on this computer's own decoders, encoders
-// and GPU (AVFoundation on macOS, Media Foundation on Windows): a film made
-// here, decoded, then drawn into another. What only the Mac makes (ProRes,
+// and GPU (AVFoundation on macOS, Media Foundation on Windows, GStreamer on
+// Linux): a film made here, decoded, then drawn into another. What only the Mac makes (ProRes,
 // AV1, copied sound, subtitle tracks, HDR's tone mapping) is tested there.
 
 use std::path::{Path, PathBuf};
@@ -238,12 +238,12 @@ fn frame_sized(id: &str, width: u32, height: u32) -> compositor::FrameDescriptor
     .unwrap()
 }
 
-// What the export test makes: on a Mac, HEVC in QuickTime; on Windows, which
-// writes only MP4, H.264, which every Windows encodes (the CI runners have no
-// HEVC encoder).
+// What the export test makes: on a Mac, HEVC in QuickTime; elsewhere, which
+// writes only MP4, H.264, which every system encodes (the Windows runners
+// have no HEVC encoder).
 #[cfg(target_os = "macos")]
 const DRAWN: (&str, Container, VideoCodec) = ("drawn.mov", Container::Mov, VideoCodec::Hevc);
-#[cfg(windows)]
+#[cfg(not(target_os = "macos"))]
 const DRAWN: (&str, Container, VideoCodec) = ("drawn.mp4", Container::Mp4, VideoCodec::Avc);
 
 #[test]

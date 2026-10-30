@@ -7,7 +7,6 @@ mod activity;
 mod export;
 mod media;
 mod menu;
-#[cfg(any(target_os = "macos", windows))]
 mod render;
 #[cfg(target_os = "linux")]
 mod webkit;
@@ -30,21 +29,13 @@ macro_rules! commands {
             export::write_export_file,
             export::close_export_file,
             export::reveal_export_file,
-            #[cfg(any(target_os = "macos", windows))]
             render::native_export_capabilities,
-            #[cfg(any(target_os = "macos", windows))]
             render::native_export_probe,
-            #[cfg(any(target_os = "macos", windows))]
             render::native_export_start,
-            #[cfg(any(target_os = "macos", windows))]
             render::native_export_texture,
-            #[cfg(any(target_os = "macos", windows))]
             render::native_export_frame,
-            #[cfg(any(target_os = "macos", windows))]
             render::native_export_audio,
-            #[cfg(any(target_os = "macos", windows))]
             render::native_export_finish,
-            #[cfg(any(target_os = "macos", windows))]
             render::native_export_cancel,
             $($more),*
         ]
@@ -114,7 +105,6 @@ fn main() {
     builder = builder.setup(|app| {
         app.manage(media::MediaFiles::load(app.handle()));
         app.manage(export::Exports::default());
-        #[cfg(any(target_os = "macos", windows))]
         app.manage(render::NativeExports::default());
         // Before the first page loads: the window exists, and with_webview
         // runs at once on the main thread, which serves the page.

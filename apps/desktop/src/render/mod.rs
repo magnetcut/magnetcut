@@ -1,8 +1,8 @@
 // The native export (docs/NATIVE.md, phases 4 and 5). The editor describes
 // each frame, as it does for its own compositor, with its videos as
 // references (file, time); here the system decodes them (AVFoundation on
-// macOS, Media Foundation on Windows), the compositor draws the frame on the
-// GPU and the system encodes it. Only descriptions, the editor's own drawings
+// macOS, Media Foundation on Windows, GStreamer on Linux), the compositor
+// draws the frame on the GPU and the system encodes it. Only descriptions, the editor's own drawings
 // (text, shapes, masks) and the mixed sound cross from the web view: no frame
 // does, which at 4K cost more than drawing it.
 
@@ -15,15 +15,24 @@ mod decode;
 #[cfg(windows)]
 #[path = "windows/decode.rs"]
 mod decode;
+#[cfg(target_os = "linux")]
+#[path = "linux/decode.rs"]
+mod decode;
 #[cfg(target_os = "macos")]
 mod encode;
 #[cfg(windows)]
 #[path = "windows/encode.rs"]
 mod encode;
+#[cfg(target_os = "linux")]
+#[path = "linux/encode.rs"]
+mod encode;
 mod frames;
 #[cfg(windows)]
 #[path = "windows/media_foundation.rs"]
 mod media_foundation;
+#[cfg(target_os = "linux")]
+#[path = "linux/pipeline.rs"]
+mod pipeline;
 #[cfg(target_os = "macos")]
 mod pixel_buffer;
 mod settings;

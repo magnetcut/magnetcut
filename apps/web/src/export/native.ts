@@ -6,7 +6,8 @@ import type { ExportCrop, ExportVideoCodec } from "./settings";
 
 // The desktop app's native export (apps/desktop/src/render/, docs/NATIVE.md):
 // the system decodes and encodes (AVFoundation on macOS, Media Foundation on
-// Windows), and the compositor draws each frame on the GPU. The editor sends
+// Windows, GStreamer on Linux), and the compositor draws each frame on the
+// GPU. The editor sends
 // frames' descriptions, its own drawings and the mix; the frames themselves
 // never cross.
 
@@ -20,8 +21,8 @@ export interface NativeSourceInfo {
 
 /**
  * What the native export makes on this computer. On a Mac: MP4 and QuickTime;
- * H.264, HEVC, ProRes, and AV1 in software (rav1e). On Windows: MP4, in the
- * codecs it has encoders for.
+ * H.264, HEVC, ProRes, and AV1 in software (rav1e). On Windows and Linux:
+ * MP4, in the codecs the system has encoders for.
  */
 export interface NativeCapabilities {
 	formats: ExportFormat[];
@@ -36,7 +37,7 @@ export interface NativeCapabilities {
 
 let capabilities: Promise<NativeCapabilities | null> | undefined;
 
-/** Null where there's no native export: in a browser, and on Linux. */
+/** Null where there's no native export: in a browser. */
 export function getNativeCapabilities(): Promise<NativeCapabilities | null> {
 	capabilities ??= isTauri()
 		? invoke<NativeCapabilities>("native_export_capabilities").catch(() => null)

@@ -34,6 +34,13 @@ tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 # The bookmarks of the media files the editor reads where they are.
 base64 = "0.22"
+# The native export (src/render/): the system decodes the sources and encodes
+# the film, and the editor's own compositor (rust/crates) draws each frame
+# between them on the GPU, so no frame crosses into the web view.
+compositor = { path = "../../rust/crates/compositor" }
+gpu = { path = "../../rust/crates/gpu" }
+# Waits for the GPU on the export's thread.
+futures-executor = "0.3"
 
 # The drag pasteboard, for the paths of dropped files, and bookmarks, which
 # the App Store sandbox needs to open a file again (src/media.rs). The
@@ -51,15 +58,6 @@ objc2-core-video = "0.3"
 objc2-core-audio-types = "0.3"
 objc2-core-foundation = "0.3"
 block2 = "0.6"
-
-# The native export (src/render/): the system decodes the sources and encodes
-# the film, and the editor's own compositor (rust/crates) draws each frame
-# between them on the GPU, so no frame crosses into the web view.
-[target.'cfg(any(target_os = "macos", windows))'.dependencies]
-compositor = { path = "../../rust/crates/compositor" }
-gpu = { path = "../../rust/crates/gpu" }
-# Waits for the GPU on the export's thread.
-futures-executor = "0.3"
 
 # AV1, which no Mac encodes in hardware, in software (BSD-2). Its assembly on
 # Apple silicon is built with cc; on Intel it would need nasm.
@@ -87,3 +85,9 @@ windows = { version = "0.62", features = [
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0"
 libc = "0.2"
+# GStreamer, the system's (LGPL, not shipped: WebKitGTK plays video with it
+# too), for the native export there (src/render/linux/). The bindings that
+# share Tauri's glib (0.18): two glibs can't be linked.
+gstreamer = "0.21"
+gstreamer-app = "0.21"
+gstreamer-video = "0.21"

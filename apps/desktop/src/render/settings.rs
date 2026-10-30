@@ -39,7 +39,7 @@ pub struct VideoSettings {
     pub bitrate: u32,
     /// Constant quality instead of a bitrate, from 0 to 1, where the
     /// encoder takes one (`Capabilities`): only the Mac's, so far.
-    #[cfg_attr(windows, allow(dead_code))]
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub quality: Option<f32>,
     pub fps: FrameRate,
 }
@@ -60,13 +60,13 @@ pub enum Audio {
     Mix(AudioSettings),
     /// A file's sound as it's stored, up to `end` seconds: the source's
     /// when the timeline plays it uncut. Only on the Mac, so far.
-    #[cfg_attr(windows, allow(dead_code))]
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Copy { location: PathBuf, end: f64 },
 }
 
 /// A line of a subtitle track, in seconds.
 #[derive(Debug, Clone, Deserialize)]
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub struct SubtitleCue {
     pub start: f64,
     pub end: f64,
@@ -75,7 +75,7 @@ pub struct SubtitleCue {
 
 /// A subtitle track, as the editor sends it: written only on the Mac, so far.
 #[derive(Debug, Clone, Deserialize)]
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub struct SubtitleTrack {
     pub cues: Vec<SubtitleCue>,
 }

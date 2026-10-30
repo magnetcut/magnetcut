@@ -46,10 +46,16 @@
     },
     "linux": {
       "deb": {
-        "recommends": ["gstreamer1.0-plugins-bad", "gstreamer1.0-libav"]
+        "recommends": [
+          "gstreamer1.0-plugins-good",
+          "gstreamer1.0-plugins-bad",
+          "gstreamer1.0-plugins-ugly",
+          "gstreamer1.0-libav"
+        ]
       },
       "rpm": {
         "recommends": [
+          "gstreamer1-plugins-good",
           "gstreamer1-plugins-bad-free",
           "gstreamer1-plugin-libav",
           "gstreamer1-plugin-openh264"

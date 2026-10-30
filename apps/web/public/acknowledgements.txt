@@ -47,6 +47,14 @@ event-listener-strategy 0.5.4 (MIT)
 event-listener 5.4.2 (MIT)
 fastrand 2.3.0 (MIT)
 glow 0.17.0 (MIT)
+gstreamer-app-sys 0.21.1 (MIT)
+gstreamer-app 0.21.2 (MIT)
+gstreamer-base-sys 0.21.1 (MIT)
+gstreamer-base 0.21.2 (MIT)
+gstreamer-sys 0.21.2 (MIT)
+gstreamer-video-sys 0.21.2 (MIT)
+gstreamer-video 0.21.2 (MIT)
+gstreamer 0.21.3 (MIT)
 hermit-abi 0.5.3 (MIT)
 itoa 1.0.18 (MIT)
 khronos-egl 6.0.0 (MIT)
@@ -55,6 +63,7 @@ linux-raw-sys 0.12.1 (MIT)
 num_enum 0.7.6 (MIT)
 num_enum_derive 0.7.6 (MIT)
 once_cell 1.21.4 (MIT)
+option-operations 0.5.0 (MIT)
 ordered-stream 0.2.0 (MIT)
 paste 1.0.15 (MIT)
 pastey 0.1.1 (MIT)
@@ -593,6 +602,32 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+------------------------------------------------------------------------------
+
+atomic_refcell 0.1.14 (MIT)
+
+MIT License
+
+Copyright (c) 2022 Bobby Holley
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ------------------------------------------------------------------------------
 
@@ -4226,6 +4261,7 @@ express Statement of Purpose.
 ------------------------------------------------------------------------------
 
 either 1.19.0 (MIT)
+itertools 0.12.1 (MIT)
 itertools 0.14.0 (MIT)
 serde_with 3.24.0 (MIT)
 serde_with_macros 3.24.0 (MIT)
@@ -6884,6 +6920,32 @@ Creator: Person: Daniel Thompson-Yvetot
 
 ------------------------------------------------------------------------------
 
+muldiv 1.0.1 (MIT)
+
+The MIT License (MIT)
+
+Copyright (c) 2017 Sebastian Dröge <sebastian@centricular.com>.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+------------------------------------------------------------------------------
+
 multiversion_no_op 1.0.0 (MIT)
 
 Copyright Mozilla Foundation
@@ -8735,6 +8797,32 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+
+------------------------------------------------------------------------------
+
+pretty-hex 0.4.2 (MIT)
+
+MIT License
+
+Copyright (c) 2018 Andrei Volnin
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ------------------------------------------------------------------------------
 
