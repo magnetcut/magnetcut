@@ -79,17 +79,22 @@ jobs:
         if: runner.os != 'Linux'
         run: cargo test -p magnetcut
 
-      # Should they fail, again under gdb, which shows where one crashed: one
-      # at a time they pass, side by side they once ended in a segmentation
-      # fault.
+      # Side by side they sometimes end in a segmentation fault, one at a time
+      # and under gdb never: should one crash, its core shows where, in gdb
+      # afterwards.
       - name: Tests
         if: runner.os == 'Linux'
         run: |
-          cargo test -p magnetcut && exit 0
-          sudo apt-get install -y gdb
+          ulimit -c unlimited
+          sudo sysctl -w kernel.core_pattern="$PWD/core.%p"
           tests=$(cargo test -p magnetcut --no-run --message-format=json \
             | jq -r 'select(.profile.test == true and .executable != null) | .executable' | tail -1)
-          gdb -batch -ex run -ex bt --args "$tests"
+          "$tests" && exit 0
+          core=$(ls core.* 2>/dev/null | head -1)
+          if [ -n "$core" ]; then
+            sudo apt-get install -y gdb
+            gdb -batch -ex "bt 40" -ex "info threads" "$tests" "$core"
+          fi
           exit 1
 
       # What Media Foundation has to encode with on the runner, and how its
