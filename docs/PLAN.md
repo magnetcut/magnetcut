@@ -106,7 +106,7 @@ telemetry: everything stays on the computer. Not for iOS or Android.
 
 ## Order
 
-Done: 1, 2, 3, 4 on macOS, 5 but for making the first release, 6 but for the App Store Connect
+Done: 1, 2, 3, 4, 5 but for making the first release, 6 but for the App Store Connect
 record and profile (docs/RELEASING.md), 7, and phases 0 and 1 of 8.
 
 1. Strip the server, accounts, analytics and website; static export; editor works in a browser.
@@ -138,10 +138,11 @@ From `MAGNETCUT_PROBE=1` (apps/desktop), on the app's own origin:
   HEVC (WebView2 needs a hardware decoder and Microsoft's HEVC Video Extensions); IndexedDB and
   OPFS, quota 11 GB; module workers.
 - Linux (WebKitGTK on Ubuntu 24.04, tauri://localhost): WebGL2, no WebGPU (off in WebKitGTK).
-  The Storage API and the file system are off by default: the app switches them on
-  (`apps/desktop/src/webkit.rs`). OPFS then opens files but has no `createWritable`, so the app
-  writes through a sync access handle in a worker (`services/storage/opfs-write-worker.ts`);
-  quota 1 GB. WebCodecs goes through GStreamer: with the base plugins only, it encodes VP9 and
+  The Storage API, the file system and access handles are off by default: the app switches them
+  on (`apps/desktop/src/webkit.rs`), and OPFS works, quota 1 GB (`createWritable` only appears
+  with access handles on; sync access handles themselves answer "Backend does not support this
+  operation"). Where a web view has sync access handles but no `createWritable`, as older
+  WKWebView releases may, the app writes through a worker (`services/storage/opfs-write-worker.ts`). WebCodecs goes through GStreamer: with the base plugins only, it encodes VP9 and
   Opus and decodes Opus; with `gstreamer1.0-plugins-bad` and `gstreamer1.0-libav`, everything
   (H.264, HEVC, VP9, AV1, AAC and Opus, both ways). The deb and rpm recommend those packages,
   which apt and dnf install by default; without them, importing a video says what to install.
