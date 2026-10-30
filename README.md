@@ -19,6 +19,7 @@ Planned:
 
 - Signed releases for macOS, Windows and Linux, which update themselves, and a Mac App Store
   edition.
+- Transitions between clips (dissolves, dips, wipes, slides, zooms), with audio crossfades.
 - HandBrake's export settings: formats and codecs, size presets, quality, frame rate, and
   subtitles embedded as a track or burned in.
 - A subtitle editor, with subtitles synced to the speech in one click.

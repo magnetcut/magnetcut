@@ -70,6 +70,13 @@ telemetry: everything stays on the computer. Not for iOS or Android.
   - Shift, stretch, change frame rate (23.976 to 25), fix overlaps and too short or too long
     lines, split and join, translate side by side with the original.
   None of Jubler's code (GPL). Parsers and alignment live in `rust/`.
+- **Transitions** (docs/TRANSITIONS.md). Between two touching clips on a video track, using the
+  media past the cut (the clips' trim handles), so clips never overlap. Stored on the track,
+  which gives them undo, ripple and saving. Rendered by a two-input pass in the compositor, so
+  preview and export (and the native pipeline) show the same. The transitions come from the
+  `gl-transitions` crate (MIT; its few BSD ones only with their notices); twelve first. 0.5 s
+  centred on the cut by default, clamped to the handles there are, with an equal-power audio
+  crossfade. Timing in a Rust crate.
 - **GPU all the way.** Preview: the wgpu compositor already asks for WebGPU in the web view and
   falls back to WebGL2. Export and Convert run natively in Rust: the platform's hardware decoder
   (VideoToolbox, Media Foundation/D3D11, VA-API or NVDEC), then wgpu on Metal, DX12 or Vulkan
@@ -107,10 +114,13 @@ Acknowledgements, which wait for step 7's notices).
    deb, rpm; signed `latest.json`; a draft GitHub release).
 6. App Store edition: entitlements, profile, upload script.
 7. Licence check and notices; replace soundtouchjs.
-8. The native pipeline (hardware decode, wgpu, hardware encode, zero-copy); Export moves onto
+8. Transitions: build `rust/wasm` ourselves instead of using `opencut-wasm`, then the
+   cross-dissolve end to end, edits, audio crossfades, the Transitions tab and the other eleven
+   (docs/TRANSITIONS.md has the phases).
+9. The native pipeline (hardware decode, wgpu, hardware encode, zero-copy); Export moves onto
    it with HandBrake's settings, then the AV1/VP9 software encoders and the filters.
-9. Subtitle editor and sync.
-10. Then: make it better.
+10. Subtitle editor and sync.
+11. Then: make it better.
 
 ## Web view support
 
