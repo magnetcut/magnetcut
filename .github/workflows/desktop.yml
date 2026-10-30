@@ -76,7 +76,18 @@ jobs:
 
       # Without a GPU, the tests that need one say so and pass.
       - name: Tests
+        if: runner.os != 'Linux'
         run: cargo test -p magnetcut
+
+      # One at a time under gdb, which names the test and shows where if one
+      # crashes (the first run there ended in a segmentation fault).
+      - name: Tests
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y gdb
+          tests=$(cargo test -p magnetcut --no-run --message-format=json \
+            | jq -r 'select(.profile.test == true and .executable != null) | .executable' | tail -1)
+          gdb -batch -return-child-result -ex run -ex bt --args "$tests" --test-threads=1
 
       # What Media Foundation has to encode with on the runner, and how its
       # greys come back.

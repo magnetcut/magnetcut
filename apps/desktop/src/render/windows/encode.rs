@@ -7,12 +7,13 @@ use std::collections::VecDeque;
 use std::path::Path;
 
 use windows::Win32::Media::MediaFoundation::{
-    CODECAPI_AVEncCommonMeanBitRate, CODECAPI_AVEncCommonRateControlMode, CODECAPI_AVEncMPVGOPSize,
-    IMFAttributes, IMFByteStream, IMFMediaBuffer, IMFMediaType, IMFSinkWriter,
-    MF_MT_DEFAULT_STRIDE, MF_MT_MPEG2_PROFILE, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
-    MF_TRANSCODE_CONTAINERTYPE, MFAudioFormat_AAC, MFAudioFormat_PCM, MFCreateSinkWriterFromURL,
-    MFMediaType_Video, MFNominalRange_0_255, MFNominalRange_16_235, MFT_CATEGORY_VIDEO_ENCODER,
-    MFTranscodeContainerType_MPEG4, MFVideoFormat_H264, MFVideoFormat_HEVC, MFVideoFormat_RGB32,
+    CODECAPI_AVEncCommonMeanBitRate, CODECAPI_AVEncCommonRateControlMode,
+    CODECAPI_AVEncMPVDefaultBPictureCount, CODECAPI_AVEncMPVGOPSize, IMFAttributes, IMFByteStream,
+    IMFMediaBuffer, IMFMediaType, IMFSinkWriter, MF_MT_DEFAULT_STRIDE, MF_MT_MPEG2_PROFILE,
+    MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_TRANSCODE_CONTAINERTYPE, MFAudioFormat_AAC,
+    MFAudioFormat_PCM, MFCreateSinkWriterFromURL, MFMediaType_Video, MFNominalRange_0_255,
+    MFNominalRange_16_235, MFT_CATEGORY_VIDEO_ENCODER, MFTranscodeContainerType_MPEG4,
+    MFVideoFormat_H264, MFVideoFormat_HEVC, MFVideoFormat_RGB32,
     eAVEncCommonRateControlMode_UnconstrainedVBR, eAVEncH264VProfile_High,
     eAVEncH265VProfile_Main_420_8,
 };
@@ -194,8 +195,10 @@ impl Writer {
         // Rows top first, in HD's colours as the file is.
         unsafe { frames.SetUINT32(&MF_MT_DEFAULT_STRIDE, size.0 * 4) }.map_err(text)?;
         hd_colors(&frames, MFNominalRange_0_255)?;
-        // The bitrate as an average, and a key frame every two seconds, where
-        // the encoder takes them; as it likes, where not.
+        // The bitrate as an average, a key frame every two seconds, and no
+        // frames stored out of order, where the encoder takes them; as it
+        // likes, where not. Out of order, Microsoft's encoder's frames came
+        // back a frame late.
         let gop = (f64::from(fps.0) / f64::from(fps.1) * KEY_FRAME_INTERVAL).round() as u32;
         let parameters = attributes(
             &[
@@ -205,6 +208,7 @@ impl Writer {
                 ),
                 (CODECAPI_AVEncCommonMeanBitRate, video.bitrate),
                 (CODECAPI_AVEncMPVGOPSize, gop.max(1)),
+                (CODECAPI_AVEncMPVDefaultBPictureCount, 0),
             ],
             &[],
         )?;

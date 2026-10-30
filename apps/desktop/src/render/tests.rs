@@ -210,6 +210,30 @@ fn keeps_greys_as_they_are() {
     }
 }
 
+#[test]
+fn reads_b_frames_at_their_times() {
+    // Ten frames from x264, each its own grey (luma 16, 40, … 232 in video's
+    // range: 0, 28, … 252 as RGB), stored out of order (I B B P …) and
+    // shifted back into place by the file's edit list, as most films are
+    // (made by ffmpeg).
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/b-frames.mp4");
+    let mut reader = VideoReader::open(&path, 0.0).unwrap();
+    let frames: Vec<(f64, u8)> = (0..10)
+        .map(|i| {
+            let (time, picture) = reader.frame_at(f64::from(i) / 30.0).unwrap().unwrap();
+            (time, middle(picture)[1])
+        })
+        .collect();
+    for (i, &(time, grey)) in frames.iter().enumerate() {
+        let level = (24.0 * i as f64 * 255.0 / 219.0).round() as u8;
+        assert!(
+            (time - i as f64 / 30.0).abs() < 1e-3 && grey.abs_diff(level) <= 4,
+            "frame {i} should be {level} at {:.3}: {frames:?}",
+            i as f64 / 30.0
+        );
+    }
+}
+
 /// A layer showing the texture `id` over the whole of a `size` canvas.
 fn frame_showing(id: &str, size: u32) -> compositor::FrameDescriptor {
     frame_sized(id, size, size)
