@@ -86,5 +86,7 @@ made by Whisper, which runs on the computer (`apps/web/src/transcription`).
     nearest speech end or cut (`snap_edges`), none left shorter than 0.2 s.
   - Translated side by side: a copy of the track's timing (`translationOf` the original), each
     line edited with the original it overlaps most shown above it.
-  - Still to do: holding a key while a line is spoken; mov_text (tx3g) for Apple's players,
-    which don't show WebVTT in MP4; Whisper's own word timings for auto-sync.
+  - Timed by holding a key: lines pasted in, T held while each is spoken (pressed where it
+    starts, let go where it ends), taken before the editor's own shortcuts see the key.
+  - Still to do: mov_text (tx3g) for Apple's players, which don't show WebVTT in MP4;
+    Whisper's own word timings for auto-sync.

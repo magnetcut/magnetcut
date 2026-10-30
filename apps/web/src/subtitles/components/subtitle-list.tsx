@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
 	frameRateRetime,
 	twoPointRetime,
@@ -504,6 +504,117 @@ function TypeAlong({ track }: { track: TextTrack }) {
 	);
 }
 
+// The key held while each line is spoken.
+const TIMING_KEY = "t";
+
+/** Lines of a script timed by holding a key while each is spoken: pressed
+ * where it starts, let go where it ends, as Jubler and Aegisub do it. */
+function HoldToTime({ track }: { track: TextTrack }) {
+	const editor = useEditor();
+	const canvasSize = useEditor(
+		(e) => e.project.getActive().settings.canvasSize,
+	);
+	const [script, setScript] = useState("");
+	const [queue, setQueue] = useState<string[]>([]);
+	const pressedAt = useRef<number | null>(null);
+	const isTiming = queue.length > 0;
+
+	useEffect(() => {
+		if (!isTiming) return;
+		const now = () =>
+			mediaTimeToSeconds({ time: editor.playback.getCurrentTime() });
+		const stop = () => {
+			setQueue([]);
+			pressedAt.current = null;
+			editor.playback.pause();
+		};
+		// Before the editor's shortcuts see them (T adds a transition).
+		const handleDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") {
+				event.stopPropagation();
+				stop();
+				return;
+			}
+			if (event.key.toLowerCase() !== TIMING_KEY) return;
+			event.preventDefault();
+			event.stopPropagation();
+			if (!event.repeat && pressedAt.current === null)
+				pressedAt.current = now();
+		};
+		const handleUp = (event: KeyboardEvent) => {
+			if (event.key.toLowerCase() !== TIMING_KEY) return;
+			const start = pressedAt.current;
+			if (start === null) return;
+			event.preventDefault();
+			event.stopPropagation();
+			pressedAt.current = null;
+			const [text, ...rest] = queue;
+			editor.command.execute({
+				command: new InsertElementCommand({
+					placement: { mode: "explicit", trackId: track.id },
+					element: buildSubtitleTextElement({
+						index: track.elements.length,
+						caption: {
+							text,
+							startTime: start,
+							duration: Math.max(0.3, now() - start),
+						},
+						canvasSize,
+					}),
+				}),
+			});
+			setQueue(rest);
+			if (rest.length === 0) editor.playback.pause();
+		};
+		const options = { capture: true };
+		window.addEventListener("keydown", handleDown, options);
+		window.addEventListener("keyup", handleUp, options);
+		return () => {
+			window.removeEventListener("keydown", handleDown, options);
+			window.removeEventListener("keyup", handleUp, options);
+		};
+	}, [isTiming, queue, editor, track, canvasSize]);
+
+	if (isTiming) {
+		return (
+			<div className="flex flex-col gap-1 rounded-md border p-2 text-xs">
+				<p>{`Hold T while this is spoken (${queue.length} to go, Esc to stop):`}</p>
+				<p className="font-medium whitespace-pre-line">{queue[0]}</p>
+			</div>
+		);
+	}
+	return (
+		<div className="flex flex-col gap-1.5">
+			<Textarea
+				aria-label="Lines to time by holding a key"
+				placeholder="Or paste lines to time by holding T as each is spoken"
+				rows={2}
+				value={script}
+				onChange={(event) => setScript(event.target.value)}
+			/>
+			<Button
+				size="sm"
+				variant="outline"
+				disabled={!script.trim()}
+				onClick={() => {
+					const lines = script
+						.split("\n")
+						.map((line) => line.trim())
+						.filter(Boolean);
+					setQueue(lines);
+					setScript("");
+					if (document.activeElement instanceof HTMLElement) {
+						document.activeElement.blur();
+					}
+					editor.playback.play();
+				}}
+			>
+				Time them
+			</Button>
+		</div>
+	);
+}
+
 /** The subtitle tracks' lines and tools: nothing until there's a track. */
 export function SubtitleList() {
 	const editor = useEditor();
@@ -676,6 +787,7 @@ export function SubtitleList() {
 					</Button>
 				)}
 				<TypeAlong track={track} />
+				<HoldToTime track={track} />
 				<SubtitleTools
 					track={track}
 					onSelectTrack={({ trackId: next }) => setTrackId(next)}
