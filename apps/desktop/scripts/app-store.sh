@@ -134,16 +134,20 @@ say "Checking the app"
 [ -f "$CONTENTS/embedded.provisionprofile" ] || die "the provisioning profile isn't in the app"
 [ -f "$CONTENTS/Resources/Assets.car" ] \
     || die "no Assets.car: the icon went in as an .icns, which macOS 26 frames in grey (needs Xcode 26's actool)"
-lipo -archs "$CONTENTS/MacOS/magnetcut" | grep -q "x86_64 arm64\|arm64 x86_64" || die "the app isn't universal"
-if strings "$CONTENTS/MacOS/magnetcut" | grep -q "plugin:updater"; then
-    die "the updater is in the App Store edition"
-fi
+# Capture, then test: `command | grep -q` fails under pipefail exactly when
+# grep finds what it looks for, as it stops reading before the command is done.
+archs=" $(lipo -archs "$CONTENTS/MacOS/magnetcut") "
+[[ "$archs" == *" arm64 "* && "$archs" == *" x86_64 "* ]] || die "the app isn't universal"
+updater=$(strings "$CONTENTS/MacOS/magnetcut" | grep -c "plugin:updater" || true)
+[ "$updater" = 0 ] || die "the updater is in the App Store edition"
 codesign --verify --deep --strict "$APP"
-codesign -d --verbose=2 "$APP" 2>&1 | grep -q "Authority=$SIGN_APP" || die "not signed as $SIGN_APP"
-codesign -d --entitlements - --xml "$APP" 2>/dev/null | grep -q "com.apple.security.app-sandbox" \
-    || die "the app isn't sandboxed"
+signature=$(codesign -d --verbose=2 "$APP" 2>&1)
+[[ "$signature" == *"Authority=$SIGN_APP"* ]] || die "not signed as $SIGN_APP"
+entitlements=$(codesign -d --entitlements - --xml "$APP" 2>/dev/null)
+[[ "$entitlements" == *com.apple.security.app-sandbox* ]] || die "the app isn't sandboxed"
 # A quarantine flag anywhere in the package is rejected after the upload.
-if xattr -rl "$APP" | grep -q com.apple.quarantine; then die "a file in the app is quarantined"; fi
+quarantined=$(xattr -rl "$APP" | grep -c com.apple.quarantine || true)
+[ "$quarantined" = 0 ] || die "a file in the app is quarantined"
 # Installed, everything is root's: what others can't read, nobody can check
 # the signature of, and App Store Connect refuses the package.
 private="$(find "$APP" \( -type d ! -perm -o+rx \) -o \( ! -type d ! -perm -o+r \))"
