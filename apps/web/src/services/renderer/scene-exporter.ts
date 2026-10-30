@@ -1,14 +1,15 @@
 import EventEmitter from "eventemitter3";
 
 import {
-	Output,
-	BufferTarget,
-	StreamTarget,
-	CanvasSource,
 	AudioBufferSource,
-	EncodedAudioPacketSource,
+	BufferTarget,
 	canEncodeAudio,
+	CanvasSource,
+	EncodedAudioPacketSource,
 	type EncodedPacket,
+	Output,
+	StreamTarget,
+	TextSubtitleSource,
 } from "mediabunny";
 import type { FrameRate } from "magnetcut-wasm";
 import { mediaTimeToSeconds } from "magnetcut-wasm";
@@ -54,6 +55,8 @@ type ExportParams = {
 	file?: ExportFile;
 	/** Filters on each video and on the frame (`export/filters.ts`). */
 	filters?: FilterPasses;
+	/** Subtitle tracks, as WebVTT (`export/subtitles.ts`). */
+	subtitles?: Array<{ name: string; vtt: string }>;
 };
 
 /** An export in memory, or the file it was written to. */
@@ -187,6 +190,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 	private audioPassthrough?: AudioPassthrough;
 	private file?: ExportFile;
 	private filters?: FilterPasses;
+	private subtitles: Array<{ name: string; vtt: string }>;
 
 	private isCancelled = false;
 
@@ -205,6 +209,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		audioPassthrough,
 		file,
 		filters,
+		subtitles,
 	}: ExportParams) {
 		super();
 		this.renderer = new CanvasRenderer({
@@ -224,6 +229,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		this.audioPassthrough = audioPassthrough;
 		this.file = file;
 		this.filters = filters;
+		this.subtitles = subtitles ?? [];
 	}
 
 	cancel(): void {
@@ -322,7 +328,19 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 			: null;
 		if (passthroughSource) output.addAudioTrack(passthroughSource);
 
+		const subtitleSources = this.subtitles.map(({ name, vtt }) => {
+			const source = new TextSubtitleSource("webvtt");
+			output.addSubtitleTrack(source, { name });
+			return { source, vtt };
+		});
+
 		await output.start();
+
+		// Small, and all there is from the start.
+		for (const { source, vtt } of subtitleSources) {
+			await source.add(vtt);
+			source.close();
+		}
 
 		const passthrough =
 			audioPassthrough && passthroughSource

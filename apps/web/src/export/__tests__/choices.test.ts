@@ -159,6 +159,7 @@ describe("getChosenOptions", () => {
 			fps: { numerator: 30000, denominator: 1001 },
 			audio: { codec: "aac", kbps: 192, channels: 1, passthrough: true },
 			filters: { deinterlace: false, denoise: "light", sharpen: "off" },
+			subtitles: "picture",
 		});
 	});
 });

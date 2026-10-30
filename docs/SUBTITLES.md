@@ -75,5 +75,9 @@ made by Whisper, which runs on the computer (`apps/web/src/transcription`).
     Whisper gives words).
   - Shift, another frame rate, overlaps and durations fixed; saved as any of the six formats
     (in the desktop app through its save dialog).
+  - Export puts the subtitle tracks in the picture (as before), in tracks a player turns on and
+    off, or both (`export/subtitles.ts`): each a WebVTT track, through mediabunny, in MP4, MKV
+    or WebM, the picture without them if they go only in tracks. QuickTime files can't hold them
+    yet, nor does the native export write them: an export with them goes through the web view.
   - Still to do: typing while it plays, edges snapping to speech and cuts, translation side by
-    side, and subtitles exported as tracks.
+    side; mov_text (tx3g) for Apple's players, which don't show WebVTT in MP4.

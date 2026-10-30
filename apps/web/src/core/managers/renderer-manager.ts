@@ -17,6 +17,11 @@ import {
 	hasFilters,
 	type FilterPasses,
 } from "@/export/filters";
+import {
+	canHoldSubtitleTracks,
+	getPictureTracks,
+	getSubtitleFiles,
+} from "@/export/subtitles";
 import { buildScene } from "@/services/renderer/scene-builder";
 import { EXPORT_SAMPLE_RATE, mixTimelineAudio } from "@/media/audio-mix";
 import {
@@ -187,6 +192,7 @@ export class RendererManager {
 			fps,
 			audio,
 			filters,
+			subtitles = "picture",
 			path,
 		} = options;
 		const filterPasses =
@@ -242,8 +248,17 @@ export class RendererManager {
 				audioBitrate,
 			});
 
+			const subtitleFiles = getSubtitleFiles({ tracks, subtitles });
+			if (subtitleFiles.length > 0 && !canHoldSubtitleTracks({ format })) {
+				passthrough?.close();
+				return {
+					success: false,
+					error:
+						"A QuickTime file can't hold subtitle tracks here: choose MP4, MKV or WebM, or put the subtitles in the picture.",
+				};
+			}
 			const scene = buildScene({
-				tracks,
+				tracks: getPictureTracks({ tracks, subtitles }),
 				mediaAssets,
 				duration,
 				canvasSize,
@@ -254,7 +269,9 @@ export class RendererManager {
 			const copiedFile = passthrough?.file;
 			const native: NativeSources = !path
 				? { reason: "it's only in the desktop app" }
-				: copiedFile && !(copiedFile instanceof DiskFile)
+				: subtitleFiles.length > 0
+					? { reason: "it doesn't write subtitle tracks yet" }
+					: copiedFile && !(copiedFile instanceof DiskFile)
 					? { reason: "the sound to copy isn't read from the disk" }
 					: await findNativeSources({
 							rootNode: scene,
@@ -342,6 +359,7 @@ export class RendererManager {
 				audioPassthrough: passthrough ?? undefined,
 				file: path ? await openExportFile({ path }) : undefined,
 				filters: filterPasses,
+				subtitles: subtitleFiles,
 			});
 
 			exporter.on("progress", (progress) => {

@@ -1,5 +1,6 @@
 import type { FrameRate } from "magnetcut-wasm";
 import type { ExportFilters } from "./filters";
+import type { ExportSubtitles } from "./subtitles";
 import { EXPORT_MIME_TYPES } from "./mime-types";
 import type {
 	ExportAudioSettings,
@@ -33,6 +34,8 @@ export interface ExportOptions {
 	audio: ExportAudioSettings | null;
 	/** None: no filters. */
 	filters?: ExportFilters;
+	/** Where the subtitle tracks go: in the picture if not said. */
+	subtitles?: ExportSubtitles;
 	/** In the desktop app, the file picked in its save dialog, written as it's made. */
 	path?: string;
 }

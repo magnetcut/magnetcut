@@ -95,6 +95,12 @@ import {
 	hasFilters,
 	type FilterStrength,
 } from "@/export/filters";
+import {
+	EXPORT_SUBTITLE_MODES,
+	SUBTITLE_MODE_NAMES,
+	canHoldSubtitleTracks,
+} from "@/export/subtitles";
+import { getSubtitleTracks } from "@/subtitles/track";
 import { frameRateToFloat } from "@/fps/utils";
 import { TICKS_PER_SECOND } from "@/wasm";
 
@@ -643,9 +649,13 @@ function ExportPopover({
 		deinterlace,
 		denoise,
 		sharpen,
+		subtitles,
 	} = choices;
 	const options = getChosenOptions({ choices });
 	const { quality, shortSide, audio, filters } = options;
+	const sceneTracks = useEditor((e) => e.scenes.getActiveScene().tracks);
+	const hasSubtitles = getSubtitleTracks({ tracks: sceneTracks }).length > 0;
+	const canTrackSubtitles = canHoldSubtitleTracks({ format });
 
 	// The crop is the film's, not the settings': it starts afresh each time.
 	const [crop, setCrop] = useState<ExportCrop>(NO_CROP);
@@ -732,6 +742,7 @@ function ExportPopover({
 				fps,
 				audio,
 				filters,
+				subtitles: hasSubtitles ? subtitles : undefined,
 				path,
 			},
 		});
@@ -877,6 +888,37 @@ function ExportPopover({
 														</SelectContent>
 													</Select>
 												</SectionField>
+												{hasSubtitles && (
+													<SectionField label="Subtitles">
+														<Select
+															value={subtitles}
+															onValueChange={(value) => {
+																const mode = EXPORT_SUBTITLE_MODES.find(
+																	(candidate) => candidate === value,
+																);
+																if (mode) setChoices({ choices: { subtitles: mode } });
+															}}
+														>
+															<SelectTrigger variant="outline">
+																<SelectValue />
+															</SelectTrigger>
+															<SelectContent position="popper">
+																{EXPORT_SUBTITLE_MODES.map((mode) => (
+																	<SelectItem
+																		key={mode}
+																		value={mode}
+																		disabled={mode !== "picture" && !canTrackSubtitles}
+																	>
+																		{SUBTITLE_MODE_NAMES[mode]}
+																		{mode !== "picture" && !canTrackSubtitles
+																			? " (not in QuickTime)"
+																			: ""}
+																	</SelectItem>
+																))}
+															</SelectContent>
+														</Select>
+													</SectionField>
+												)}
 											</SectionFields>
 										</SectionContent>
 									</Section>

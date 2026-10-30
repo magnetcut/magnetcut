@@ -16,6 +16,7 @@ import {
 	type ExportVideoQuality,
 } from "./settings";
 import { FILTER_STRENGTHS, type FilterStrength } from "./filters";
+import { EXPORT_SUBTITLE_MODES, type ExportSubtitles } from "./subtitles";
 
 // What the export panel has chosen, kept between exports and in presets. The
 // values for the quality modes and the sound not in use are kept too, so
@@ -46,6 +47,7 @@ export interface ExportChoices {
 	deinterlace: boolean;
 	denoise: FilterStrength;
 	sharpen: FilterStrength;
+	subtitles: ExportSubtitles;
 }
 
 export interface ExportPreset {
@@ -72,6 +74,7 @@ export const DEFAULT_EXPORT_CHOICES: ExportChoices = {
 	deinterlace: false,
 	denoise: "off",
 	sharpen: "off",
+	subtitles: "picture",
 };
 
 /**
@@ -194,6 +197,7 @@ export function getChosenOptions({
 			denoise: choices.denoise,
 			sharpen: choices.sharpen,
 		},
+		subtitles: choices.subtitles,
 	};
 }
 
@@ -301,6 +305,9 @@ export function sanitizeChoices({ value }: { value: unknown }): ExportChoices {
 		sharpen:
 			oneOf({ value: read("sharpen"), values: FILTER_STRENGTHS }) ??
 			defaults.sharpen,
+		subtitles:
+			oneOf({ value: read("subtitles"), values: EXPORT_SUBTITLE_MODES }) ??
+			defaults.subtitles,
 	};
 }
 
