@@ -85,6 +85,60 @@ export function buildSourceWaveformSummary({
 	};
 }
 
+/**
+ * A waveform summary built as decoded audio comes in, a buffer at a time, so
+ * the audio is never in memory whole: the same buckets as
+ * `buildSourceWaveformSummary` over all of it.
+ */
+export class WaveformSummaryBuilder {
+	private readonly bucketSize: number;
+	private readonly peaks: number[] = [];
+	private peak = 0;
+	private filled = 0;
+	private totalSamples = 0;
+	private sampleRate = 0;
+
+	constructor({
+		bucketSize = DEFAULT_SOURCE_WAVEFORM_BUCKET_SIZE,
+	}: { bucketSize?: number } = {}) {
+		this.bucketSize = Math.max(1, Math.floor(bucketSize));
+	}
+
+	add({ buffer }: { buffer: AudioBuffer }): void {
+		this.sampleRate = buffer.sampleRate;
+		const channels = Array.from({ length: buffer.numberOfChannels }, (_, c) =>
+			buffer.getChannelData(c),
+		);
+		for (let i = 0; i < buffer.length; i++) {
+			for (const data of channels) {
+				const abs = Math.abs(data[i]);
+				if (abs > this.peak) {
+					this.peak = abs;
+				}
+			}
+			if (++this.filled === this.bucketSize) {
+				this.peaks.push(this.peak);
+				this.peak = 0;
+				this.filled = 0;
+			}
+		}
+		this.totalSamples += buffer.length;
+	}
+
+	build({ sourceKey }: { sourceKey: string }): SourceWaveformSummary {
+		const isBucketOpen = this.filled > 0 || this.peaks.length === 0;
+		return {
+			sourceKey,
+			sampleRate: this.sampleRate,
+			totalSamples: this.totalSamples,
+			bucketSize: this.bucketSize,
+			amplitudes: Float32Array.from(
+				isBucketOpen ? [...this.peaks, this.peak] : this.peaks,
+			),
+		};
+	}
+}
+
 export function buildWaveformSampleBuckets({
 	clipLeftPx,
 	clipRightPx,

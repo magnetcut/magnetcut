@@ -111,6 +111,9 @@ and give it constant quality and the encoders the web views lack.
   as if mastered whole. Decoded whole as before: library sounds, audio files WebCodecs
   doesn't decode, and clips whose speed changes with their pitch kept (the stretcher takes a
   clip at once). Transcription's mix is built from the same windows.
+- The timeline's waveforms are built the same way, a decoded buffer at a time
+  (`WaveformSummaryBuilder`), at the file's own rate; only an audio file WebCodecs doesn't
+  decode is read whole.
 
 ### 3. HandBrake's settings
 - Container: MP4, MOV, MKV, WebM. Codec: H.264, HEVC, VP9, AV1, as the web view can encode
@@ -152,7 +155,6 @@ and give it constant quality and the encoders the web views lack.
 - Whether a file dropped on the App Store edition can be read: the sandbox grants a dropped
   file to whoever reads it from the drag pasteboard, which WebKit does in the app's process; not
   tried yet (no store profile).
-- The waveform still reads a whole file into memory (`arrayBuffer`), as it did from OPFS.
 - Export's sound now always goes through the limiter, as playback's does: before, only a mix
   that peaked over 0.98 did. A quiet mix comes out about 0.5 dB louder (the limiter's makeup
   gain) and 6 ms later (its lookahead), as it plays in the editor.
