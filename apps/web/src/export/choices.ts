@@ -17,6 +17,12 @@ import {
 } from "./settings";
 import { FILTER_STRENGTHS, type FilterStrength } from "./filters";
 import { EXPORT_SUBTITLE_MODES, type ExportSubtitles } from "./subtitles";
+import {
+	DEFAULT_WIZARD_ANSWERS,
+	DESTINATIONS,
+	SOUND_CHOICES,
+	type WizardAnswers,
+} from "./wizard";
 
 // What the export panel has chosen, kept between exports and in presets. The
 // values for the quality modes and the sound not in use are kept too, so
@@ -48,6 +54,10 @@ export interface ExportChoices {
 	denoise: FilterStrength;
 	sharpen: FilterStrength;
 	subtitles: ExportSubtitles;
+	/** Simple asks a few questions in everyday words (`export/wizard.ts`),
+	 * and sets the rest from the answers; Advanced is every setting. */
+	panelMode: "simple" | "advanced";
+	wizard: WizardAnswers;
 }
 
 export interface ExportPreset {
@@ -75,6 +85,8 @@ export const DEFAULT_EXPORT_CHOICES: ExportChoices = {
 	denoise: "off",
 	sharpen: "off",
 	subtitles: "picture",
+	panelMode: "simple",
+	wizard: DEFAULT_WIZARD_ANSWERS,
 };
 
 /**
@@ -308,6 +320,36 @@ export function sanitizeChoices({ value }: { value: unknown }): ExportChoices {
 		subtitles:
 			oneOf({ value: read("subtitles"), values: EXPORT_SUBTITLE_MODES }) ??
 			defaults.subtitles,
+		panelMode:
+			oneOf({
+				value: read("panelMode"),
+				values: ["simple", "advanced"] as const,
+			}) ?? defaults.panelMode,
+		wizard: sanitizeWizardAnswers({ value: read("wizard") }),
+	};
+}
+
+/** The Simple mode's answers read back: each kept if it's still valid. */
+function sanitizeWizardAnswers({ value }: { value: unknown }): WizardAnswers {
+	const defaults = DEFAULT_WIZARD_ANSWERS;
+	const read = (key: keyof WizardAnswers) => readField({ value, key });
+	const maxMegabytes = read("maxMegabytes");
+	const shortSide = read("shortSide");
+	const fpsLabel = read("fpsLabel");
+	return {
+		destination:
+			oneOf({ value: read("destination"), values: DESTINATIONS }) ??
+			defaults.destination,
+		maxMegabytes: isPositiveNumber(maxMegabytes) ? maxMegabytes : null,
+		shortSide:
+			isPositiveNumber(shortSide) && shortSide >= MIN_SHORT_SIDE
+				? shortSide
+				: null,
+		fpsLabel:
+			FRAME_RATE_PRESETS.find((preset) => preset.label === fpsLabel)?.label ??
+			null,
+		sound:
+			oneOf({ value: read("sound"), values: SOUND_CHOICES }) ?? defaults.sound,
 	};
 }
 

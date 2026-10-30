@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 ## Unreleased
 
 ### Added
+- Export has a Simple mode, open by default, that asks in everyday words where the film will
+  be watched (any player, old TVs too; YouTube, TikTok and Instagram; the smallest file; a master
+  file to keep or edit), how big the file may be, how sharp and smooth, and the sound, and picks
+  the settings from that: H.264 only where old players need it, HEVC for uploads at the bitrate
+  YouTube asks for, AV1 for the smallest, ProRes for a master on a Mac. Advanced is every
+  setting, as before. Nothing is ever made bigger than it was made.
 - The Adjustment tab: Color (exposure, contrast, highlights, shadows, saturation, vibrance,
   temperature, tint and hue), Vignette and Sharpen. Drop one on a clip to adjust it, or add it
   to the timeline to adjust everything beneath it; its sliders are in the properties panel.

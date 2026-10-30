@@ -101,6 +101,8 @@ import {
 	canHoldSubtitleTracks,
 } from "@/export/subtitles";
 import { getSubtitleTracks } from "@/subtitles/track";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { ExportSimple } from "./export-simple";
 import { frameRateToFloat } from "@/fps/utils";
 import { TICKS_PER_SECOND } from "@/wasm";
 
@@ -650,6 +652,7 @@ function ExportPopover({
 		denoise,
 		sharpen,
 		subtitles,
+		panelMode,
 	} = choices;
 	const options = getChosenOptions({ choices });
 	const { quality, shortSide, audio, filters } = options;
@@ -787,12 +790,21 @@ function ExportPopover({
 	};
 
 	const projectFps = frameRateToFloat(activeProject.settings.fps);
+	// In the Simple mode, what it'll be like rather than what it's made with.
+	const isSimple = panelMode === "simple";
+	const fpsText = +frameRateToFloat(fps).toFixed(3);
 	const summary = [
-		`${VIDEO_CODEC_NAMES[videoCodec]}, ${outputSize.width}×${outputSize.height}, ${+frameRateToFloat(fps).toFixed(3)} fps`,
+		isSimple
+			? `${outputSize.width}×${outputSize.height} at ${fpsText} frames a second`
+			: `${VIDEO_CODEC_NAMES[videoCodec]}, ${outputSize.width}×${outputSize.height}, ${fpsText} fps`,
 		copied
-			? `${getSourceCodecName(copied)} copied`
+			? isSimple
+				? `the original sound (${copied.numberOfChannels === 6 ? "5.1" : copied.numberOfChannels === 1 ? "mono" : "stereo"})`
+				: `${getSourceCodecName(copied)} copied`
 			: audio
-				? `${AUDIO_CODEC_NAMES[audio.codec]} ${audio.kbps} kbit/s${audio.channels === 1 ? " mono" : ""}`
+				? isSimple
+					? `${audio.channels === 1 ? "mono" : "stereo"} sound`
+					: `${AUDIO_CODEC_NAMES[audio.codec]} ${audio.kbps} kbit/s${audio.channels === 1 ? " mono" : ""}`
 				: "no sound",
 		filters && hasFilters({ filters })
 			? [
@@ -829,454 +841,485 @@ function ExportPopover({
 						{!isExporting && (
 							<>
 								<div className="flex flex-col">
-									<ExportPresetPicker encodable={encodable} />
-									<Section
-										collapsible
-										defaultOpen={false}
-										showTopBorder={false}
-									>
-										<SectionHeader>
-											<SectionTitle>Format</SectionTitle>
-										</SectionHeader>
-										<SectionContent>
-											<SectionFields>
-												<SectionField label="Container">
-													<Select
-														value={format}
-														onValueChange={(value) => {
-															if (isExportFormat(value)) {
-																handleFormatChange({ value });
-															}
-														}}
-													>
-														<SelectTrigger variant="outline">
-															<SelectValue />
-														</SelectTrigger>
-														<SelectContent position="popper">
-															{EXPORT_FORMAT_VALUES.map((value) => (
-																<SelectItem key={value} value={value}>
-																	{FORMAT_NAMES[value]}
-																</SelectItem>
-															))}
-														</SelectContent>
-													</Select>
-												</SectionField>
-												<SectionField label="Video">
-													<Select
-														value={videoCodec}
-														onValueChange={(value) => {
-															const codec = FORMAT_CODECS[format].video.find(
-																(candidate) => candidate === value,
-															);
-															if (codec) setChoices({ choices: { videoCodec: codec } });
-														}}
-													>
-														<SelectTrigger variant="outline">
-															<SelectValue />
-														</SelectTrigger>
-														<SelectContent position="popper">
-															{FORMAT_CODECS[format].video.map((codec) => (
-																<SelectItem
-																	key={codec}
-																	value={codec}
-																	disabled={!!encodable && !encodable.has(codec)}
-																>
-																	{VIDEO_CODEC_NAMES[codec]}
-																	{encodable && !encodable.has(codec)
-																		? " (not on this computer)"
-																		: ""}
-																</SelectItem>
-															))}
-														</SelectContent>
-													</Select>
-												</SectionField>
-												{hasSubtitles && (
-													<SectionField label="Subtitles">
+									<div className="flex justify-center px-3 pt-3">
+										<ToggleGroup
+											type="single"
+											variant="outline"
+											value={panelMode}
+											onValueChange={(value) => {
+												if (value === "simple" || value === "advanced") {
+													setChoices({ choices: { panelMode: value } });
+												}
+											}}
+										>
+											<ToggleGroupItem value="simple" className="px-3">
+												Simple
+											</ToggleGroupItem>
+											<ToggleGroupItem value="advanced" className="px-3">
+												Advanced
+											</ToggleGroupItem>
+										</ToggleGroup>
+									</div>
+									{isSimple ? (
+										<ExportSimple
+											choices={choices}
+											setChoices={setChoices}
+											encodable={encodable}
+											picture={picture}
+											projectFps={projectFps}
+										/>
+									) : (
+										<>
+										<ExportPresetPicker encodable={encodable} />
+										<Section
+											collapsible
+											defaultOpen={false}
+											showTopBorder={false}
+										>
+											<SectionHeader>
+												<SectionTitle>Format</SectionTitle>
+											</SectionHeader>
+											<SectionContent>
+												<SectionFields>
+													<SectionField label="Container">
 														<Select
-															value={subtitles}
+															value={format}
 															onValueChange={(value) => {
-																const mode = EXPORT_SUBTITLE_MODES.find(
-																	(candidate) => candidate === value,
-																);
-																if (mode) setChoices({ choices: { subtitles: mode } });
+																if (isExportFormat(value)) {
+																	handleFormatChange({ value });
+																}
 															}}
 														>
 															<SelectTrigger variant="outline">
 																<SelectValue />
 															</SelectTrigger>
 															<SelectContent position="popper">
-																{EXPORT_SUBTITLE_MODES.map((mode) => (
+																{EXPORT_FORMAT_VALUES.map((value) => (
+																	<SelectItem key={value} value={value}>
+																		{FORMAT_NAMES[value]}
+																	</SelectItem>
+																))}
+															</SelectContent>
+														</Select>
+													</SectionField>
+													<SectionField label="Video">
+														<Select
+															value={videoCodec}
+															onValueChange={(value) => {
+																const codec = FORMAT_CODECS[format].video.find(
+																	(candidate) => candidate === value,
+																);
+																if (codec) setChoices({ choices: { videoCodec: codec } });
+															}}
+														>
+															<SelectTrigger variant="outline">
+																<SelectValue />
+															</SelectTrigger>
+															<SelectContent position="popper">
+																{FORMAT_CODECS[format].video.map((codec) => (
 																	<SelectItem
-																		key={mode}
-																		value={mode}
-																		disabled={mode !== "picture" && !canTrackSubtitles}
+																		key={codec}
+																		value={codec}
+																		disabled={!!encodable && !encodable.has(codec)}
 																	>
-																		{SUBTITLE_MODE_NAMES[mode]}
-																		{mode !== "picture" && !canTrackSubtitles
-																			? " (not in QuickTime)"
+																		{VIDEO_CODEC_NAMES[codec]}
+																		{encodable && !encodable.has(codec)
+																			? " (not on this computer)"
 																			: ""}
 																	</SelectItem>
 																))}
 															</SelectContent>
 														</Select>
 													</SectionField>
-												)}
-											</SectionFields>
-										</SectionContent>
-									</Section>
-
-									<Section collapsible defaultOpen={false}>
-										<SectionHeader>
-											<SectionTitle>Quality</SectionTitle>
-										</SectionHeader>
-										<SectionContent>
-											<SectionFields>
-												{isProRes ? (
-													<p className="text-muted-foreground text-xs">
-														{`ProRes keeps its own quality: about ${Math.round(videoBitrate / 1_000_000)} Mbit/s.`}
-													</p>
-												) : (
-													<>
-														<RadioGroup
-															className="flex gap-4"
-															value={qualityMode}
-															onValueChange={(value) => {
-																if (isQualityMode(value)) {
-																	setChoices({ choices: { qualityMode: value } });
-																}
-															}}
-														>
-															{qualityModes.map((mode) => (
-																<div
-																	key={mode}
-																	className="flex items-center space-x-2"
-																>
-																	<RadioGroupItem
-																		value={mode}
-																		id={`quality-${mode}`}
-																	/>
-																	<Label htmlFor={`quality-${mode}`}>
-																		{QUALITY_MODE_LABELS[mode]}
-																	</Label>
-																</div>
-															))}
-														</RadioGroup>
-														{qualityMode === "level" && (
+													{hasSubtitles && (
+														<SectionField label="Subtitles">
 															<Select
-																value={level}
+																value={subtitles}
 																onValueChange={(value) => {
-																	if (isExportQuality(value)) {
-																		setChoices({ choices: { level: value } });
-																	}
+																	const mode = EXPORT_SUBTITLE_MODES.find(
+																		(candidate) => candidate === value,
+																	);
+																	if (mode) setChoices({ choices: { subtitles: mode } });
 																}}
 															>
 																<SelectTrigger variant="outline">
 																	<SelectValue />
 																</SelectTrigger>
 																<SelectContent position="popper">
-																	<SelectItem value="low">Low - Smallest file</SelectItem>
-																	<SelectItem value="medium">Medium</SelectItem>
-																	<SelectItem value="high">High - Recommended</SelectItem>
-																	<SelectItem value="very_high">
-																		Very high - Largest file
-																	</SelectItem>
+																	{EXPORT_SUBTITLE_MODES.map((mode) => (
+																		<SelectItem
+																			key={mode}
+																			value={mode}
+																			disabled={mode !== "picture" && !canTrackSubtitles}
+																		>
+																			{SUBTITLE_MODE_NAMES[mode]}
+																			{mode !== "picture" && !canTrackSubtitles
+																				? " (not in QuickTime)"
+																				: ""}
+																		</SelectItem>
+																	))}
 																</SelectContent>
 															</Select>
-														)}
-														{qualityMode === "bitrate" && (
-															<SectionField label="Average bitrate (kbit/s)">
-																<Input
-																	type="number"
-																	min={100}
-																	step={100}
-																	value={videoKbps}
-																	onChange={(event) => {
-																		const value = Number(event.target.value);
-																		if (value > 0) setChoices({ choices: { videoKbps: value } });
-																	}}
-																/>
-															</SectionField>
-														)}
-														{qualityMode === "size" && (
-															<SectionField label="File size (MB)">
-																<Input
-																	type="number"
-																	min={1}
-																	value={megabytes}
-																	onChange={(event) => {
-																		const value = Number(event.target.value);
-																		if (value > 0) setChoices({ choices: { megabytes: value } });
-																	}}
-																/>
-															</SectionField>
-														)}
-														{qualityMode === "constant" && (
-															<SectionField label="Quality (1 to 100)">
-																<Input
-																	type="number"
-																	min={1}
-																	max={100}
-																	value={constantQuality}
-																	onChange={(event) => {
-																		const value = Math.round(Number(event.target.value));
-																		if (value >= 1 && value <= 100) {
-																			setChoices({ choices: { constantQuality: value } });
+														</SectionField>
+													)}
+												</SectionFields>
+											</SectionContent>
+										</Section>
+
+										<Section collapsible defaultOpen={false}>
+											<SectionHeader>
+												<SectionTitle>Quality</SectionTitle>
+											</SectionHeader>
+											<SectionContent>
+												<SectionFields>
+													{isProRes ? (
+														<p className="text-muted-foreground text-xs">
+															{`ProRes keeps its own quality: about ${Math.round(videoBitrate / 1_000_000)} Mbit/s.`}
+														</p>
+													) : (
+														<>
+															<RadioGroup
+																className="flex gap-4"
+																value={qualityMode}
+																onValueChange={(value) => {
+																	if (isQualityMode(value)) {
+																		setChoices({ choices: { qualityMode: value } });
+																	}
+																}}
+															>
+																{qualityModes.map((mode) => (
+																	<div
+																		key={mode}
+																		className="flex items-center space-x-2"
+																	>
+																		<RadioGroupItem
+																			value={mode}
+																			id={`quality-${mode}`}
+																		/>
+																		<Label htmlFor={`quality-${mode}`}>
+																			{QUALITY_MODE_LABELS[mode]}
+																		</Label>
+																	</div>
+																))}
+															</RadioGroup>
+															{qualityMode === "level" && (
+																<Select
+																	value={level}
+																	onValueChange={(value) => {
+																		if (isExportQuality(value)) {
+																			setChoices({ choices: { level: value } });
 																		}
 																	}}
-																/>
-																<p className="text-muted-foreground text-xs">
-																	{canKeepQuality
-																		? "Kept by the Mac's encoder. Where it can't make the film (a clip with a blurred background), a bitrate like it."
-																		: "Kept by the Mac's encoders: AV1 on any Mac, H.264 and HEVC on Apple silicon. Here, a bitrate like it."}
-																</p>
-															</SectionField>
-														)}
-													</>
-												)}
-											</SectionFields>
-										</SectionContent>
-									</Section>
-
-									<Section collapsible defaultOpen={false}>
-										<SectionHeader>
-											<SectionTitle>Size, crop and frame rate</SectionTitle>
-										</SectionHeader>
-										<SectionContent>
-											<SectionFields>
-												<SectionField label="Size">
-													<Select
-														value={
-															isCustomSize
-																? "custom"
-																: shortSide && shortSide < pictureShortSide
-																	? String(shortSide)
-																	: "full"
-														}
-														onValueChange={(value) => {
-															setIsCustomSize(value === "custom");
-															if (value === "custom") return;
-															setChoices({
-																choices: {
-																	shortSide: value === "full" ? null : Number(value),
-																},
-															});
-														}}
-													>
-														<SelectTrigger variant="outline">
-															<SelectValue />
-														</SelectTrigger>
-														<SelectContent position="popper">
-															<SelectItem value="full">
-																{`Full size (${picture.width}×${picture.height})`}
-															</SelectItem>
-															{SIZE_PRESETS.filter(
-																(preset) => preset.shortSide < pictureShortSide,
-															).map((preset) => (
-																<SelectItem
-																	key={preset.shortSide}
-																	value={String(preset.shortSide)}
 																>
-																	{preset.label}
-																</SelectItem>
-															))}
-															<SelectItem value="custom">Your own</SelectItem>
-														</SelectContent>
-													</Select>
-													{isCustomSize && (
-														<CustomSizeFields
-															size={outputSize}
-															picture={picture}
-															onShortSideChange={({ shortSide: side }) =>
-																setChoices({ choices: { shortSide: side } })
-															}
-														/>
+																	<SelectTrigger variant="outline">
+																		<SelectValue />
+																	</SelectTrigger>
+																	<SelectContent position="popper">
+																		<SelectItem value="low">Low - Smallest file</SelectItem>
+																		<SelectItem value="medium">Medium</SelectItem>
+																		<SelectItem value="high">High - Recommended</SelectItem>
+																		<SelectItem value="very_high">
+																			Very high - Largest file
+																		</SelectItem>
+																	</SelectContent>
+																</Select>
+															)}
+															{qualityMode === "bitrate" && (
+																<SectionField label="Average bitrate (kbit/s)">
+																	<Input
+																		type="number"
+																		min={100}
+																		step={100}
+																		value={videoKbps}
+																		onChange={(event) => {
+																			const value = Number(event.target.value);
+																			if (value > 0) setChoices({ choices: { videoKbps: value } });
+																		}}
+																	/>
+																</SectionField>
+															)}
+															{qualityMode === "size" && (
+																<SectionField label="File size (MB)">
+																	<Input
+																		type="number"
+																		min={1}
+																		value={megabytes}
+																		onChange={(event) => {
+																			const value = Number(event.target.value);
+																			if (value > 0) setChoices({ choices: { megabytes: value } });
+																		}}
+																	/>
+																</SectionField>
+															)}
+															{qualityMode === "constant" && (
+																<SectionField label="Quality (1 to 100)">
+																	<Input
+																		type="number"
+																		min={1}
+																		max={100}
+																		value={constantQuality}
+																		onChange={(event) => {
+																			const value = Math.round(Number(event.target.value));
+																			if (value >= 1 && value <= 100) {
+																				setChoices({ choices: { constantQuality: value } });
+																			}
+																		}}
+																	/>
+																	<p className="text-muted-foreground text-xs">
+																		{canKeepQuality
+																			? "Kept by the Mac's encoder. Where it can't make the film (a clip with a blurred background), a bitrate like it."
+																			: "Kept by the Mac's encoders: AV1 on any Mac, H.264 and HEVC on Apple silicon. Here, a bitrate like it."}
+																	</p>
+																</SectionField>
+															)}
+														</>
 													)}
-												</SectionField>
-												<SectionField label="Crop">
-													<CropFields
-														crop={crop}
-														canvas={canvasSize}
-														onCropChange={({ crop: next }) => setCrop(next)}
-													/>
-												</SectionField>
-												<SectionField label="Frame rate">
-													<Select
-														value={fpsLabel ?? "project"}
-														onValueChange={(value) =>
-															setChoices({
-																choices: {
-																	fpsLabel: value === "project" ? null : value,
-																},
-															})
-														}
-													>
-														<SelectTrigger variant="outline">
-															<SelectValue />
-														</SelectTrigger>
-														<SelectContent position="popper">
-															<SelectItem value="project">
-																{`The project's (${+projectFps.toFixed(3)} fps)`}
-															</SelectItem>
-															{FRAME_RATE_PRESETS.map((preset) => (
-																<SelectItem key={preset.label} value={preset.label}>
-																	{`${preset.label} fps`}
-																</SelectItem>
-															))}
-														</SelectContent>
-													</Select>
-												</SectionField>
-											</SectionFields>
-										</SectionContent>
-									</Section>
+												</SectionFields>
+											</SectionContent>
+										</Section>
 
-									<Section collapsible defaultOpen={false}>
-										<SectionHeader>
-											<SectionTitle>Filters</SectionTitle>
-										</SectionHeader>
-										<SectionContent>
-											<SectionFields>
-												<div className="flex flex-col gap-1">
-													<div className="flex items-center space-x-2">
-														<Checkbox
-															id="filter-deinterlace"
-															checked={deinterlace}
-															onCheckedChange={(checked) =>
-																setChoices({ choices: { deinterlace: !!checked } })
-															}
-														/>
-														<Label htmlFor="filter-deinterlace">Deinterlace</Label>
-													</div>
-													<p className="text-muted-foreground text-xs">
-														{"For interlaced video, such as a camcorder's 1080i: keeps one field of each frame and makes the other from it."}
-													</p>
-												</div>
-												<SectionField label="Denoise">
-													<FilterStrengthSelect
-														value={denoise}
-														onChange={({ value }) =>
-															setChoices({ choices: { denoise: value } })
-														}
-													/>
-												</SectionField>
-												<SectionField label="Sharpen">
-													<FilterStrengthSelect
-														value={sharpen}
-														onChange={({ value }) =>
-															setChoices({ choices: { sharpen: value } })
-														}
-													/>
-												</SectionField>
-											</SectionFields>
-										</SectionContent>
-									</Section>
-
-									<Section collapsible defaultOpen={false}>
-										<SectionHeader>
-											<SectionTitle>Audio</SectionTitle>
-										</SectionHeader>
-										<SectionContent>
-											<SectionFields>
-												<div className="flex items-center space-x-2">
-													<Checkbox
-														id="include-audio"
-														checked={hasAudio}
-														onCheckedChange={(checked) =>
-															setChoices({ choices: { hasAudio: !!checked } })
-														}
-													/>
-													<Label htmlFor="include-audio">
-														Include audio in export
-													</Label>
-												</div>
-												{hasAudio && (
-													<div className="flex flex-col gap-1">
-														<div className="flex items-center space-x-2">
-															<Checkbox
-																id="audio-passthrough"
-																checked={audioPassthrough}
-																onCheckedChange={(checked) =>
-																	setChoices({
-																		choices: { audioPassthrough: !!checked },
-																	})
-																}
-															/>
-															<Label htmlFor="audio-passthrough">
-																{"Copy the source's sound when it can"}
-															</Label>
-														</div>
-														{audioPassthrough && (
-															<p className="text-muted-foreground text-xs">
-																{copied
-																	? `Copies the ${getSourceCodecName(copied)} sound as it is: ${copied.numberOfChannels === 1 ? "mono" : `${copied.numberOfChannels} channels`}, ${copied.sampleRate / 1000} kHz, about ${Math.round(copied.bitrate / 1000)} kbit/s.`
-																	: "Only when the whole soundtrack is one file's sound, uncut, in a codec this container takes. Otherwise:"}
-															</p>
-														)}
-													</div>
-												)}
-												{hasAudio && !copied && (
-													<div className="grid grid-cols-3 gap-2">
+										<Section collapsible defaultOpen={false}>
+											<SectionHeader>
+												<SectionTitle>Size, crop and frame rate</SectionTitle>
+											</SectionHeader>
+											<SectionContent>
+												<SectionFields>
+													<SectionField label="Size">
 														<Select
-															value={audioCodec}
+															value={
+																isCustomSize
+																	? "custom"
+																	: shortSide && shortSide < pictureShortSide
+																		? String(shortSide)
+																		: "full"
+															}
 															onValueChange={(value) => {
-																const codec = FORMAT_CODECS[format].audio.find(
-																	(candidate) => candidate === value,
-																);
-																if (!codec) return;
+																setIsCustomSize(value === "custom");
+																if (value === "custom") return;
 																setChoices({
 																	choices: {
-																		audioCodec: codec,
-																		audioKbps: DEFAULT_AUDIO_KBPS[codec],
+																		shortSide: value === "full" ? null : Number(value),
 																	},
 																});
 															}}
 														>
-															<SelectTrigger variant="outline" className="w-full">
+															<SelectTrigger variant="outline">
 																<SelectValue />
 															</SelectTrigger>
 															<SelectContent position="popper">
-																{FORMAT_CODECS[format].audio.map((codec) => (
-																	<SelectItem key={codec} value={codec}>
-																		{AUDIO_CODEC_NAMES[codec]}
+																<SelectItem value="full">
+																	{`Full size (${picture.width}×${picture.height})`}
+																</SelectItem>
+																{SIZE_PRESETS.filter(
+																	(preset) => preset.shortSide < pictureShortSide,
+																).map((preset) => (
+																	<SelectItem
+																		key={preset.shortSide}
+																		value={String(preset.shortSide)}
+																	>
+																		{preset.label}
+																	</SelectItem>
+																))}
+																<SelectItem value="custom">Your own</SelectItem>
+															</SelectContent>
+														</Select>
+														{isCustomSize && (
+															<CustomSizeFields
+																size={outputSize}
+																picture={picture}
+																onShortSideChange={({ shortSide: side }) =>
+																	setChoices({ choices: { shortSide: side } })
+																}
+															/>
+														)}
+													</SectionField>
+													<SectionField label="Crop">
+														<CropFields
+															crop={crop}
+															canvas={canvasSize}
+															onCropChange={({ crop: next }) => setCrop(next)}
+														/>
+													</SectionField>
+													<SectionField label="Frame rate">
+														<Select
+															value={fpsLabel ?? "project"}
+															onValueChange={(value) =>
+																setChoices({
+																	choices: {
+																		fpsLabel: value === "project" ? null : value,
+																	},
+																})
+															}
+														>
+															<SelectTrigger variant="outline">
+																<SelectValue />
+															</SelectTrigger>
+															<SelectContent position="popper">
+																<SelectItem value="project">
+																	{`The project's (${+projectFps.toFixed(3)} fps)`}
+																</SelectItem>
+																{FRAME_RATE_PRESETS.map((preset) => (
+																	<SelectItem key={preset.label} value={preset.label}>
+																		{`${preset.label} fps`}
 																	</SelectItem>
 																))}
 															</SelectContent>
 														</Select>
-														<Select
-															value={String(audioKbps)}
-															onValueChange={(value) =>
-																setChoices({ choices: { audioKbps: Number(value) } })
-															}
-														>
-															<SelectTrigger variant="outline" className="w-full">
-																<SelectValue />
-															</SelectTrigger>
-															<SelectContent position="popper">
-																{AUDIO_BITRATES[audioCodec].map((kbps) => (
-																	<SelectItem key={kbps} value={String(kbps)}>
-																		{`${kbps} kbit/s`}
-																	</SelectItem>
-																))}
-															</SelectContent>
-														</Select>
-														<Select
-															value={String(channels)}
-															onValueChange={(value) =>
-																setChoices({ choices: { channels: value === "1" ? 1 : 2 } })
-															}
-														>
-															<SelectTrigger variant="outline" className="w-full">
-																<SelectValue />
-															</SelectTrigger>
-															<SelectContent position="popper">
-																<SelectItem value="2">Stereo</SelectItem>
-																<SelectItem value="1">Mono</SelectItem>
-															</SelectContent>
-														</Select>
+													</SectionField>
+												</SectionFields>
+											</SectionContent>
+										</Section>
+
+										<Section collapsible defaultOpen={false}>
+											<SectionHeader>
+												<SectionTitle>Filters</SectionTitle>
+											</SectionHeader>
+											<SectionContent>
+												<SectionFields>
+													<div className="flex flex-col gap-1">
+														<div className="flex items-center space-x-2">
+															<Checkbox
+																id="filter-deinterlace"
+																checked={deinterlace}
+																onCheckedChange={(checked) =>
+																	setChoices({ choices: { deinterlace: !!checked } })
+																}
+															/>
+															<Label htmlFor="filter-deinterlace">Deinterlace</Label>
+														</div>
+														<p className="text-muted-foreground text-xs">
+															{"For interlaced video, such as a camcorder's 1080i: keeps one field of each frame and makes the other from it."}
+														</p>
 													</div>
-												)}
-											</SectionFields>
-										</SectionContent>
-									</Section>
+													<SectionField label="Denoise">
+														<FilterStrengthSelect
+															value={denoise}
+															onChange={({ value }) =>
+																setChoices({ choices: { denoise: value } })
+															}
+														/>
+													</SectionField>
+													<SectionField label="Sharpen">
+														<FilterStrengthSelect
+															value={sharpen}
+															onChange={({ value }) =>
+																setChoices({ choices: { sharpen: value } })
+															}
+														/>
+													</SectionField>
+												</SectionFields>
+											</SectionContent>
+										</Section>
+
+										<Section collapsible defaultOpen={false}>
+											<SectionHeader>
+												<SectionTitle>Audio</SectionTitle>
+											</SectionHeader>
+											<SectionContent>
+												<SectionFields>
+													<div className="flex items-center space-x-2">
+														<Checkbox
+															id="include-audio"
+															checked={hasAudio}
+															onCheckedChange={(checked) =>
+																setChoices({ choices: { hasAudio: !!checked } })
+															}
+														/>
+														<Label htmlFor="include-audio">
+															Include audio in export
+														</Label>
+													</div>
+													{hasAudio && (
+														<div className="flex flex-col gap-1">
+															<div className="flex items-center space-x-2">
+																<Checkbox
+																	id="audio-passthrough"
+																	checked={audioPassthrough}
+																	onCheckedChange={(checked) =>
+																		setChoices({
+																			choices: { audioPassthrough: !!checked },
+																		})
+																	}
+																/>
+																<Label htmlFor="audio-passthrough">
+																	{"Copy the source's sound when it can"}
+																</Label>
+															</div>
+															{audioPassthrough && (
+																<p className="text-muted-foreground text-xs">
+																	{copied
+																		? `Copies the ${getSourceCodecName(copied)} sound as it is: ${copied.numberOfChannels === 1 ? "mono" : `${copied.numberOfChannels} channels`}, ${copied.sampleRate / 1000} kHz, about ${Math.round(copied.bitrate / 1000)} kbit/s.`
+																		: "Only when the whole soundtrack is one file's sound, uncut, in a codec this container takes. Otherwise:"}
+																</p>
+															)}
+														</div>
+													)}
+													{hasAudio && !copied && (
+														<div className="grid grid-cols-3 gap-2">
+															<Select
+																value={audioCodec}
+																onValueChange={(value) => {
+																	const codec = FORMAT_CODECS[format].audio.find(
+																		(candidate) => candidate === value,
+																	);
+																	if (!codec) return;
+																	setChoices({
+																		choices: {
+																			audioCodec: codec,
+																			audioKbps: DEFAULT_AUDIO_KBPS[codec],
+																		},
+																	});
+																}}
+															>
+																<SelectTrigger variant="outline" className="w-full">
+																	<SelectValue />
+																</SelectTrigger>
+																<SelectContent position="popper">
+																	{FORMAT_CODECS[format].audio.map((codec) => (
+																		<SelectItem key={codec} value={codec}>
+																			{AUDIO_CODEC_NAMES[codec]}
+																		</SelectItem>
+																	))}
+																</SelectContent>
+															</Select>
+															<Select
+																value={String(audioKbps)}
+																onValueChange={(value) =>
+																	setChoices({ choices: { audioKbps: Number(value) } })
+																}
+															>
+																<SelectTrigger variant="outline" className="w-full">
+																	<SelectValue />
+																</SelectTrigger>
+																<SelectContent position="popper">
+																	{AUDIO_BITRATES[audioCodec].map((kbps) => (
+																		<SelectItem key={kbps} value={String(kbps)}>
+																			{`${kbps} kbit/s`}
+																		</SelectItem>
+																	))}
+																</SelectContent>
+															</Select>
+															<Select
+																value={String(channels)}
+																onValueChange={(value) =>
+																	setChoices({ choices: { channels: value === "1" ? 1 : 2 } })
+																}
+															>
+																<SelectTrigger variant="outline" className="w-full">
+																	<SelectValue />
+																</SelectTrigger>
+																<SelectContent position="popper">
+																	<SelectItem value="2">Stereo</SelectItem>
+																	<SelectItem value="1">Mono</SelectItem>
+																</SelectContent>
+															</Select>
+														</div>
+													)}
+												</SectionFields>
+											</SectionContent>
+										</Section>
+										</>
+									)}
 								</div>
 
 								<div className="flex flex-col gap-2 p-3 pt-0">
