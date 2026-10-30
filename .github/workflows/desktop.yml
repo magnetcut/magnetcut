@@ -89,7 +89,11 @@ jobs:
           sudo sysctl -w kernel.core_pattern="$PWD/core.%p"
           tests=$(cargo test -p magnetcut --no-run --message-format=json \
             | jq -r 'select(.profile.test == true and .executable != null) | .executable' | tail -1)
-          "$tests" && exit 0
+          # Three times, to catch it.
+          for attempt in 1 2 3; do
+            "$tests" || break
+            [ "$attempt" = 3 ] && exit 0
+          done
           core=$(ls core.* 2>/dev/null | head -1)
           if [ -n "$core" ]; then
             sudo apt-get install -y gdb
