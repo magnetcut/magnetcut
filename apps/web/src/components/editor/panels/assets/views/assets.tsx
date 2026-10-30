@@ -31,8 +31,7 @@ import { useEditor } from "@/editor/use-editor";
 import type { MediaFile } from "@/media/disk-file";
 import { useFileUpload } from "@/media/use-file-upload";
 import { invokeAction } from "@/actions";
-import { processMediaAssets } from "@/media/processing";
-import { showMediaUploadToast } from "@/media/upload-toast";
+import { importMediaFiles } from "@/media/import";
 import {
 	SelectableItem,
 	SelectableSurface,
@@ -88,26 +87,7 @@ export function MediaView() {
 		setIsProcessing(true);
 		setProgress(0);
 		try {
-			await showMediaUploadToast({
-				filesCount: files.length,
-				promise: async () => {
-					const processedAssets = await processMediaAssets({
-						files,
-						onProgress: (progress: { progress: number }) =>
-							setProgress(progress.progress),
-					});
-					for (const asset of processedAssets) {
-						await editor.media.addMediaAsset({
-							projectId: activeProject.metadata.id,
-							asset,
-						});
-					}
-					return {
-						uploadedCount: processedAssets.length,
-						assetNames: processedAssets.map((asset) => asset.name),
-					};
-				},
-			});
+			await importMediaFiles({ editor, files, onProgress: setProgress });
 		} catch (error) {
 			console.error("Error processing files:", error);
 		} finally {

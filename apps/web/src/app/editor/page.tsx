@@ -15,6 +15,7 @@ import { EditorProvider } from "@/components/providers/editor-provider";
 import { MigrationDialog } from "@/project/components/migration-dialog";
 import { usePanelStore } from "@/editor/panel-store";
 import { usePasteMedia } from "@/media/use-paste-media";
+import { useDropMedia } from "@/media/use-drop-media";
 import { Suspense, useMemo, useState } from "react";
 import { useEditor } from "@/editor/use-editor";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
@@ -82,6 +83,7 @@ function DegradedRendererBanner() {
 
 function EditorLayout() {
 	usePasteMedia();
+	useDropMedia();
 	const { panels, setPanel } = usePanelStore();
 	const activeScene = useEditor((editor) =>
 		editor.scenes.getActiveSceneOrNull(),

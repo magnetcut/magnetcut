@@ -80,11 +80,28 @@ fn app_info(app: tauri::AppHandle) -> AppInfo {
     }
 }
 
+/// Whether the window may load `url`: only the app's own pages. A file or link
+/// dropped where the editor doesn't take it would otherwise open in its place,
+/// as in a browser.
+fn is_own_page(url: &tauri::Url) -> bool {
+    match url.scheme() {
+        "tauri" | "about" | "blob" | "data" => true,
+        // The dev server, and the app's origin on Windows.
+        "http" | "https" => matches!(url.host_str(), Some("localhost" | "tauri.localhost")),
+        _ => false,
+    }
+}
+
 fn main() {
     // Links with target="_blank" open in the browser.
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init());
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry>::new("own-pages")
+                .on_navigation(|_, url| is_own_page(url))
+                .build(),
+        );
     #[cfg(feature = "updater")]
     {
         // The feed and the public key that every update must be signed with

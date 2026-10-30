@@ -53,6 +53,9 @@ All notable changes to this project are documented here. The format is based on
 ### Fixed
 - Exporting to MP4 on macOS stopped after a few frames and never finished. MP4 from the macOS
   app is now H.264 in its Baseline profile, the one the system's web view encodes properly.
+- A video dropped on the editor outside the assets panel and the timeline opened in the
+  editor's place, as in a browser. It's now imported, wherever it's dropped, and nothing
+  dropped on the window can replace the app.
 
 ## [0.1.0] - 2026-10-30
 
