@@ -27,11 +27,10 @@ export const TAB_KEYS = [
 
 export type Tab = (typeof TAB_KEYS)[number];
 
-const createHugeiconsIcon =
-	({ icon }: { icon: IconSvgElement }) =>
-	({ className }: { className?: string }) => (
-		<HugeiconsIcon icon={icon} className={className} />
-	);
+const createHugeiconsIcon = ({ icon }: { icon: IconSvgElement }) =>
+	function TabIcon({ className }: { className?: string }) {
+		return <HugeiconsIcon icon={icon} className={className} />;
+	};
 
 export const tabs = {
 	media: {

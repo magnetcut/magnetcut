@@ -12,6 +12,11 @@ interface CommandHistoryEntry {
 
 export class CommandManager {
 	public isRippleEnabled = false;
+
+	/** Whether moves and deletions ripple, as the timeline's toggle says. */
+	setRippleEnabled({ enabled }: { enabled: boolean }): void {
+		this.isRippleEnabled = enabled;
+	}
 	private history: CommandHistoryEntry[] = [];
 	private redoStack: CommandHistoryEntry[] = [];
 	private reactors: Array<() => void> = [];
