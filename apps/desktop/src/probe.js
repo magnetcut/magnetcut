@@ -6,7 +6,7 @@
 		try {
 			return await check();
 		} catch (error) {
-			return `error: ${error?.name ?? error}`;
+			return `error: ${error?.message || error?.name || error}`;
 		}
 	};
 
@@ -86,15 +86,26 @@
 	report.indexedDB = typeof indexedDB !== "undefined";
 	report.storageAPI = typeof navigator.storage !== "undefined";
 	// Written as the editor writes imported media (services/storage).
+	// Each step named, so that a failure says where.
 	report.opfs = await attempt(async () => {
-		const root = await navigator.storage.getDirectory();
-		const file = await root.getFileHandle("magnetcut-probe", { create: true });
-		const writable = await file.createWritable();
-		await writable.write("probe");
-		await writable.close();
-		const text = await (await file.getFile()).text();
-		await root.removeEntry("magnetcut-probe");
-		return text === "probe";
+		let step = "getDirectory";
+		try {
+			const root = await navigator.storage.getDirectory();
+			step = "getFileHandle";
+			const file = await root.getFileHandle("magnetcut-probe", { create: true });
+			step = "createWritable";
+			const writable = await file.createWritable();
+			step = "write";
+			await writable.write("probe");
+			await writable.close();
+			step = "read";
+			const text = await (await file.getFile()).text();
+			step = "removeEntry";
+			await root.removeEntry("magnetcut-probe");
+			return text === "probe";
+		} catch (error) {
+			throw new Error(`${step}: ${error?.name}: ${error?.message}`);
+		}
 	});
 	report.storagePersisted = await attempt(() => navigator.storage.persisted());
 	report.storageQuotaGB = await attempt(async () => {
