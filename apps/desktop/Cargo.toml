@@ -91,3 +91,6 @@ libc = "0.2"
 gstreamer = "0.21"
 gstreamer-app = "0.21"
 gstreamer-video = "0.21"
+# logind's sleep inhibitor while an export runs (src/activity.rs): the
+# version Tauri's opener already uses.
+zbus = "5"

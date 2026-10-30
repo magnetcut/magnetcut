@@ -2725,6 +2725,7 @@ dependencies = [
  "tauri-plugin-updater",
  "webkit2gtk",
  "windows",
+ "zbus",
 ]
 
 [[package]]

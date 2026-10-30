@@ -1,7 +1,7 @@
 // An export under way, as the system sees it: on macOS, hidden behind other
 // windows, App Nap would slow the app (and the web view's export with it) and
-// idle sleep would stop it, as HandBrake keeps them from doing; on Windows,
-// sleep would.
+// idle sleep would stop it, as HandBrake keeps them from doing; on Windows
+// and Linux, sleep would.
 
 #[cfg(target_os = "macos")]
 use objc2::rc::Retained;
@@ -19,6 +19,8 @@ use windows::Win32::System::Power::{
 use windows::Win32::System::Threading::{
     POWER_REQUEST_CONTEXT_SIMPLE_STRING, REASON_CONTEXT, REASON_CONTEXT_0,
 };
+#[cfg(target_os = "linux")]
+use zbus::zvariant::OwnedFd;
 
 /// Keeps the app awake and at speed until dropped.
 pub struct Activity {
@@ -27,6 +29,10 @@ pub struct Activity {
     /// A power request, set: none if the system wouldn't make one.
     #[cfg(windows)]
     request: Option<HANDLE>,
+    /// logind's inhibitor, which holds while it's open: none without
+    /// logind, or if it refused.
+    #[cfg(target_os = "linux")]
+    _inhibitor: Option<OwnedFd>,
 }
 
 impl Activity {
@@ -57,12 +63,28 @@ impl Activity {
                 });
             Self { request }
         }
-        #[cfg(not(any(target_os = "macos", windows)))]
+        #[cfg(target_os = "linux")]
         {
-            let _ = reason;
-            Self {}
+            Self {
+                _inhibitor: inhibit(reason).ok(),
+            }
         }
     }
+}
+
+/// Asks logind (systemd's, or elogind) to hold off sleep and idle until the
+/// file it hands back is closed, as `systemd-inhibit` does.
+#[cfg(target_os = "linux")]
+fn inhibit(reason: &str) -> zbus::Result<OwnedFd> {
+    let connection = zbus::blocking::Connection::system()?;
+    let reply = connection.call_method(
+        Some("org.freedesktop.login1"),
+        "/org/freedesktop/login1",
+        Some("org.freedesktop.login1.Manager"),
+        "Inhibit",
+        &("sleep:idle", "MagnetCut", reason, "block"),
+    )?;
+    reply.body().deserialize::<OwnedFd>()
 }
 
 // SAFETY: the token is only handed back to NSProcessInfo, which takes it on

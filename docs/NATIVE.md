@@ -167,7 +167,8 @@ and give it constant quality and the encoders the web views lack.
   won't take, which would end the app.
 - While an export runs, on either road, the app holds a user-initiated activity
   (`activity.rs`): hidden behind other windows, App Nap would otherwise slow it, and idle sleep
-  would stop it. On Windows a power request keeps the computer awake; Linux has nothing yet.
+  would stop it. On Windows a power request keeps the computer awake; on Linux, logind's
+  inhibitor (as `systemd-inhibit` holds), where there's logind.
 - The panel offers ProRes 422 and 422 HQ in QuickTime where the native export is, its size
   reckoned from Apple's rates (147 and 220 Mbit/s at 1080p and 29.97); and Constant quality,
   1 to 100, on Apple silicon. Where the native export can't make the film, ProRes fails with
