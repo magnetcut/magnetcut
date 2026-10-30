@@ -1,0 +1,99 @@
+name: Web view probe
+
+# What each system's web view supports of what the editor needs
+# (apps/desktop/src/probe.js: WebGPU, WebGL2, WebCodecs per codec, OPFS…),
+# from the app itself, in the job summary. Run by hand: the runners have no
+# GPU, so it tells what works without one.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NEXT_TELEMETRY_DISABLED: 1
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  probe:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # The GStreamer plugins are what WebKitGTK decodes media with; base and
+      # good are what a desktop install has (no patented codecs).
+      - name: Install the Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev xvfb \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+
+      - name: Update Rust
+        run: |
+          rustup update stable --no-self-update
+          rustup target add wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: v0.13.1
+
+      - name: Cache Rust build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-probe-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        with:
+          bun-version: 1.4.4
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # The editor's files embedded, as in a release, without bundling.
+      - name: Build the app
+        run: |
+          bun run build:web
+          cargo build -p magnetcut --features tauri/custom-protocol
+
+      - name: Probe (Linux)
+        if: runner.os == 'Linux'
+        run: MAGNETCUT_PROBE=1 timeout 120 xvfb-run -a ./target/debug/magnetcut | tee probe.txt || true
+
+      - name: Probe (macOS)
+        if: runner.os == 'macOS'
+        run: MAGNETCUT_PROBE=1 perl -e 'alarm 120; exec @ARGV' ./target/debug/magnetcut | tee probe.txt || true
+
+      - name: Probe (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:MAGNETCUT_PROBE = "1"
+          $app = Start-Process -FilePath target\debug\magnetcut.exe -NoNewWindow -PassThru `
+            -RedirectStandardOutput probe.txt -RedirectStandardError probe-errors.txt
+          if (-not $app.WaitForExit(120000)) { $app.Kill() }
+          Get-Content probe.txt, probe-errors.txt
+
+      - name: Report
+        shell: bash
+        run: |
+          {
+            echo "### ${{ matrix.os }}"
+            echo '```json'
+            grep '^MAGNETCUT_PROBE ' probe.txt | sed 's/^MAGNETCUT_PROBE //' | jq .
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -q '^MAGNETCUT_PROBE ' probe.txt
