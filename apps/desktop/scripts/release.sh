@@ -10,8 +10,7 @@
 #                                              .../releases/latest/download/
 #       MagnetCut_<version>_universal.app.tar.gz   the macOS update
 #       MagnetCut_<version>_x64-setup.exe, ..._x64_en-US.msi        Windows
-#       MagnetCut_<version>_amd64.AppImage, ..._amd64.deb,
-#       MagnetCut-<version>-1.x86_64.rpm                            Linux
+#       MagnetCut_<version>_amd64.deb, MagnetCut-<version>-1.x86_64.rpm   Linux
 #                                              built by .github/workflows/release.yml
 #                                              from the same commit (this starts the
 #                                              run when there isn't one)
@@ -60,10 +59,9 @@ MAC_UPDATE="$OUT/${APP_NAME}_${VERSION}_universal.app.tar.gz"
 # The names Tauri gives what CI builds.
 WINDOWS_NSIS="${APP_NAME}_${VERSION}_x64-setup.exe"
 WINDOWS_MSI="${APP_NAME}_${VERSION}_x64_en-US.msi"
-LINUX_APPIMAGE="${APP_NAME}_${VERSION}_amd64.AppImage"
 LINUX_DEB="${APP_NAME}_${VERSION}_amd64.deb"
 LINUX_RPM="${APP_NAME}-${VERSION}-1.x86_64.rpm"
-INSTALLERS=("$WINDOWS_NSIS" "$WINDOWS_MSI" "$LINUX_APPIMAGE" "$LINUX_DEB" "$LINUX_RPM")
+INSTALLERS=("$WINDOWS_NSIS" "$WINDOWS_MSI" "$LINUX_DEB" "$LINUX_RPM")
 
 # This version's section of the CHANGELOG ("## [0.1.0] - 2026-11-02").
 # This version's section of CHANGELOG.md: up to the next version, or the
@@ -336,7 +334,6 @@ jq -n --arg version "$VERSION" --arg notes "$NOTES" --arg date "$(date -u +%Y-%m
     --argjson mac "$(platform "$MAC")" \
     --argjson nsis "$(platform "$WINDOWS_NSIS")" \
     --argjson msi "$(platform "$WINDOWS_MSI")" \
-    --argjson appimage "$(platform "$LINUX_APPIMAGE")" \
     --argjson deb "$(platform "$LINUX_DEB")" \
     --argjson rpm "$(platform "$LINUX_RPM")" \
     '{
@@ -349,14 +346,12 @@ jq -n --arg version "$VERSION" --arg notes "$NOTES" --arg date "$(date -u +%Y-%m
             "windows-x86_64": $nsis,
             "windows-x86_64-nsis": $nsis,
             "windows-x86_64-msi": $msi,
-            "linux-x86_64": $appimage,
-            "linux-x86_64-appimage": $appimage,
             "linux-x86_64-deb": $deb,
             "linux-x86_64-rpm": $rpm
         }
     }' > "$OUT/latest.json"
-[ "$(jq '[.platforms[] | select(.url | startswith("'"$URL"'/")) | select(.signature != "")] | length' "$OUT/latest.json")" = 9 ] \
-    || die "latest.json doesn't have nine signed platforms pointing at $TAG"
+[ "$(jq '[.platforms[] | select(.url | startswith("'"$URL"'/")) | select(.signature != "")] | length' "$OUT/latest.json")" = 7 ] \
+    || die "latest.json doesn't have seven signed platforms pointing at $TAG"
 
 printf '%s\n' "$NOTES" > "$OUT/notes.md"
 {

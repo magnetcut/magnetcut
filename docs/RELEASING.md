@@ -1,7 +1,7 @@
 # Releasing
 
 A release is the macOS app as a universal disk image (Developer ID signed, notarized, stapled),
-the Windows installers (NSIS and MSI) and the Linux packages (AppImage, deb, rpm), each with its
+the Windows installers (NSIS and MSI) and the Linux packages (deb, rpm), each with its
 signature as an update, and `latest.json`, which tells installed copies about it, all on a GitHub
 release.
 

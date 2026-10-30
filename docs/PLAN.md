@@ -13,7 +13,7 @@ telemetry: everything stays on the computer. Not for iOS or Android.
   with a title in it) is replaced.
 - **Nothing to install for the user.** macOS: nothing. Windows 10/11 ship WebView2; the
   installer bootstraps it where it's missing. Linux: the .deb/.rpm pull in webkit2gtk and
-  GStreamer from the distro; the AppImage carries them.
+  GStreamer from the distro. No AppImage: it would carry WebKitGTK and GTK, which are LGPL.
 - **No ffmpeg.** Media goes through mediabunny (MPL-2.0) and the system's codecs (WebCodecs), so
   H.264/AAC are licensed by whoever made the OS codec, not us, and nothing GPL ships. Where a
   web view lacks a codec, the fallback is the platform's own (AVFoundation, Media Foundation,
@@ -30,7 +30,7 @@ telemetry: everything stays on the computer. Not for iOS or Android.
   updater plugin, the cross-platform counterpart of Sparkle). The feed is a hint: an update
   installs only if it's signed with the project's Ed25519 key, whose public half is in the app.
   Only publishing a release ships it. Each copy updates from the kind of installer it came from
-  (NSIS, MSI, AppImage, deb, rpm; the deb and rpm ask for the administrator password). Settings
+  (NSIS, MSI, deb, rpm; the deb and rpm ask for the administrator password). Settings
   has the daily-check switch, on by default; Settings, About and the macOS menu have Check Now.
   It's the one request made without a feature being used. The key stays on the maintainer's
   Mac: CI builds the Windows and Linux installers with no secrets, and
@@ -114,8 +114,8 @@ record and profile (docs/RELEASING.md), 7 and 8.
 3. Tauri shell in `apps/desktop`: dev and bundle on macOS; open, edit, export a project.
 4. Check WKWebView, WebView2 and WebKitGTK for WebCodecs, WebGPU/WebGL2 and OPFS; native
    fallbacks where they fall short.
-5. About, Settings, updater, release script and CI (signed, notarized DMG; NSIS/MSI; AppImage,
-   deb, rpm; signed `latest.json`; a draft GitHub release).
+5. About, Settings, updater, release script and CI (signed, notarized DMG; NSIS/MSI; deb, rpm;
+   signed `latest.json`; a draft GitHub release).
 6. App Store edition: entitlements, profile, upload script.
 7. Licence check and notices; replace soundtouchjs.
 8. Transitions: the cross-dissolve end to end, edits, audio crossfades, the Transitions tab
@@ -159,6 +159,4 @@ From `MAGNETCUT_PROBE=1` (apps/desktop), on the app's own origin:
   software is where MagnetCut matches HandBrake's quality, slower.
 - Linux decoding depends on the distro's GStreamer plugins. The packages recommend them, but
   H.264 is often missing on Fedora and openSUSE for patent reasons (Fedora has an openh264
-  plugin, RPM Fusion the rest). What the AppImage decodes with is still to check.
-- The AppImage carries WebKitGTK and GTK, which are LGPL: its release has to offer their
-  source (the Ubuntu source packages it was built from). To settle before the first release.
+  plugin, RPM Fusion the rest).
