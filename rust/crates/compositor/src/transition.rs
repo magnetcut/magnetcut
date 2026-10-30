@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use gl_transitions::{ParamType, ParamValues, Transition, Value};
+use gl_transitions::{ParamType, ParamValues, Transition, UniformLayout, Value};
 use gpu::{FULLSCREEN_SHADER_SOURCE, GpuContext, wgpu};
 
 use crate::frame::TransitionParamValue;
@@ -82,11 +82,61 @@ fn typed_value(ty: ParamType, value: &TransitionParamValue) -> Option<Value> {
     })
 }
 
+/// Where the last uniform ends, in bytes; none with a type this doesn't know.
+fn uniforms_end(layout: &UniformLayout) -> Option<usize> {
+    layout.fields.iter().try_fold(0, |end, field| {
+        let size = match field.ty {
+            // Flags are stored as integers.
+            ParamType::Float | ParamType::Int | ParamType::Bool => 4,
+            ParamType::Vec2 | ParamType::IVec2 => 8,
+            ParamType::Vec3 | ParamType::IVec3 => 12,
+            ParamType::Vec4 | ParamType::IVec4 => 16,
+            _ => return None,
+        };
+        Some(end.max(field.offset + size))
+    })
+}
+
+/// The transition's shader, its uniforms padded to a multiple of 16 bytes:
+/// WebGL can't bind less (wgpu's `BUFFER_BINDINGS_NOT_16_BYTE_ALIGNED`).
+/// The buffer is already that long.
+pub(crate) fn padded_wgsl(transition: &Transition) -> String {
+    let source = transition.wgsl().unwrap_or_default();
+    let Some(end) = transition.uniform_layout().and_then(uniforms_end) else {
+        return source.to_string();
+    };
+    let padding = end.next_multiple_of(16) - end;
+    let close = source
+        .find("struct Uniforms {")
+        .and_then(|start| source[start..].find("\n}").map(|close| start + close + 1));
+    match close {
+        Some(close) if padding > 0 => {
+            let fields: String = (0..padding / 4)
+                .map(|index| format!("    _padding{index}: f32,\n"))
+                .collect();
+            format!("{}{fields}{}", &source[..close], &source[close..])
+        }
+        _ => source.to_string(),
+    }
+}
+
 pub struct ApplyTransitionOptions<'a> {
     pub from: &'a wgpu::Texture,
     pub to: &'a wgpu::Texture,
     pub target: &'a wgpu::Texture,
     pub params: &'a ParamValues,
+    pub progress: f32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// A transition between two opaque images, for a preview.
+pub struct RenderTransitionOptions<'a> {
+    pub from: &'a wgpu::Texture,
+    pub to: &'a wgpu::Texture,
+    /// Its gl-transitions name.
+    pub transition: &'a str,
+    pub params: &'a HashMap<String, TransitionParamValue>,
     pub progress: f32,
     pub width: u32,
     pub height: u32,
@@ -292,7 +342,7 @@ impl TransitionPipeline {
             let device = context.device();
             let fragment_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some(transition.name()),
-                source: wgpu::ShaderSource::Wgsl(transition.wgsl().unwrap_or_default().into()),
+                source: wgpu::ShaderSource::Wgsl(padded_wgsl(transition).into()),
             });
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("compositor-transition-pipeline"),
@@ -320,6 +370,38 @@ impl TransitionPipeline {
                 cache: None,
             })
         })
+    }
+
+    /// The transition into a new texture.
+    pub fn render(
+        &mut self,
+        context: &GpuContext,
+        options: RenderTransitionOptions<'_>,
+    ) -> wgpu::Texture {
+        let target =
+            context.create_render_texture(options.width, options.height, "transition-preview");
+        let params = transition_params(find_transition(options.transition), options.params);
+        let mut encoder =
+            context
+                .device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("transition-preview-encoder"),
+                });
+        self.apply_with_encoder(
+            context,
+            &mut encoder,
+            ApplyTransitionOptions {
+                from: options.from,
+                to: options.to,
+                target: &target,
+                params: &params,
+                progress: options.progress.clamp(0.0, 1.0),
+                width: options.width,
+                height: options.height,
+            },
+        );
+        context.queue().submit([encoder.finish()]);
+        target
     }
 
     pub fn apply_with_encoder(

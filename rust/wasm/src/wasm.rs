@@ -10,6 +10,8 @@ mod gpu;
 mod masks;
 #[cfg(target_arch = "wasm32")]
 mod perf;
+#[cfg(target_arch = "wasm32")]
+mod transition_preview;
 
 #[cfg(target_arch = "wasm32")]
 pub use audio::*;
@@ -24,4 +26,6 @@ pub use masks::*;
 #[cfg(target_arch = "wasm32")]
 pub use perf::*;
 pub use time::*;
+#[cfg(target_arch = "wasm32")]
+pub use transition_preview::*;
 pub use transitions::*;

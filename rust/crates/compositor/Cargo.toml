@@ -15,3 +15,5 @@ thiserror = "2.0.18"
 [dev-dependencies]
 # The tests wait for the GPU.
 futures-executor = "0.3"
+# What wgpu's WebGL backend does to the shaders: the version wgpu uses.
+naga = { version = "=29.0.1", features = ["wgsl-in", "glsl-out"] }

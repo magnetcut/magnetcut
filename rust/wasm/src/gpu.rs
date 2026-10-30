@@ -2,6 +2,7 @@
 
 use std::cell::RefCell;
 
+use compositor::TransitionPipeline;
 use effects::EffectPipeline;
 use gpu::{GpuContext, wgpu};
 use js_sys::{Object, Reflect};
@@ -13,6 +14,8 @@ pub(crate) struct GpuRuntime {
     pub(crate) context: GpuContext,
     pub(crate) effects: EffectPipeline,
     pub(crate) masks: MaskFeatherPipeline,
+    /// Keeps the shaders it compiled, hence mutable.
+    pub(crate) transitions: RefCell<TransitionPipeline>,
 }
 
 thread_local! {
@@ -50,12 +53,14 @@ pub async fn initialize_gpu() -> Result<(), JsValue> {
         .map_err(|error| JsValue::from_str(&error.to_string()))?;
     let effects = EffectPipeline::new(&context);
     let masks = MaskFeatherPipeline::new(&context);
+    let transitions = RefCell::new(TransitionPipeline::new(&context));
 
     GPU_RUNTIME.with(|runtime| {
         runtime.replace(Some(GpuRuntime {
             context,
             effects,
             masks,
+            transitions,
         }));
     });
 

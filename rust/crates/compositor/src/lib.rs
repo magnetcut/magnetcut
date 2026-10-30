@@ -12,6 +12,7 @@ pub use frame::{
     FrameItemDescriptor, LayerDescriptor, LayerMaskDescriptor, QuadTransformDescriptor,
     TransitionDescriptor, TransitionParamValue,
 };
+pub use transition::{RenderTransitionOptions, TransitionPipeline};
 
 #[cfg(test)]
 mod tests;

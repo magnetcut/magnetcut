@@ -173,11 +173,11 @@ interface Transition {
 - Later: resize limits that keep the transition's handle.
 
 ### Interface
-- Transitions tab (`transitions/components/assets-view.tsx`): the catalogue as a grid. Its add
-  button changes the selected transition's type, or adds one at the cut nearest the playhead.
-  The thumbnails are gradients between two colours for now; later, animated by the same pipeline
-  on two sample images (as `effect-preview.ts` does for effects), and a search once there are
-  twelve.
+- Transitions tab (`transitions/components/assets-view.tsx`): the catalogue as a grid, with a
+  search. Its add button changes the selected transition's type, or adds one at the cut nearest
+  the playhead. Each thumbnail is the transition itself between two sample images, drawn by the
+  same pipeline (`applyTransition` in `rust/wasm`, `services/renderer/transition-preview.ts`): a
+  still, played on hover.
 - Drag one onto a clip of a video track: the cut at its nearer end, if it touches another clip
   there, gets a mark (`dropCut` in the drag-drop controller), and dropping puts the transition
   there; on a cut that has one, it changes its type.
@@ -185,14 +185,20 @@ interface Transition {
 - On the timeline, a bar over the window, selectable (`transitions/components/
   timeline-transitions.tsx`): selection has a `transition` kind, exclusive with the others
   (`selection/editor-selection.ts`, the selection manager); Delete removes it.
-- Inspector (`transition-properties.tsx`): type, duration, position (before, centred or after
-  the cut), audio crossfade, remove; a line when the clips' media shortens it, or when it can't
-  play at all. Each transition's own parameters come with phase 5.
+- Inspector (`transition-properties.tsx`): type, duration, the type's own parameters, position
+  (before, centred or after the cut), audio crossfade, remove; a line when the clips' media
+  shortens it, or when it can't play at all. Changes preview as they're dragged and commit as
+  one undo step (`previewTransition` on the timeline manager, beside the element previews).
+- Parameters: what the crate says about each (type, default, range, colour, from `shaderInfo`
+  in the `transitions` crate), with the catalogue's labels, choices and hidden ones on top
+  (`transitions/params.ts`). A direction or a place is a list; a parameter the type fixes, such
+  as the dip's colour, isn't offered.
 
 ### The first twelve
 All MIT: Fade (cross-dissolve), FadeColor (dip to black or white), FadeGrayscale, WipeLeft,
 WipeRight, WipeUp, WipeDown, DirectionalWipe, Slides, SimpleZoom, CircleOpen, DirectionalWarp.
-More are a catalogue entry each afterwards.
+They make fourteen types (`transitions/catalog.ts`): FadeColor is the dips to black and to
+white, Slides is Shrink and Grow. More are a catalogue entry each afterwards.
 
 ## Phases
 
@@ -213,14 +219,21 @@ in Chrome between two files and between two times of one file. Export builds the
 hasn't been checked by eye yet. And 2, checked in Chrome too (split, delete, undo). And 3: the
 export mix checked sample by sample in tests; in Chrome, the preview's gain ramps follow the
 curves. And 4, checked in Chrome: from the tab (add, change type), dropped on a cut, from a
-clip's menu, selected on the timeline, changed in the inspector and deleted.
+clip's menu, selected on the timeline, changed in the inspector and deleted. And 5 but for
+reusing upload textures and the playback measurements: the twelve shaders, in Chrome on WebGPU
+and WebGL2 (by hiding `navigator.gpu`), in the preview and the thumbnails. On WebGL the
+compositor's canvas is the one wgpu draws through, so a thumbnail, an effect preview or a mask
+feather left its drawing there, at its size; the compositor now shows its last frame again
+after each (`restore_compositor_canvas`).
 
 ## Risks
 - **Two streams at once** (4K, or one file at two times) may not hold frame rate on weak
   machines; export is unaffected (it isn't real time). Decoders per element first, then a frame
   cache, then a preview quality setting if needed.
-- **WebGL2**: every shader has to compile through naga to GLSL ES 3.00. The crate leaves out any
-  its compilers reject, but both backends need testing.
+- **WebGL2**: every shader has to compile through naga to GLSL ES 3.00, and WebGL binds
+  uniforms only in multiples of 16 bytes, which 88 of the crate's shaders didn't declare (Fade
+  among them: every transition panicked the renderer there). The pipeline pads them
+  (`padded_wgsl`); a test translates every usable shader as wgpu's GL backend would.
 - The crate is days old: pinned, and vendored if it moves.
 - A preview rendered during an export shares the one compositor and its texture ids (true today;
   more visible with two inputs).

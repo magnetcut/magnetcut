@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 
 use compositor::{Compositor, FrameDescriptor, RenderFrameOptions};
-use gpu::wgpu;
+use gpu::{GpuContext, wgpu};
 use js_sys::Object;
 use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
 
@@ -18,6 +18,31 @@ struct CompositorRuntime {
     compositor: Compositor,
     surface: wgpu::Surface<'static>,
     surface_size: (u32, u32),
+    /// On WebGL, the frame last shown, to show again: see
+    /// `restore_compositor_canvas`.
+    last_frame: Option<wgpu::Texture>,
+}
+
+/// Shows the last frame again, at its size. On WebGL, drawing into any other
+/// canvas (a thumbnail, an effect preview) goes through the compositor's,
+/// which then shows that drawing, at that size, until the next frame.
+pub(crate) fn restore_compositor_canvas(context: &GpuContext) {
+    if context.gl_canvas().is_none() {
+        return;
+    }
+    COMPOSITOR_RUNTIME.with(|runtime| {
+        let borrow = runtime.borrow();
+        let Some(runtime) = borrow.as_ref() else {
+            return;
+        };
+        let (width, height) = runtime.surface_size;
+        runtime.canvas.set_width(width);
+        runtime.canvas.set_height(height);
+        if let Some(texture) = &runtime.last_frame {
+            // Nothing to do about a failure here: the next frame shows anyway.
+            let _ = context.present_texture_to_surface(texture, &runtime.surface);
+        }
+    });
 }
 
 thread_local! {
@@ -62,6 +87,7 @@ pub fn init_compositor(width: u32, height: u32) -> Result<(), JsValue> {
                 compositor,
                 surface,
                 surface_size: (width, height),
+                last_frame: None,
             }));
         });
 
@@ -211,6 +237,7 @@ pub fn render_frame(options: JsValue) -> Result<(), JsValue> {
                     .present_texture_to_surface(&texture, &runtime.surface)
                     .map_err(|error| JsValue::from_str(&error.to_string()))?;
                 perf::record("wasm.presentToSurface", perf::now_ms() - t_present);
+                runtime.last_frame = Some(texture);
 
                 Ok(())
             }

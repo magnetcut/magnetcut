@@ -21,6 +21,7 @@ import {
 import {
 	DEFAULT_TRANSITION_TYPE,
 	getDefaultTransitionDuration,
+	mapTransitions,
 } from "@/transitions";
 import {
 	canElementBeHidden,
@@ -80,6 +81,10 @@ import type {
 export class TimelineManager {
 	private listeners = new Set<() => void>();
 	private previewOverlay = new Map<string, Partial<TimelineElement>>();
+	private transitionPreview: {
+		transitionId: string;
+		changes: Partial<Omit<Transition, "id">>;
+	} | null = null;
 	private previewTracks: SceneTracks | null = null;
 	public readonly dragSource = new TimelineDragSource();
 
@@ -777,7 +782,29 @@ export class TimelineManager {
 	}
 
 	isPreviewActive(): boolean {
-		return this.previewOverlay.size > 0;
+		return this.previewOverlay.size > 0 || this.transitionPreview !== null;
+	}
+
+	/** Shows a transition changed, without a command until `commitPreview`. */
+	previewTransition({
+		transitionId,
+		changes,
+	}: {
+		transitionId: string;
+		changes: Partial<Omit<Transition, "id">>;
+	}): void {
+		const previous =
+			this.transitionPreview?.transitionId === transitionId
+				? this.transitionPreview.changes
+				: {};
+		this.transitionPreview = {
+			transitionId,
+			changes: { ...previous, ...changes },
+		};
+		const committedTracks = this.editor.scenes.getActiveSceneOrNull()?.tracks;
+		if (!committedTracks) return;
+		this.previewTracks = this.applyPreviewOverlay(committedTracks);
+		this.notify();
 	}
 
 	previewElements({
@@ -819,7 +846,7 @@ export class TimelineManager {
 	}
 
 	commitPreview(): void {
-		if (this.previewOverlay.size === 0) return;
+		if (!this.isPreviewActive()) return;
 		const committedTracks = this.editor.scenes.getActiveSceneOrNull()?.tracks;
 		if (!committedTracks) {
 			return;
@@ -831,19 +858,32 @@ export class TimelineManager {
 			after: afterTracks,
 		});
 		this.editor.command.push({ command });
-		this.previewOverlay.clear();
-		this.previewTracks = null;
 		this.updateTracks(afterTracks);
 	}
 
 	discardPreview(): void {
-		if (this.previewOverlay.size === 0) return;
+		if (!this.isPreviewActive()) return;
 		this.previewOverlay.clear();
+		this.transitionPreview = null;
 		this.previewTracks = null;
 		this.notify();
 	}
 
 	private applyPreviewOverlay(tracks: SceneTracks): SceneTracks {
+		const preview = this.transitionPreview;
+		const withTransition = preview
+			? mapTransitions({
+					tracks,
+					map: ({ transition }) =>
+						transition.id === preview.transitionId
+							? { ...transition, ...preview.changes }
+							: transition,
+				})
+			: tracks;
+		return this.applyElementOverlay(withTransition);
+	}
+
+	private applyElementOverlay(tracks: SceneTracks): SceneTracks {
 		if (this.previewOverlay.size === 0) return tracks;
 
 		const applyTrackOverlay = <TTrack extends TimelineTrack>(
@@ -1005,6 +1045,7 @@ export class TimelineManager {
 
 	updateTracks(newTracks: SceneTracks): void {
 		this.previewOverlay.clear();
+		this.transitionPreview = null;
 		this.previewTracks = null;
 		this.editor.scenes.updateSceneTracks({ tracks: newTracks });
 		this.notify();

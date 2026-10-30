@@ -1,9 +1,11 @@
 import {
 	applyEffectPasses,
 	applyMaskFeather as applyMaskFeatherWasm,
+	applyTransition as applyTransitionWasm,
 	initializeGpu,
 } from "magnetcut-wasm";
 import type { EffectPass, EffectUniformValue } from "@/effects/types";
+import type { TransitionParamValue } from "@/timeline";
 
 let gpuAvailable = false;
 let initPromise: Promise<void> | null = null;
@@ -71,6 +73,39 @@ export const gpuRenderer = {
 			width,
 			height,
 			feather,
+		});
+	},
+
+	/** A gl-transitions shader between two images; null without a GPU. */
+	applyTransition({
+		from,
+		to,
+		width,
+		height,
+		transition,
+		params,
+		progress,
+	}: {
+		from: OffscreenCanvas;
+		to: OffscreenCanvas;
+		width: number;
+		height: number;
+		transition: string;
+		params: Record<string, TransitionParamValue>;
+		progress: number;
+	}): OffscreenCanvas | null {
+		if (!gpuAvailable) {
+			return null;
+		}
+
+		return applyTransitionWasm({
+			from,
+			to,
+			width,
+			height,
+			transition,
+			params,
+			progress,
 		});
 	},
 };

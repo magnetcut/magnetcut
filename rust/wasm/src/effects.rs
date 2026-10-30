@@ -6,6 +6,7 @@ use js_sys::Object;
 use serde::Deserialize;
 use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
 
+use crate::compositor::restore_compositor_canvas;
 use crate::gpu::{
     import_canvas_texture, read_offscreen_canvas_property, read_serde_property, read_u32_property,
     render_texture_to_canvas, with_gpu_runtime,
@@ -62,7 +63,9 @@ pub fn apply_effect_passes(options: JsValue) -> Result<wgpu::web_sys::OffscreenC
                 },
             )
             .map_err(|error| JsValue::from_str(&error.to_string()))?;
-        render_texture_to_canvas(&runtime.context, &result_texture, width, height)
+        let canvas = render_texture_to_canvas(&runtime.context, &result_texture, width, height);
+        restore_compositor_canvas(&runtime.context);
+        canvas
     })
 }
 

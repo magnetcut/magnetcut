@@ -1,6 +1,5 @@
 "use client";
 
-import { useRef } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Clock01Icon } from "@hugeicons/core-free-icons";
 import { useEditor } from "@/editor/use-editor";
@@ -24,6 +23,7 @@ import {
 	SectionTitle,
 } from "@/components/section";
 import { usePropertyDraft } from "@/components/editor/panels/properties/hooks/use-property-draft";
+import { PropertyParamField } from "@/components/editor/panels/properties/components/property-param-field";
 import type {
 	Transition,
 	TransitionAlignment,
@@ -32,6 +32,7 @@ import type {
 import {
 	TRANSITIONS,
 	getTransitionDefinition,
+	getTransitionParamFields,
 	getTransitionWindow,
 } from "@/transitions";
 import { formatNumberForDisplay } from "@/utils/math";
@@ -44,7 +45,7 @@ import {
 
 const ALIGNMENTS: { value: TransitionAlignment; label: string }[] = [
 	{ value: "end", label: "Before" },
-	{ value: "center", label: "Centred" },
+	{ value: "center", label: "Centered" },
 	{ value: "start", label: "After" },
 ];
 
@@ -58,12 +59,17 @@ const toSeconds = ({ time }: { time: number }) =>
 export function TransitionProperties({ trackId, transitionId }: TransitionRef) {
 	const editor = useEditor();
 	const fps = useEditor((e) => e.project.getActive()?.settings.fps);
-	const track = editor.timeline.getTrackById({ trackId });
+	// As previewed: a scrub shows before it's committed.
+	const track = useEditor((e) => {
+		const tracks = e.timeline.getPreviewTracks();
+		return tracks
+			? [tracks.main, ...tracks.overlay].find(({ id }) => id === trackId)
+			: undefined;
+	});
 	const transition =
 		track?.type === "video"
 			? track.transitions?.find(({ id }) => id === transitionId)
 			: undefined;
-	const pendingDurationRef = useRef<MediaTime | null>(null);
 
 	const parseDuration = (input: string): MediaTime | null => {
 		const seconds = Number.parseFloat(input);
@@ -73,17 +79,15 @@ export function TransitionProperties({ trackId, transitionId }: TransitionRef) {
 	};
 	const update = (changes: Partial<Omit<Transition, "id">>) =>
 		editor.timeline.updateTransition({ trackId, transitionId, changes });
+	const preview = (changes: Partial<Omit<Transition, "id">>) =>
+		editor.timeline.previewTransition({ transitionId, changes });
+	const commit = () => editor.timeline.commitPreview();
 
 	const durationDraft = usePropertyDraft({
 		displayValue: transition ? toSeconds({ time: transition.duration }) : "",
 		parse: parseDuration,
-		onPreview: (duration) => {
-			pendingDurationRef.current = duration;
-		},
-		onCommit: () => {
-			const duration = pendingDurationRef.current;
-			if (duration && duration > 0) update({ duration });
-		},
+		onPreview: (duration) => preview({ duration }),
+		onCommit: commit,
 	});
 
 	if (track?.type !== "video" || !transition) return null;
@@ -93,6 +97,7 @@ export function TransitionProperties({ trackId, transitionId }: TransitionRef) {
 	const window =
 		from && to ? getTransitionWindow({ transition, from, to }) : null;
 	const definition = getTransitionDefinition({ type: transition.type });
+	const paramFields = getTransitionParamFields({ definition });
 
 	return (
 		<Section sectionKey={`${transitionId}:transition`}>
@@ -145,6 +150,21 @@ export function TransitionProperties({ trackId, transitionId }: TransitionRef) {
 							}
 						</p>
 					)}
+					{paramFields.map(({ param, initial, toInput, fromInput }) => (
+						<PropertyParamField
+							key={param.key}
+							param={param}
+							value={toInput(transition.params[param.key] ?? initial)}
+							onPreview={(value) => {
+								const next = fromInput(value);
+								if (next === null) return;
+								preview({
+									params: { ...transition.params, [param.key]: next },
+								});
+							}}
+							onCommit={commit}
+						/>
+					))}
 					<SectionField label="Position">
 						<ToggleGroup
 							type="single"

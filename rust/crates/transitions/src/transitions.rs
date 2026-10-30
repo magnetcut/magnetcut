@@ -4,6 +4,10 @@
 //! centred on the cut, ends at it or starts at it, and is shortened to what the
 //! handles and the clips allow.
 
+mod shaders;
+
+pub use shaders::*;
+
 use bridge::export;
 use serde::{Deserialize, Serialize};
 use time::{FrameRate, MediaTime};

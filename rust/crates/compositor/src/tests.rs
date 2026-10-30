@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use gpu::{GpuContext, wgpu};
 
+use crate::transition::padded_wgsl;
 use crate::{
     BlendMode, CanvasClearDescriptor, Compositor, FrameDescriptor, FrameItemDescriptor,
     LayerDescriptor, QuadTransformDescriptor, TransitionDescriptor, TransitionParamValue,
@@ -258,5 +259,72 @@ fn every_transition_starts_on_one_clip_and_ends_on_the_other() {
             }
         }
     }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// The shader as WebGL2 gets it: validated, its uniforms a multiple of 16
+/// bytes, and translated to GLSL ES 3.00 by naga, as wgpu's GL backend does.
+fn check_for_webgl(transition: &gl_transitions::Transition) -> Result<(), String> {
+    use naga::back::glsl;
+
+    let source = padded_wgsl(transition);
+    let module =
+        naga::front::wgsl::parse_str(&source).map_err(|error| error.emit_to_string(&source))?;
+    let info = naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::empty(),
+    )
+    .validate(&module)
+    .map_err(|error| format!("{error:?}"))?;
+
+    let uniforms = module
+        .global_variables
+        .iter()
+        .find(|(_, variable)| variable.space == naga::AddressSpace::Uniform)
+        .ok_or("no uniforms")?
+        .1;
+    let size = module.types[uniforms.ty].inner.size(module.to_ctx());
+    if size % 16 != 0 {
+        return Err(format!("uniforms of {size} bytes"));
+    }
+
+    let options = glsl::Options {
+        version: glsl::Version::Embedded {
+            version: 300,
+            is_webgl: true,
+        },
+        ..glsl::Options::default()
+    };
+    let pipeline_options = glsl::PipelineOptions {
+        shader_stage: naga::ShaderStage::Fragment,
+        entry_point: "main".to_owned(),
+        multiview: None,
+    };
+    let mut output = String::new();
+    glsl::Writer::new(
+        &mut output,
+        &module,
+        &info,
+        &options,
+        &pipeline_options,
+        naga::proc::BoundsCheckPolicies::default(),
+    )
+    .and_then(|mut writer| writer.write())
+    .map(|_| ())
+    .map_err(|error| error.to_string())
+}
+
+#[test]
+fn every_transition_translates_for_webgl() {
+    let usable = gl_transitions::all()
+        .iter()
+        .filter(|transition| transition.wgsl().is_some() && transition.textures().is_empty());
+    let wrong: Vec<String> = usable
+        .filter_map(|transition| {
+            check_for_webgl(transition)
+                .err()
+                .map(|error| format!("{}: {error}", transition.name()))
+        })
+        .collect();
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }

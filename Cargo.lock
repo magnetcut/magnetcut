@@ -571,6 +571,7 @@ dependencies = [
  "gl-transitions",
  "gpu",
  "masks",
+ "naga",
  "serde",
  "thiserror 2.0.18",
 ]
@@ -4709,6 +4710,7 @@ name = "transitions"
 version = "0.1.0"
 dependencies = [
  "bridge",
+ "gl-transitions",
  "serde",
  "time 0.1.0",
  "tsify-next",
