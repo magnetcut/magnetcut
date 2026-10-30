@@ -312,4 +312,7 @@ and give it constant quality and the encoders the web views lack.
   own decoders and encoders and a software GPU. A film encoded and decoded in each grey from 16
   to 235, back within 3 levels; frames at their times, x264's B-frames included; a phone's
   portrait film turned upright; a film cut, scaled and drawn with its sound; a size that isn't a
-  multiple of 16; a cancelled export leaving no file.
+  multiple of 16; a cancelled export leaving no file. In the app itself, on the runners (the
+  probe): Windows's export makes H.264 in MP4 (no HEVC encoder there); Linux's makes H.264 and
+  HEVC with GStreamer's plugins installed, nothing with only the base ones, and the web view's
+  export then makes the film; the Mac's, all it does.
