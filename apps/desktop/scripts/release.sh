@@ -66,12 +66,14 @@ LINUX_RPM="${APP_NAME}-${VERSION}-1.x86_64.rpm"
 INSTALLERS=("$WINDOWS_NSIS" "$WINDOWS_MSI" "$LINUX_APPIMAGE" "$LINUX_DEB" "$LINUX_RPM")
 
 # This version's section of the CHANGELOG ("## [0.1.0] - 2026-11-02").
+# This version's section of CHANGELOG.md: up to the next version, or the
+# links at the bottom, without the blank lines around it.
 release_notes() {
     awk -v want="## [$VERSION]" '
         index($0, want) == 1 { inside = 1; next }
-        inside && /^## / { exit }
+        inside && (/^## / || /^\[[^]]*\]: /) { exit }
         inside { print }
-    ' CHANGELOG.md
+    ' CHANGELOG.md | sed -e '/./,$!d' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}'
 }
 
 # LaunchServices registers every app bundle it sees, including copies in a
