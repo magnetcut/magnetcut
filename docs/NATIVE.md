@@ -138,6 +138,11 @@ and give it constant quality and the encoders the web views lack.
 - The waveform and the audio still read a whole file into memory (`arrayBuffer`), as they did
   from OPFS: phase 2's audio in pieces fixes both.
 - Constant quality waits for phase 4: until then quality is a bitrate.
+- What the editor may read is decided in Rust, but a script running in the web view could still
+  ask for the files of the last drag made anywhere, or read files given to other projects. Only
+  media files are granted, each drag's once; still to do: forget a file when no project uses it,
+  and a content security policy (none today: it would have to allow the fonts and models the
+  editor fetches).
 - Native code for Windows and Linux written without the machines to try it on.
 
 ## Done

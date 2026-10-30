@@ -62,6 +62,9 @@ struct Entry {
 pub struct MediaFiles {
     saved: PathBuf,
     entries: Mutex<HashMap<String, Entry>>,
+    /// The drag whose files were last handed over (the drag pasteboard's
+    /// change count): each drag's, once.
+    last_drop: Mutex<Option<isize>>,
 }
 
 impl MediaFiles {
@@ -95,14 +98,15 @@ impl MediaFiles {
         Self {
             saved,
             entries: Mutex::new(entries),
+            last_drop: Mutex::new(None),
         }
     }
 
-    /// Lets the editor read these files from now on.
+    /// Lets the editor read these files from now on: media files only.
     fn grant(&self, paths: Vec<PathBuf>) -> Vec<DiskFileInfo> {
         let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         let mut infos = Vec::new();
-        for location in paths {
+        for location in paths.into_iter().filter(|path| is_media(path)) {
             let Some(path) = location.to_str().map(str::to_owned) else {
                 continue;
             };
@@ -141,6 +145,12 @@ impl MediaFiles {
         let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         entries.get(path).map(|entry| entry.location.clone())
     }
+}
+
+fn is_media(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()))
 }
 
 fn describe(path: &str, location: &Path) -> Option<DiskFileInfo> {
@@ -182,10 +192,20 @@ pub async fn pick_media_files(
 }
 
 /// The files of the drop the page has just received, which it only sees as
-/// `File`s: their paths are on the drag pasteboard. None off macOS.
+/// `File`s: their paths are on the drag pasteboard. Each drag's once, since the
+/// pasteboard keeps the last drag made anywhere. None off macOS.
 #[tauri::command]
 pub fn dropped_media_files(media: State<'_, MediaFiles>) -> Vec<DiskFileInfo> {
-    media.grant(drag_paths())
+    let Some((drag, paths)) = drag_paths() else {
+        return Vec::new();
+    };
+    let mut last_drop = media.last_drop.lock().unwrap_or_else(|e| e.into_inner());
+    if *last_drop == Some(drag) {
+        return Vec::new();
+    }
+    *last_drop = Some(drag);
+    drop(last_drop);
+    media.grant(paths)
 }
 
 /// A file the editor was given before, as it is now; none if it's gone.
@@ -218,30 +238,30 @@ pub fn read_media_file(
     Ok(Response::new(bytes))
 }
 
+/// The files on the drag pasteboard, and which drag put them there.
 #[cfg(target_os = "macos")]
-fn drag_paths() -> Vec<PathBuf> {
+fn drag_paths() -> Option<(isize, Vec<PathBuf>)> {
     use objc2::ClassType;
     use objc2_app_kit::{NSPasteboard, NSPasteboardNameDrag};
     use objc2_foundation::{NSArray, NSURL};
 
     let pasteboard = NSPasteboard::pasteboardWithName(unsafe { NSPasteboardNameDrag });
     let classes = NSArray::from_slice(&[NSURL::class()]);
-    let Some(items) = (unsafe { pasteboard.readObjectsForClasses_options(&classes, None) }) else {
-        return Vec::new();
-    };
-    items
+    let items = unsafe { pasteboard.readObjectsForClasses_options(&classes, None) }?;
+    let paths = items
         .iter()
         .filter_map(|item| {
             let url = item.downcast_ref::<NSURL>()?;
             // A file reference URL (file:///.file/id=...) as a path.
             Some(PathBuf::from(url.filePathURL()?.path()?.to_string()))
         })
-        .collect()
+        .collect();
+    Some((pasteboard.changeCount(), paths))
 }
 
 #[cfg(not(target_os = "macos"))]
-fn drag_paths() -> Vec<PathBuf> {
-    Vec::new()
+fn drag_paths() -> Option<(isize, Vec<PathBuf>)> {
+    None
 }
 
 #[cfg(target_os = "macos")]
