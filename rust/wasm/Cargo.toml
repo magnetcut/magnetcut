@@ -12,6 +12,7 @@ path = "src/wasm.rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+audio = { version = "0.1.0", path = "../crates/audio" }
 bridge = { version = "0.1.0", path = "../crates/bridge" }
 compositor = { version = "0.1.0", path = "../crates/compositor" }
 console_error_panic_hook = "0.1.7"

@@ -1,4 +1,4 @@
-import { PitchShifter } from "soundtouchjs";
+import { timeStretch } from "magnetcut-wasm";
 import { clampRetimeRate, shouldMaintainPitch } from "@/retime/rate";
 import type { RetimeConfig } from "@/timeline";
 import { getSourceTimeAtClipTime } from "./resolve";
@@ -68,12 +68,14 @@ function buildResampledBuffer({
 }
 
 async function buildPitchPreservedBuffer({
+	audioContext,
 	sourceBuffer,
 	trimStart,
 	clipDuration,
 	rate,
 	targetSampleRate,
 }: {
+	audioContext: BaseAudioContext;
 	sourceBuffer: AudioBuffer;
 	trimStart: number;
 	clipDuration: number;
@@ -91,8 +93,8 @@ async function buildPitchPreservedBuffer({
 	const actualSamples = Math.max(1, Math.min(numSourceSamples, available));
 	const numChannels = Math.max(1, Math.min(2, sourceBuffer.numberOfChannels));
 
-	// Resample to targetSampleRate first — soundtouchjs reads raw channel data
-	// and does not respect the source buffer's native sample rate.
+	// Resample to targetSampleRate first: the stretch works in samples, at the
+	// rate it's given.
 	const resampledLength = Math.max(
 		1,
 		Math.ceil(sourceDuration * targetSampleRate),
@@ -124,20 +126,24 @@ async function buildPitchPreservedBuffer({
 	resampleSourceNode.start(0);
 	const resampledBuffer = await resampleCtx.startRendering();
 
-	const outputSamples = Math.max(
-		1,
-		Math.ceil(clipDuration * targetSampleRate),
-	);
-	const stretchCtx = new OfflineAudioContext(
+	const outputLength = Math.max(1, Math.ceil(clipDuration * targetSampleRate));
+	const stretched = timeStretch({
+		channels: Array.from({ length: numChannels }, (_, channel) =>
+			resampledBuffer.getChannelData(channel),
+		),
+		sampleRate: targetSampleRate,
+		tempo: rate,
+		outputLength,
+	});
+	const outputBuffer = audioContext.createBuffer(
 		numChannels,
-		outputSamples,
+		outputLength,
 		targetSampleRate,
 	);
-	const shifter = new PitchShifter(stretchCtx, resampledBuffer, 4096);
-	shifter.tempo = rate;
-	shifter.pitch = 1;
-	shifter.connect(stretchCtx.destination);
-	return stretchCtx.startRendering();
+	stretched.forEach((samples, channel) => {
+		outputBuffer.getChannelData(channel).set(samples);
+	});
+	return outputBuffer;
 }
 
 export async function renderRetimedBuffer({
@@ -163,6 +169,7 @@ export async function renderRetimedBuffer({
 
 	if (usePitchPreservation) {
 		return buildPitchPreservedBuffer({
+			audioContext,
 			sourceBuffer,
 			trimStart,
 			clipDuration,

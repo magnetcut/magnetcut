@@ -74,6 +74,9 @@ jobs:
       - name: Run tests
         run: bun test
 
+      - name: Run the Rust core's tests
+        run: cargo test -p audio -p time
+
       - name: Build
         working-directory: apps/web
         run: bun run build

@@ -94,7 +94,8 @@ telemetry: everything stays on the computer. Not for iOS or Android.
   get that permission from us, so CI still fails on any GPL/LGPL/AGPL/SSPL dependency without
   a permissive alternative licence (that keeps x264/x265 out too, and their patents), and the
   build generates the third-party notices that MIT/BSD/Apache require in a binary.
-  `soundtouchjs` (LGPL-2.1) goes: pitch-preserving speed changes move to a Rust time-stretch.
+  `soundtouchjs` (LGPL-2.1) is gone: pitch-preserving speed changes use a Rust time-stretch
+  (`rust/crates/audio`, WSOLA).
 - **Name and marks.** OpenCut's guidelines forbid its name or logo on another product, so every
   "OpenCut" goes, logos included, except credits ("Based on OpenCut") and the licence notice.
   The Rust core is built from source as `magnetcut-wasm` (`packages/wasm`), not taken from

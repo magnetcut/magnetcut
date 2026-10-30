@@ -16,7 +16,15 @@
 				"$TURBO_ROOT$/Cargo.lock",
 				"package.json"
 			],
-			"outputs": ["pkg/**"]
+			"outputs": ["pkg/**"],
+			"passThroughEnv": [
+				"CARGO_HOME",
+				"RUSTUP_HOME",
+				"RUSTUP_TOOLCHAIN",
+				"USERPROFILE",
+				"LOCALAPPDATA",
+				"APPDATA"
+			]
 		},
 		"check-types": {
 			"dependsOn": ["^check-types"]
