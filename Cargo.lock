@@ -2601,6 +2601,7 @@ dependencies = [
  "num-traits",
  "serde",
  "serde-wasm-bindgen",
+ "subtitles",
  "time 0.1.0",
  "transitions",
  "wasm-bindgen",

@@ -17,6 +17,8 @@ All notable changes to this project are documented here. The format is based on
 - On a Mac, Export makes ProRes 422 and 422 HQ in QuickTime files, AV1 in MP4 (in software,
   slower than real time), and on Apple silicon keeps a constant quality in H.264 and HEVC
   (Quality, Constant) instead of aiming at a bitrate.
+- Subtitle import opens WebVTT, SSA, SubViewer and MicroDVD files as well as SRT and ASS, in
+  any text encoding (older files are often in a Windows code page).
 - Export filters, as in HandBrake: deinterlace, denoise and sharpen. On a Mac, HDR footage is
   tone mapped to SDR as it's exported, instead of coming out flat and grey.
 - Export copies a film's sound as it is, without re-encoding it, when the timeline plays that

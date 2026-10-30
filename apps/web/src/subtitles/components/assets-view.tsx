@@ -22,7 +22,7 @@ import { transcriptionService } from "@/services/transcription/service";
 import { decodeAudioToFloat32 } from "@/media/audio";
 import { buildCaptionChunks } from "@/transcription/caption";
 import { insertCaptionChunksAsTextTrack } from "@/subtitles/insert";
-import { parseSubtitleFile } from "@/subtitles/parse";
+import { SUBTITLE_FILE_TYPES, openSubtitleFile } from "@/subtitles/open";
 import { Spinner } from "@/components/ui/spinner";
 import {
 	Section,
@@ -166,11 +166,7 @@ export function Captions() {
 	const handleImportFile = async ({ file }: { file: File }) => {
 		dispatch({ type: "start", step: "Reading subtitle file..." });
 		try {
-			const input = await file.text();
-			const result = parseSubtitleFile({
-				fileName: file.name,
-				input,
-			});
+			const result = await openSubtitleFile({ file });
 
 			if (result.captions.length === 0) {
 				dispatch({
@@ -278,7 +274,7 @@ export function Captions() {
 			<input
 				ref={fileInputRef}
 				type="file"
-				accept=".srt,.ass"
+				accept={SUBTITLE_FILE_TYPES}
 				className="hidden"
 				onChange={(event) => void handleFileChange({ event })}
 			/>

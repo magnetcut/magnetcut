@@ -124,7 +124,7 @@ the App Store Connect record and profile (docs/RELEASING.md), 7 and 8.
    it with HandBrake's settings, then the AV1/VP9 software encoders and the filters. First what
    stops a conversion today: media copied into the web view, and exports kept in memory
    (docs/NATIVE.md has the phases).
-10. Subtitle editor and sync.
+10. Subtitle editor and sync (docs/SUBTITLES.md has the phases).
 11. Then: make it better.
 
 ## Web view support

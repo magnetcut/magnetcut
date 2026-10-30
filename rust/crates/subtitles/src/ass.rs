@@ -22,6 +22,18 @@ pub struct AssStyle {
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
+    pub strike_out: bool,
+    /// Between letters, in the script's pixels.
+    pub spacing: f64,
+    /// 1 an outline and shadow, 3 an opaque box behind the text.
+    pub border_style: u8,
+    pub outline: f64,
+    pub shadow: f64,
+    /// In degrees.
+    pub angle: f64,
+    /// In percent.
+    pub scale_x: f64,
+    pub scale_y: f64,
     /// Where on the picture, as a numeric keypad: 1 bottom left, 5 the
     /// middle, 9 top right.
     pub alignment: u8,
@@ -113,6 +125,14 @@ fn style(format: &[String], values: &str, is_ssa: bool) -> Option<AssStyle> {
         bold: flag("Bold"),
         italic: flag("Italic"),
         underline: flag("Underline"),
+        strike_out: flag("StrikeOut"),
+        spacing: number("Spacing").unwrap_or(0.0),
+        border_style: number("BorderStyle").unwrap_or(1.0) as u8,
+        outline: number("Outline").unwrap_or(0.0),
+        shadow: number("Shadow").unwrap_or(0.0),
+        angle: number("Angle").unwrap_or(0.0),
+        scale_x: number("ScaleX").unwrap_or(100.0),
+        scale_y: number("ScaleY").unwrap_or(100.0),
         alignment: if is_ssa { keypad(alignment) } else { alignment },
         margin_left: number("MarginL").unwrap_or(0.0),
         margin_right: number("MarginR").unwrap_or(0.0),
