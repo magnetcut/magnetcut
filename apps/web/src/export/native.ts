@@ -4,12 +4,13 @@ import type { FrameDescriptor } from "@/services/renderer/compositor/types";
 import type { ExportFormat } from "./index";
 import type { ExportCrop, ExportVideoCodec } from "./settings";
 
-// The desktop app's native export, on macOS (apps/desktop/src/render/,
-// docs/NATIVE.md): AVFoundation decodes and encodes, and the compositor draws
-// each frame on the GPU. The editor sends frames' descriptions, its own
-// drawings and the mix; the frames themselves never cross.
+// The desktop app's native export (apps/desktop/src/render/, docs/NATIVE.md):
+// the system decodes and encodes (AVFoundation on macOS, Media Foundation on
+// Windows), and the compositor draws each frame on the GPU. The editor sends
+// frames' descriptions, its own drawings and the mix; the frames themselves
+// never cross.
 
-/** A source as AVFoundation sees it. */
+/** A source as the system's decoder sees it. */
 export interface NativeSourceInfo {
 	width: number;
 	height: number;
@@ -17,25 +18,25 @@ export interface NativeSourceInfo {
 	rotation: number;
 }
 
-export const NATIVE_FORMATS: readonly ExportFormat[] = ["mp4", "mov"];
-export const NATIVE_VIDEO_CODECS: readonly ExportVideoCodec[] = [
-	"avc",
-	"hevc",
-	"prores",
-	"prores-hq",
-	// In software, by rav1e: no Mac encodes it in hardware, nor WebKit at all.
-	"av1",
-];
-
-/** What the native export can do here, besides its codecs. */
+/**
+ * What the native export makes on this computer. On a Mac: MP4 and QuickTime;
+ * H.264, HEVC, ProRes, and AV1 in software (rav1e). On Windows: MP4, in the
+ * codecs it has encoders for.
+ */
 export interface NativeCapabilities {
+	formats: ExportFormat[];
+	videoCodecs: ExportVideoCodec[];
 	/** H.264 and HEVC at a constant quality: on Apple silicon. */
 	constantQuality: boolean;
+	/** Whether a source's sound can be copied as it's stored. */
+	audioCopy: boolean;
+	/** Whether subtitle tracks can be written (timed text, on a Mac). */
+	subtitleTracks: boolean;
 }
 
 let capabilities: Promise<NativeCapabilities | null> | undefined;
 
-/** Null where there's no native export: in a browser, on Windows and Linux. */
+/** Null where there's no native export: in a browser, and on Linux. */
 export function getNativeCapabilities(): Promise<NativeCapabilities | null> {
 	capabilities ??= isTauri()
 		? invoke<NativeCapabilities>("native_export_capabilities").catch(() => null)
@@ -77,7 +78,7 @@ export interface NativeExportOptions {
 	videoCodec: ExportVideoCodec;
 	/** In bits a second. */
 	videoBitrate: number;
-	/** A constant quality instead, from 0 to 1, where the Mac takes it. */
+	/** A constant quality instead, from 0 to 1, where the encoder takes it. */
 	videoQuality?: number;
 	/** AAC from the mix: float samples, interleaved. */
 	audio: { channels: number; sampleRate: number; bitrate: number } | null;

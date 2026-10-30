@@ -42,9 +42,8 @@ base64 = "0.22"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSError", "NSProcessInfo", "NSString", "NSURL"] }
 objc2-app-kit = { version = "0.3", features = ["NSPasteboard"] }
-# The native export (src/render/): AVFoundation decodes the sources and
-# encodes the film, and the editor's own compositor (rust/crates) draws each
-# frame between them on the GPU, so no frame crosses into the web view.
+# The native export on macOS (src/render/): AVFoundation decodes the sources
+# and encodes the film.
 objc2-av-foundation = { version = "0.3", features = ["block2", "objc2-core-media", "objc2-core-video"] }
 objc2-avf-audio = "0.3"
 objc2-core-media = { version = "0.3", features = ["objc2-core-audio-types", "objc2-core-video"] }
@@ -52,6 +51,11 @@ objc2-core-video = "0.3"
 objc2-core-audio-types = "0.3"
 objc2-core-foundation = "0.3"
 block2 = "0.6"
+
+# The native export (src/render/): the system decodes the sources and encodes
+# the film, and the editor's own compositor (rust/crates) draws each frame
+# between them on the GPU, so no frame crosses into the web view.
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
 compositor = { path = "../../rust/crates/compositor" }
 gpu = { path = "../../rust/crates/gpu" }
 # Waits for the GPU on the export's thread.
@@ -64,10 +68,19 @@ rav1e = { version = "0.8", default-features = false, features = ["threading", "a
 [target.'cfg(all(target_os = "macos", not(target_arch = "aarch64")))'.dependencies]
 rav1e = { version = "0.8", default-features = false, features = ["threading"] }
 
-# Media Foundation, for the native export on Windows (src/media_foundation.rs):
-# the version Tauri itself uses.
+# Media Foundation, for the native export on Windows (src/render/windows/),
+# and the power requests that keep an export going (src/activity.rs): the
+# version Tauri itself uses.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Media_MediaFoundation", "Win32_System_Com"] }
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Power",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+] }
 
 # The web view on Linux: its settings, to switch on the features the editor
 # needs (src/webkit.rs). The versions Tauri itself uses.

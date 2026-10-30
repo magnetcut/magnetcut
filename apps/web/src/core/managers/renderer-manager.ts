@@ -275,6 +275,8 @@ export class RendererManager {
 							format,
 							videoCodec,
 							audioCodec: passthrough?.codec ?? audio?.codec ?? null,
+							copiesSound: !!passthrough,
+							hasSubtitleTracks: subtitleTracks.length > 0,
 						});
 			if (path && "sources" in native) {
 				const audioCopy =
@@ -329,10 +331,11 @@ export class RendererManager {
 				passthrough?.close();
 				return {
 					success: false,
-					error: `${VIDEO_CODEC_NAMES[videoCodec]} is made by the Mac's own encoder, which can't make this film: ${reason}.`,
+					error: `${VIDEO_CODEC_NAMES[videoCodec]} is made only by the app's own export, which can't make this film: ${reason}.`,
 				};
 			}
-			// AV1 on a Mac, which only the native export encodes.
+			// AV1 on a Mac, or HEVC where the web view has no encoder for it:
+			// only the native export may encode them.
 			const canEncode = await canEncodeVideo(videoCodec, outputSize).catch(
 				() => false,
 			);
@@ -340,7 +343,7 @@ export class RendererManager {
 				passthrough?.close();
 				return {
 					success: false,
-					error: `${VIDEO_CODEC_NAMES[videoCodec]} can't be encoded here, and the Mac's own export can't make this film: ${reason}.`,
+					error: `${VIDEO_CODEC_NAMES[videoCodec]} can't be encoded here, and the app's own export can't make this film: ${reason}.`,
 				};
 			}
 

@@ -1,15 +1,33 @@
-// The native export on macOS (docs/NATIVE.md, phase 4). The editor describes
+// The native export (docs/NATIVE.md, phases 4 and 5). The editor describes
 // each frame, as it does for its own compositor, with its videos as
-// references (file, time); here AVFoundation decodes them, the compositor
-// draws the frame on the GPU and AVFoundation encodes it. Only descriptions,
-// the editor's own drawings (text, shapes, masks) and the mixed sound cross
-// from the web view: no frame does, which at 4K cost more than drawing it.
+// references (file, time); here the system decodes them (AVFoundation on
+// macOS, Media Foundation on Windows), the compositor draws the frame on the
+// GPU and the system encodes it. Only descriptions, the editor's own drawings
+// (text, shapes, masks) and the mixed sound cross from the web view: no frame
+// does, which at 4K cost more than drawing it.
 
+#[cfg(target_os = "macos")]
 mod av;
+#[cfg(target_os = "macos")]
 mod av1;
+#[cfg(target_os = "macos")]
 mod decode;
+#[cfg(windows)]
+#[path = "windows/decode.rs"]
+mod decode;
+#[cfg(target_os = "macos")]
+mod encode;
+#[cfg(windows)]
+#[path = "windows/encode.rs"]
 mod encode;
 mod frames;
+#[cfg(windows)]
+#[path = "windows/media_foundation.rs"]
+mod media_foundation;
+#[cfg(target_os = "macos")]
+mod pixel_buffer;
+mod settings;
+#[cfg(target_os = "macos")]
 mod subtitle;
 #[cfg(test)]
 mod tests;
@@ -24,16 +42,20 @@ use std::thread::{self, JoinHandle};
 
 use compositor::FrameDescriptor;
 use gpu::GpuContext;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tauri::State;
 use tauri::ipc::{InvokeBody, Request};
 
 use crate::activity::Activity;
 use crate::export::Exports;
 use crate::media::MediaFiles;
-use decode::{SourceInfo, VideoReader};
-use encode::{Audio, AudioSettings, Container, FrameRate, VideoCodec, VideoSettings, Writer};
+use decode::VideoReader;
+use encode::Writer;
 use frames::{Crop, FrameRenderer, Pixels, UploadedFrames};
+use settings::{
+    Audio, AudioSettings, Capabilities, Container, FrameRate, SourceInfo, SubtitleTrack,
+    VideoCodec, VideoSettings,
+};
 
 /// The exports being made, by id.
 #[derive(Default)]
@@ -89,22 +111,16 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// What the native export can do on this Mac, besides H.264, HEVC and ProRes.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Capabilities {
-    constant_quality: bool,
-}
-
+/// What the native export can make on this computer.
 #[tauri::command]
-pub fn native_export_capabilities() -> Capabilities {
-    Capabilities {
-        constant_quality: encode::constant_quality(),
-    }
+pub async fn native_export_capabilities() -> Result<Capabilities, String> {
+    tauri::async_runtime::spawn_blocking(encode::capabilities)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 /// What each source is, by the path the editor knows it by: none for one
-/// AVFoundation can't decode, or the editor hasn't been given.
+/// the system can't decode, or the editor hasn't been given.
 #[tauri::command]
 pub async fn native_export_probe(
     media: State<'_, MediaFiles>,
@@ -143,7 +159,7 @@ pub struct StartOptions {
     video_codec: VideoCodec,
     /// In bits a second.
     video_bitrate: u32,
-    /// Constant quality instead, from 0 to 1, where the Mac takes it.
+    /// Constant quality instead, from 0 to 1, where the encoder takes it.
     #[serde(default)]
     video_quality: Option<f32>,
     /// AAC, from the mix the editor sends.
@@ -153,7 +169,7 @@ pub struct StartOptions {
     audio_copy: Option<AudioCopy>,
     /// Subtitle tracks, as timed text.
     #[serde(default)]
-    subtitles: Vec<subtitle::SubtitleTrack>,
+    subtitles: Vec<SubtitleTrack>,
 }
 
 #[derive(Deserialize)]
@@ -466,7 +482,8 @@ impl Worker {
             width: output_size.0,
             height: output_size.1,
             bitrate: options.video_bitrate,
-            // rav1e keeps a quality on any Mac; AVFoundation, on Apple silicon.
+            // rav1e keeps a quality anywhere; the system's encoders, where
+            // `constant_quality` says.
             quality: options
                 .video_quality
                 .filter(|_| options.video_codec == VideoCodec::Av1 || encode::constant_quality()),
@@ -545,7 +562,7 @@ impl Worker {
             match reader.frame_at(video.time)? {
                 Some((time, pixels)) if !self.uploaded.has(&video.texture_id, source, time) => {
                     self.renderer
-                        .upload_pixel_buffer(&video.texture_id, pixels, rotation)?;
+                        .upload_picture(&video.texture_id, pixels, rotation)?;
                     self.uploaded.set(&video.texture_id, source, time);
                 }
                 // A source with no pictures at all shows nothing.

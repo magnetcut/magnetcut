@@ -3,9 +3,8 @@ import { mediaTimeToSeconds } from "magnetcut-wasm";
 import { TICKS_PER_SECOND } from "@/wasm";
 import { DiskFile } from "@/media/disk-file";
 import {
-	NATIVE_FORMATS,
-	NATIVE_VIDEO_CODECS,
 	NativeExportSession,
+	getNativeCapabilities,
 	probeNativeSources,
 	type NativeExportOptions,
 	type NativeSourceInfo,
@@ -13,7 +12,11 @@ import {
 } from "@/export/native";
 import type { ExportFormat } from "@/export";
 import type { FilterPasses } from "@/export/filters";
-import type { ExportVideoCodec } from "@/export/settings";
+import {
+	FORMAT_NAMES,
+	VIDEO_CODEC_NAMES,
+	type ExportVideoCodec,
+} from "@/export/settings";
 import type { AnyBaseNode } from "./nodes/base-node";
 import { BlurBackgroundNode } from "./nodes/blur-background-node";
 import type { RootNode } from "./nodes/root-node";
@@ -42,36 +45,60 @@ export type NativeSources =
 	| { sources: Map<string, NativeSourceInfo> }
 	| { reason: string };
 
+/** Names in a list: "a", "a and b", "a, b and c". */
+function listed({ names }: { names: string[] }): string {
+	return names.length < 2
+		? (names[0] ?? "nothing")
+		: `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
 /**
  * The scene's videos as the native export sees them, by path, if it can make
- * this export: on macOS, into MP4 or QuickTime, in H.264, HEVC, ProRes or AV1 with
- * AAC or no sound, from videos on disk that AVFoundation decodes (turned as
- * they're shown: their sizes are). Otherwise why not, and the web view makes
- * it (but ProRes).
+ * this export: in a format and codec it makes here (`NativeCapabilities`),
+ * with AAC or no sound, from videos on disk that the system decodes (turned
+ * as they're shown: their sizes are). Otherwise why not, and the web view
+ * makes it (but ProRes).
  */
 export async function findNativeSources({
 	rootNode,
 	format,
 	videoCodec,
 	audioCodec,
+	copiesSound,
+	hasSubtitleTracks,
 }: {
 	rootNode: RootNode;
 	format: ExportFormat;
 	videoCodec: ExportVideoCodec;
 	/** The sound's in the file, encoded or copied: null for none. */
 	audioCodec: string | null;
+	/** Whether the sound is a source's, copied. */
+	copiesSound: boolean;
+	hasSubtitleTracks: boolean;
 }): Promise<NativeSources> {
-	if (!NATIVE_FORMATS.includes(format)) {
-		return { reason: "it makes only MP4 and QuickTime files" };
+	const capabilities = await getNativeCapabilities();
+	if (!capabilities) return { reason: "there's no native export here" };
+	if (!capabilities.formats.includes(format)) {
+		const names = capabilities.formats.map((made) => FORMAT_NAMES[made]);
+		return { reason: `it makes only ${listed({ names })} files` };
 	}
-	if (!NATIVE_VIDEO_CODECS.includes(videoCodec)) {
-		return { reason: "it encodes only H.264, HEVC, ProRes and AV1" };
+	if (!capabilities.videoCodecs.includes(videoCodec)) {
+		const names = capabilities.videoCodecs.map(
+			(made) => VIDEO_CODEC_NAMES[made],
+		);
+		return { reason: `it encodes only ${listed({ names })} here` };
 	}
 	if (videoCodec === "av1" && format !== "mp4") {
 		return { reason: "it puts AV1 only in MP4 files" };
 	}
+	if (copiesSound && !capabilities.audioCopy) {
+		return { reason: "it doesn't copy sound here" };
+	}
 	if (audioCodec && audioCodec !== "aac") {
 		return { reason: `it copies only AAC sound, and this is ${audioCodec}` };
+	}
+	if (hasSubtitleTracks && !capabilities.subtitleTracks) {
+		return { reason: "it doesn't write subtitle tracks here" };
 	}
 	const { files, drawsFrames } = collectVideos({ node: rootNode });
 	if (drawsFrames) return { reason: "a clip has a blurred background" };
@@ -87,7 +114,7 @@ export async function findNativeSources({
 	const sources = new Map<string, NativeSourceInfo>();
 	for (const [index, info] of infos.entries()) {
 		const name = paths[index].split(/[\\/]/).pop();
-		if (!info) return { reason: `the Mac can't decode ${name}` };
+		if (!info) return { reason: `this computer can't decode ${name}` };
 		sources.set(paths[index], info);
 	}
 	return { sources };

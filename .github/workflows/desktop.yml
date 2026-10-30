@@ -31,6 +31,9 @@ permissions:
 jobs:
   check:
     runs-on: ${{ matrix.os }}
+    # A writer waiting for a stream that never comes would otherwise hold the
+    # runner for hours.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -70,7 +73,7 @@ jobs:
       - name: Tests
         run: cargo test -p magnetcut
 
-      # What Media Foundation has to encode with on the runner, for phase 5.
+      # What Media Foundation has to encode with on the runner.
       - name: Windows's encoders
         if: runner.os == 'Windows'
-        run: cargo test -p magnetcut media_foundation -- --nocapture
+        run: cargo test -p magnetcut lists_the_encoders -- --nocapture

@@ -20,7 +20,7 @@ use objc2_foundation::{NSData, NSString};
 use rav1e::prelude::*;
 
 use super::av::{any, bridged, cf_dictionary, dictionary, fraction, packet_sample};
-use super::encode::FrameRate;
+use super::settings::FrameRate;
 
 // rav1e's fastest: AV1 in software is slow enough.
 const SPEED: u8 = 10;

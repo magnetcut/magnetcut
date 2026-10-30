@@ -3,7 +3,7 @@
 // MP4 and QuickTime files.
 
 use std::collections::VecDeque;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::ptr::{self, NonNull};
 use std::sync::mpsc;
 use std::thread;
@@ -41,52 +41,17 @@ use objc2_core_video::{
     kCVReturnSuccess,
 };
 use objc2_foundation::{NSDictionary, NSNumber, NSString};
-use serde::Deserialize;
 
 use super::av::{
     any, av, bridged, cf_dictionary, describe, dictionary, file_url, fraction, seconds,
 };
 use super::av1::Av1Encoder;
 use super::decode;
-use super::subtitle::{SubtitleInput, SubtitleTrack};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Container {
-    Mp4,
-    Mov,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum VideoCodec {
-    Avc,
-    Hevc,
-    #[serde(rename = "prores")]
-    ProRes,
-    #[serde(rename = "prores-hq")]
-    ProResHq,
-    /// In software, by rav1e (`av1.rs`).
-    Av1,
-}
-
-#[derive(Debug, Clone, Copy, Deserialize)]
-pub struct FrameRate {
-    pub numerator: u32,
-    pub denominator: u32,
-}
-
-pub struct VideoSettings {
-    pub codec: VideoCodec,
-    pub width: u32,
-    pub height: u32,
-    /// In bits a second; ProRes has none, its rate is the codec's.
-    pub bitrate: u32,
-    /// Constant quality instead of a bitrate, from 0 to 1: H.264 and HEVC
-    /// on Apple silicon (`constant_quality`).
-    pub quality: Option<f32>,
-    pub fps: FrameRate,
-}
+use super::settings::{
+    Audio, AudioSettings, Capabilities, Container, FrameRate, KEY_FRAME_INTERVAL, SubtitleTrack,
+    VideoCodec, VideoSettings,
+};
+use super::subtitle::SubtitleInput;
 
 /// Whether this Mac's H.264 and HEVC encoders take a constant quality: the
 /// hardware ones on Apple silicon do; on Intel the setting would be ignored.
@@ -94,23 +59,21 @@ pub fn constant_quality() -> bool {
     cfg!(target_arch = "aarch64")
 }
 
-/// AAC, from the mix the editor makes.
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AudioSettings {
-    pub channels: u32,
-    pub sample_rate: u32,
-    /// In bits a second.
-    pub bitrate: u32,
-}
-
-/// The film's sound.
-pub enum Audio {
-    /// AAC, from the mix the editor sends.
-    Mix(AudioSettings),
-    /// A file's sound as it's stored, up to `end` seconds: the source's
-    /// when the timeline plays it uncut.
-    Copy { location: PathBuf, end: f64 },
+/// What the native export makes on a Mac.
+pub fn capabilities() -> Capabilities {
+    Capabilities {
+        formats: vec![Container::Mp4, Container::Mov],
+        video_codecs: vec![
+            VideoCodec::Avc,
+            VideoCodec::Hevc,
+            VideoCodec::ProRes,
+            VideoCodec::ProResHq,
+            VideoCodec::Av1,
+        ],
+        constant_quality: constant_quality(),
+        audio_copy: true,
+        subtitle_tracks: true,
+    }
 }
 
 // A sound sample buffer's length, in seconds: short, so the sound and the
@@ -119,10 +82,6 @@ const AUDIO_CHUNK: f64 = 0.1;
 
 // How long an encoder may take no data before the export is given up.
 const STALL: Duration = Duration::from_secs(30);
-
-// The longest a key frame is from the last: a seek within the file decodes
-// no more than this.
-const KEY_FRAME_INTERVAL: f64 = 2.0;
 
 struct AudioInput {
     input: Retained<AVAssetWriterInput>,

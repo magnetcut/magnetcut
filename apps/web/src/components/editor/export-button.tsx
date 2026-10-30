@@ -80,7 +80,6 @@ import {
 	getVideoBitrate,
 	isCropped,
 	isNativeOnlyCodec,
-	NATIVE_ONLY_VIDEO_CODECS,
 	NO_CROP,
 	type ExportCrop,
 	type ExportVideoCodec,
@@ -222,7 +221,9 @@ function formatMegabytes({ bytes }: { bytes: number }): string {
 
 /**
  * The codecs this computer encodes at the size chosen: those the web view's
- * encoders take, and those the Mac's own export makes (ProRes, and AV1 in MP4).
+ * encoders take, and those the app's own export makes in this format (AV1
+ * only in MP4). ProRes counts whatever the format, as Simple's master file
+ * moves to QuickTime for it.
  */
 function useEncodableCodecs({
 	width,
@@ -251,9 +252,12 @@ function useEncodableCodecs({
 			const found = new Set<ExportVideoCodec>(
 				codecs.filter((_, index) => results[index]),
 			);
-			if (native) {
-				for (const codec of NATIVE_ONLY_VIDEO_CODECS) found.add(codec);
-				if (format === "mp4") found.add("av1");
+			for (const codec of native?.videoCodecs ?? []) {
+				const fits =
+					isNativeOnlyCodec(codec) ||
+					(native?.formats.includes(format) &&
+						(codec !== "av1" || format === "mp4"));
+				if (fits) found.add(codec);
 			}
 			setEncodable(found);
 		});
@@ -674,13 +678,14 @@ function ExportPopover({
 	const native = useNativeCapabilities();
 	// QuickTime takes them from the Mac's own export only.
 	const canTrackSubtitles =
-		canHoldSubtitleTracks({ format }) || (!!native && format === "mov");
+		canHoldSubtitleTracks({ format }) ||
+		(!!native?.subtitleTracks && format === "mov");
 	const isProRes = isNativeOnlyCodec(videoCodec);
 	// Kept by the Mac's encoders: H.264 and HEVC on Apple silicon, AV1 on any.
 	const canKeepQuality =
 		(!!native?.constantQuality &&
 			(videoCodec === "avc" || videoCodec === "hevc")) ||
-		(!!native && videoCodec === "av1");
+		(!!native?.videoCodecs.includes("av1") && videoCodec === "av1");
 	const qualityModes = QUALITY_MODES.filter(
 		(mode) => mode !== "constant" || !!native || qualityMode === mode,
 	);

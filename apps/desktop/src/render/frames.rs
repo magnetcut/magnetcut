@@ -7,11 +7,6 @@ use std::sync::mpsc;
 
 use compositor::{Compositor, FrameDescriptor};
 use gpu::{GpuContext, wgpu};
-use objc2_core_video::{
-    CVPixelBuffer, CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow,
-    CVPixelBufferGetHeight, CVPixelBufferGetWidth, CVPixelBufferLockBaseAddress,
-    CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress, kCVReturnSuccess,
-};
 use serde::Deserialize;
 
 use super::turn::Turner;
@@ -50,6 +45,18 @@ pub struct Pixels<'a> {
     pub bytes_per_row: u32,
     /// In BGRA order, straight alpha.
     pub data: &'a [u8],
+}
+
+/// A picture as the system's decoder gives it.
+pub trait Picture {
+    /// Hands its pixels to `read`, while they can be read.
+    fn read<T>(&self, read: impl FnOnce(&Pixels<'_>) -> T) -> Result<T, String>;
+}
+
+/// A buffer the system's encoder takes a frame in, of the size encoded.
+pub trait FrameBuffer {
+    /// Puts a frame in it: BGRA, its rows `row` bytes apart in `data`.
+    fn write(&self, data: &[u8], row: usize) -> Result<(), String>;
 }
 
 impl FrameRenderer {
@@ -151,36 +158,13 @@ impl FrameRenderer {
 
     /// Puts a decoded picture in the texture of that id, turned clockwise by
     /// `rotation` degrees as the source says it's shown.
-    pub fn upload_pixel_buffer(
+    pub fn upload_picture(
         &mut self,
         id: &str,
-        buffer: &CVPixelBuffer,
+        picture: &impl Picture,
         rotation: u32,
     ) -> Result<(), String> {
-        let lock = CVPixelBufferLockFlags::ReadOnly;
-        if unsafe { CVPixelBufferLockBaseAddress(buffer, lock) } != kCVReturnSuccess {
-            return Err("couldn't read a decoded picture".into());
-        }
-        let width = CVPixelBufferGetWidth(buffer);
-        let height = CVPixelBufferGetHeight(buffer);
-        let bytes_per_row = CVPixelBufferGetBytesPerRow(buffer);
-        let base = CVPixelBufferGetBaseAddress(buffer);
-        let result = if base.is_null() {
-            Err("a decoded picture has no pixels".into())
-        } else {
-            // SAFETY: locked, the buffer's memory is its rows, each this long.
-            let data =
-                unsafe { std::slice::from_raw_parts(base.cast::<u8>(), bytes_per_row * height) };
-            let pixels = Pixels {
-                width: width as u32,
-                height: height as u32,
-                bytes_per_row: bytes_per_row as u32,
-                data,
-            };
-            self.upload_turned(id, &pixels, rotation)
-        };
-        unsafe { CVPixelBufferUnlockBaseAddress(buffer, lock) };
-        result
+        picture.read(|pixels| self.upload_turned(id, pixels, rotation))?
     }
 
     fn upload_turned(
@@ -219,12 +203,11 @@ impl FrameRenderer {
         self.compositor.texture(id).is_some()
     }
 
-    /// Composites a frame and puts it, cut and scaled, in `target`: a BGRA
-    /// buffer of the size encoded.
+    /// Composites a frame and puts it, cut and scaled, in `target`.
     pub fn render(
         &mut self,
         frame: &FrameDescriptor,
-        target: &CVPixelBuffer,
+        target: &impl FrameBuffer,
     ) -> Result<(), String> {
         let scene = self
             .compositor
@@ -301,7 +284,7 @@ impl FrameRenderer {
             .recv()
             .map_err(|error| error.to_string())?
             .map_err(|error| error.to_string())?;
-        let copied = copy_rows(&slice.get_mapped_range(), self.padded_row, target);
+        let copied = target.write(&slice.get_mapped_range(), self.padded_row as usize);
         self.readback.unmap();
         copied
     }
@@ -328,36 +311,6 @@ fn halving_steps(from: (u32, u32), to: (u32, u32)) -> Vec<(u32, u32)> {
         steps.push(to);
     }
     steps
-}
-
-/// The frame read back, its rows padded to `padded_row`, into the encoder's buffer.
-fn copy_rows(data: &[u8], padded_row: u32, target: &CVPixelBuffer) -> Result<(), String> {
-    let lock = CVPixelBufferLockFlags(0);
-    if unsafe { CVPixelBufferLockBaseAddress(target, lock) } != kCVReturnSuccess {
-        return Err("couldn't write a frame for the encoder".into());
-    }
-    let width = CVPixelBufferGetWidth(target);
-    let height = CVPixelBufferGetHeight(target);
-    let bytes_per_row = CVPixelBufferGetBytesPerRow(target);
-    let base = CVPixelBufferGetBaseAddress(target).cast::<u8>();
-    let row = width * 4;
-    let padded_row = padded_row as usize;
-    let fits = !base.is_null() && data.len() >= padded_row * (height - 1) + row;
-    if fits {
-        for y in 0..height {
-            let source = &data[y * padded_row..y * padded_row + row];
-            // SAFETY: locked, the buffer's rows are `bytes_per_row` apart, each
-            // at least `width` BGRA pixels.
-            unsafe {
-                std::ptr::copy_nonoverlapping(source.as_ptr(), base.add(y * bytes_per_row), row);
-            }
-        }
-    }
-    unsafe { CVPixelBufferUnlockBaseAddress(target, lock) };
-    if !fits {
-        return Err("the encoder's buffer isn't the frame's size".into());
-    }
-    Ok(())
 }
 
 /// A picture of that size, all clear: for a source with no frames.

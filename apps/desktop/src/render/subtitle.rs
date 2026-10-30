@@ -6,6 +6,8 @@
 use std::collections::VecDeque;
 use std::ptr::{self, NonNull};
 
+use super::av::{any, av, bridged, cf_dictionary, describe, dictionary, packet_sample, seconds};
+use super::settings::{SubtitleCue, SubtitleTrack};
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_av_foundation::{AVAssetWriter, AVAssetWriterInput, AVMediaTypeSubtitle};
@@ -27,23 +29,6 @@ use objc2_core_media::{
     kCMTextFormatDescriptionStyle_StartChar, kCMTextFormatType_3GText,
 };
 use objc2_foundation::{NSDictionary, NSNumber, NSString};
-use serde::Deserialize;
-
-use super::av::{any, av, bridged, cf_dictionary, describe, dictionary, packet_sample, seconds};
-
-/// A line of a subtitle track, in seconds.
-#[derive(Debug, Clone, Deserialize)]
-pub struct SubtitleCue {
-    pub start: f64,
-    pub end: f64,
-    pub text: String,
-}
-
-/// A subtitle track, as the editor sends it.
-#[derive(Debug, Clone, Deserialize)]
-pub struct SubtitleTrack {
-    pub cues: Vec<SubtitleCue>,
-}
 
 pub struct SubtitleInput {
     input: Retained<AVAssetWriterInput>,

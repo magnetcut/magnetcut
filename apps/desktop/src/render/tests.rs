@@ -1,19 +1,16 @@
-// The native export end to end, on this Mac's AVFoundation and GPU: a film
-// made here, decoded, then drawn into another.
+// The native export end to end, on this computer's own decoders, encoders
+// and GPU (AVFoundation on macOS, Media Foundation on Windows): a film made
+// here, decoded, then drawn into another. What only the Mac makes (ProRes,
+// AV1, copied sound, subtitle tracks, HDR's tone mapping) is tested there.
 
 use std::path::{Path, PathBuf};
 
-use objc2_core_video::{
-    CVPixelBuffer, CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow,
-    CVPixelBufferGetHeight, CVPixelBufferGetWidth, CVPixelBufferLockBaseAddress,
-    CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress,
+use super::decode::{self, VideoReader};
+use super::encode::Writer;
+use super::frames::{Crop, FrameBuffer, Picture};
+use super::settings::{
+    Audio, AudioSettings, Container, FrameRate, SourceInfo, VideoCodec, VideoSettings,
 };
-
-use super::decode::{self, SourceInfo, VideoReader};
-use super::encode::{
-    Audio, AudioSettings, Container, FrameRate, VideoCodec, VideoSettings, Writer,
-};
-use super::frames::Crop;
 use super::{Message, StartOptions, VideoFrame, Worker};
 
 const FPS: FrameRate = FrameRate {
@@ -32,28 +29,36 @@ fn grey(i: usize) -> u8 {
     (i * 8) as u8
 }
 
-/// Every pixel's BGRA bytes, by row.
-fn with_pixels<T>(buffer: &CVPixelBuffer, read: impl FnOnce(&mut [u8], usize) -> T) -> T {
-    let lock = CVPixelBufferLockFlags(0);
-    unsafe { CVPixelBufferLockBaseAddress(buffer, lock) };
-    let row = CVPixelBufferGetBytesPerRow(buffer);
-    let length = row * CVPixelBufferGetHeight(buffer);
-    let base = CVPixelBufferGetBaseAddress(buffer).cast::<u8>();
-    let result = read(unsafe { std::slice::from_raw_parts_mut(base, length) }, row);
-    unsafe { CVPixelBufferUnlockBaseAddress(buffer, lock) };
-    result
+/// Adds a frame of that size, its BGRA pixels drawn by `draw`, row by row.
+fn add_drawn(
+    writer: &mut Writer,
+    (width, height): (u32, u32),
+    draw: impl FnOnce(&mut [u8], usize),
+) -> Result<(), String> {
+    let row = width as usize * 4;
+    let mut pixels = vec![0; row * height as usize];
+    draw(&mut pixels, row);
+    let buffer = writer.pixel_buffer()?;
+    buffer.write(&pixels, row)?;
+    writer.add_frame(&buffer)
+}
+
+/// The blue, green and red of a decoded picture's pixel, as a share of its
+/// width and height.
+fn color_at(picture: &impl Picture, x: f64, y: f64) -> [u8; 3] {
+    picture
+        .read(|pixels| {
+            let x = (f64::from(pixels.width) * x) as usize;
+            let y = (f64::from(pixels.height) * y) as usize;
+            let at = y * pixels.bytes_per_row as usize + x * 4;
+            [pixels.data[at], pixels.data[at + 1], pixels.data[at + 2]]
+        })
+        .unwrap()
 }
 
 /// The middle pixel's blue, green and red.
-fn middle(buffer: &CVPixelBuffer) -> [u8; 3] {
-    let (width, height) = (
-        CVPixelBufferGetWidth(buffer),
-        CVPixelBufferGetHeight(buffer),
-    );
-    with_pixels(buffer, |pixels, row| {
-        let at = (height / 2) * row + (width / 2) * 4;
-        [pixels[at], pixels[at + 1], pixels[at + 2]]
-    })
+fn middle(picture: &impl Picture) -> [u8; 3] {
+    color_at(picture, 0.5, 0.5)
 }
 
 fn assert_grey(color: [u8; 3], level: u8) {
@@ -77,13 +82,12 @@ fn make_source(path: &Path) {
     };
     let mut writer = Writer::new(path, Container::Mp4, &video, None).unwrap();
     for i in 0..30 {
-        let buffer = writer.pixel_buffer().unwrap();
-        with_pixels(&buffer, |pixels, _| {
+        add_drawn(&mut writer, (64, 64), |pixels, _| {
             for pixel in pixels.as_chunks_mut::<4>().0 {
                 *pixel = [grey(i), grey(i), grey(i), 255];
             }
-        });
-        writer.add_frame(&buffer).unwrap();
+        })
+        .unwrap();
     }
     writer.finish().unwrap();
 }
@@ -122,6 +126,51 @@ fn decodes_the_frames_it_encoded() {
     assert!((time - 0.7).abs() < 1e-3, "{time}");
 }
 
+#[test]
+fn keeps_a_size_not_a_multiple_of_16() {
+    // Coded in blocks of 16, as 80x48, and shown as it was made.
+    let path = temporary("odd-size.mp4");
+    let video = VideoSettings {
+        codec: VideoCodec::Avc,
+        width: 72,
+        height: 40,
+        bitrate: 1_000_000,
+        quality: None,
+        fps: FPS,
+    };
+    let mut writer = Writer::new(&path, Container::Mp4, &video, None).unwrap();
+    for _ in 0..10 {
+        add_drawn(&mut writer, (72, 40), |pixels, row| {
+            // White along the last row, the rest black.
+            pixels[row * 39..].fill(255);
+        })
+        .unwrap();
+    }
+    writer.finish().unwrap();
+    assert_eq!(
+        decode::probe(&path).unwrap(),
+        Some(SourceInfo {
+            width: 72,
+            height: 40,
+            rotation: 0
+        })
+    );
+    let mut reader = VideoReader::open(&path, 0.0).unwrap();
+    let (_, picture) = reader.frame_at(0.1).unwrap().unwrap();
+    let size = picture
+        .read(|pixels| (pixels.width, pixels.height))
+        .unwrap();
+    assert_eq!(size, (72, 40));
+    let (last, above) = (
+        color_at(picture, 0.5, 39.5 / 40.0),
+        color_at(picture, 0.5, 0.5),
+    );
+    assert!(
+        last[0] > 200 && above[0] < 50,
+        "last row {last:?}, middle {above:?}"
+    );
+}
+
 /// A layer showing the texture `id` over the whole of a `size` canvas.
 fn frame_showing(id: &str, size: u32) -> compositor::FrameDescriptor {
     frame_sized(id, size, size)
@@ -150,15 +199,24 @@ fn frame_sized(id: &str, width: u32, height: u32) -> compositor::FrameDescriptor
     .unwrap()
 }
 
+// What the export test makes: on a Mac, HEVC in QuickTime; on Windows, which
+// writes only MP4, H.264, which every Windows encodes (the CI runners have no
+// HEVC encoder).
+#[cfg(target_os = "macos")]
+const DRAWN: (&str, Container, VideoCodec) = ("drawn.mov", Container::Mov, VideoCodec::Hevc);
+#[cfg(windows)]
+const DRAWN: (&str, Container, VideoCodec) = ("drawn.mp4", Container::Mp4, VideoCodec::Avc);
+
 #[test]
 fn draws_a_source_into_a_film_cut_and_scaled() {
     let source = temporary("drawn-source.mp4");
     make_source(&source);
-    let path = temporary("drawn.mov");
+    let (name, container, codec) = DRAWN;
+    let path = temporary(name);
     // A 128-pixel project, a quarter cut from the left, scaled to 48×64.
     let options = StartOptions {
         path: path.to_str().unwrap().to_owned(),
-        format: Container::Mov,
+        format: container,
         width: 128,
         height: 128,
         crop: Crop {
@@ -168,7 +226,7 @@ fn draws_a_source_into_a_film_cut_and_scaled() {
         output_width: 48,
         output_height: 64,
         fps: FPS,
-        video_codec: VideoCodec::Hevc,
+        video_codec: codec,
         video_bitrate: 1_000_000,
         video_quality: None,
         audio: Some(AudioSettings {
@@ -274,6 +332,7 @@ fn a_cancelled_export_leaves_no_file() {
     assert!(!path.exists());
 }
 
+#[cfg(target_os = "macos")]
 #[test]
 fn prores_goes_only_in_a_quicktime_file() {
     let video = VideoSettings {
@@ -297,15 +356,12 @@ fn prores_goes_only_in_a_quicktime_file() {
 /// sound by the second, as it does a film's.
 fn add_noisy_frames(writer: &mut Writer, frames: std::ops::Range<usize>) -> Result<(), String> {
     for i in frames {
-        let buffer = writer.pixel_buffer()?;
-        with_pixels(&buffer, |pixels, _| {
+        add_drawn(writer, (320, 240), |pixels, _| {
             for (j, byte) in pixels.iter_mut().enumerate() {
                 *byte = ((j * 7919 + i * 104_729) % 251) as u8;
             }
-        });
-        writer
-            .add_frame(&buffer)
-            .map_err(|error| format!("frame {i}: {error}"))?;
+        })
+        .map_err(|error| format!("frame {i}: {error}"))?;
     }
     Ok(())
 }
@@ -364,6 +420,7 @@ fn sound_sent_ahead_keeps_the_frames_going_across_windows() {
 
 /// A file's sound as it's stored, up to `end` seconds: its packets' sizes,
 /// and how long they last.
+#[cfg(target_os = "macos")]
 fn stored_sound(path: &Path, end: f64) -> (Vec<usize>, f64) {
     use objc2_av_foundation::{AVAssetReader, AVAssetReaderTrackOutput, AVMediaTypeAudio};
     use objc2_core_media::{CMTimeRange, kCMTimeZero};
@@ -395,6 +452,7 @@ fn stored_sound(path: &Path, end: f64) -> (Vec<usize>, f64) {
     (sizes, last)
 }
 
+#[cfg(target_os = "macos")]
 #[test]
 fn copies_a_files_sound_as_it_is() {
     // Two seconds of film and sound, the first second exported with its sound copied.
@@ -425,9 +483,7 @@ fn copies_a_files_sound_as_it_is() {
         .collect();
     writer.add_audio(&tone, true).unwrap();
     for i in 0..60 {
-        let buffer = writer.pixel_buffer().unwrap();
-        with_pixels(&buffer, |pixels, _| pixels.fill(grey(i % 30)));
-        writer.add_frame(&buffer).unwrap();
+        add_drawn(&mut writer, (64, 64), |pixels, _| pixels.fill(grey(i % 30))).unwrap();
     }
     writer.finish().unwrap();
 
@@ -480,7 +536,7 @@ fn copies_a_files_sound_as_it_is() {
 #[test]
 fn constant_quality_steers_the_encoder() {
     if !super::encode::constant_quality() {
-        eprintln!("No constant quality on this Mac: skipped");
+        eprintln!("No constant quality here: skipped");
         return;
     }
     let size_at = |codec: VideoCodec, quality: f32| {
@@ -507,68 +563,16 @@ fn constant_quality_steers_the_encoder() {
     }
 }
 
-/// A second of 64x32 frames, bright above and dark below, written as a
-/// phone does one held upright: stored on its side, to be turned 90 degrees.
-fn make_turned_source(stored: &Path, turned: &Path) {
-    use objc2_av_foundation::{
-        AVFileTypeQuickTimeMovie, AVMediaTypeVideo, AVMovieWritingOptions, AVMutableMovie,
-    };
-    use objc2_core_foundation::CGAffineTransform;
-
-    let video = VideoSettings {
-        codec: VideoCodec::Avc,
-        width: 64,
-        height: 32,
-        bitrate: 2_000_000,
-        quality: None,
-        fps: FPS,
-    };
-    let mut writer = Writer::new(stored, Container::Mov, &video, None).unwrap();
-    for _ in 0..30 {
-        let buffer = writer.pixel_buffer().unwrap();
-        with_pixels(&buffer, |pixels, row| {
-            for (y, line) in pixels.chunks_exact_mut(row).enumerate() {
-                let level = if y < 16 { 230 } else { 20 };
-                for pixel in line.as_chunks_mut::<4>().0 {
-                    *pixel = [level, level, level, 255];
-                }
-            }
-        });
-        writer.add_frame(&buffer).unwrap();
-    }
-    writer.finish().unwrap();
-
-    let url = super::av::file_url(stored).unwrap();
-    let movie = unsafe { AVMutableMovie::movieWithURL_options_error(&url, None) }.unwrap();
-    let track = unsafe { movie.tracksWithMediaType(AVMediaTypeVideo.unwrap()) }
-        .firstObject()
-        .unwrap();
-    // A quarter turn clockwise, moved back into view.
-    let quarter = CGAffineTransform {
-        a: 0.0,
-        b: 1.0,
-        c: -1.0,
-        d: 0.0,
-        tx: 32.0,
-        ty: 0.0,
-    };
-    unsafe { track.setPreferredTransform(quarter) };
-    let _ = std::fs::remove_file(turned);
-    let out = super::av::file_url(turned).unwrap();
-    unsafe {
-        movie.writeMovieHeaderToURL_fileType_options_error(
-            &out,
-            AVFileTypeQuickTimeMovie.unwrap(),
-            AVMovieWritingOptions::AddMovieHeaderToDestination,
-        )
-    }
-    .unwrap();
+/// A second of 64x32 frames, bright above and dark below, stored as a phone
+/// stores one held upright: on its side, to be turned a quarter clockwise
+/// (made by ffmpeg, with `-display_rotation -90`).
+fn turned_source() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/turned.mp4")
 }
 
 #[test]
 fn turns_a_source_as_it_is_shown() {
-    let (stored, turned) = (temporary("stored.mov"), temporary("turned.mov"));
-    make_turned_source(&stored, &turned);
+    let turned = turned_source();
     assert_eq!(
         decode::probe(&turned).unwrap(),
         Some(SourceInfo {
@@ -618,10 +622,10 @@ fn turns_a_source_as_it_is_shown() {
     // Turned clockwise, what was above is on the right.
     let mut reader = VideoReader::open(&path, 0.0).unwrap();
     let (_, pixels) = reader.frame_at(0.5).unwrap().unwrap();
-    let (left, right) = with_pixels(pixels, |pixels, row| {
-        let at = |x: usize, y: usize| pixels[y * row + x * 4];
-        (at(8, 32), at(24, 32))
-    });
+    let (left, right) = (
+        color_at(pixels, 0.25, 0.5)[0],
+        color_at(pixels, 0.75, 0.5)[0],
+    );
     assert!(right > 200 && left < 50, "left {left}, right {right}");
 }
 
@@ -645,16 +649,15 @@ fn native_speed() {
     };
     let mut writer = Writer::new(&source, Container::Mp4, &video, None).unwrap();
     for i in 0..FRAMES {
-        let buffer = writer.pixel_buffer().unwrap();
-        with_pixels(&buffer, |pixels, row| {
+        add_drawn(&mut writer, (3840, 2160), |pixels, row| {
             for (y, line) in pixels.chunks_exact_mut(row).enumerate() {
                 let level = ((y + i * 8) % 256) as u8;
                 for pixel in line.as_chunks_mut::<4>().0 {
                     *pixel = [level, 255 - level, level / 2, 255];
                 }
             }
-        });
-        writer.add_frame(&buffer).unwrap();
+        })
+        .unwrap();
     }
     writer.finish().unwrap();
 
@@ -669,11 +672,15 @@ fn native_speed() {
         FRAMES as f64 / decoding
     );
 
+    let made = super::encode::capabilities().video_codecs;
     for (name, codec, size) in [
         ("4K HEVC", VideoCodec::Hevc, (3840, 2160)),
         ("4K to 1080p H.264", VideoCodec::Avc, (1920, 1080)),
         ("4K to 1080p AV1", VideoCodec::Av1, (1920, 1080)),
     ] {
+        if !made.contains(&codec) {
+            continue;
+        }
         let path = temporary("speed.mp4");
         let options = StartOptions {
             path: path.to_str().unwrap().to_owned(),
@@ -714,6 +721,7 @@ fn native_speed() {
 }
 
 /// PQ's code value for a light level in nits (SMPTE ST 2084).
+#[cfg(target_os = "macos")]
 fn pq(nits: f64) -> f64 {
     let (m1, m2) = (0.159_301_757_812_5, 78.843_75);
     let (c1, c2, c3) = (0.835_937_5, 18.851_562_5, 18.687_5);
@@ -723,6 +731,7 @@ fn pq(nits: f64) -> f64 {
 
 /// A second of HDR10 (HEVC Main10, BT.2020, PQ), 64x32: four bands of grey,
 /// at 100, 203, 400 and 1000 nits from the left.
+#[cfg(target_os = "macos")]
 fn make_hdr_source(path: &Path) -> Result<(), String> {
     use super::av::{any, av, dictionary, file_url, fraction};
     use objc2_av_foundation::{
@@ -849,15 +858,14 @@ fn make_hdr_source(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 #[test]
 fn tone_maps_an_hdr_source() {
     let path = temporary("hdr.mov");
     make_hdr_source(&path).unwrap();
     let mut reader = VideoReader::open(&path, 0.0).unwrap();
     let (_, pixels) = reader.frame_at(0.5).unwrap().unwrap();
-    let levels = with_pixels(pixels, |pixels, row| {
-        [8, 24, 40, 56].map(|x: usize| pixels[16 * row + x * 4])
-    });
+    let levels = [8.0, 24.0, 40.0, 56.0].map(|x| color_at(pixels, x / 64.0, 0.5)[0]);
     // Brighter each band, as SDR: not PQ's own values (130 for 100 nits), and
     // rolled off rather than clipped at HDR's reference white (203 nits).
     let [hundred, reference, four_hundred, thousand] = levels;
@@ -871,6 +879,7 @@ fn tone_maps_an_hdr_source() {
 
 /// A film's frames as stored: how many, and which are marked as not ones to
 /// start decoding from.
+#[cfg(target_os = "macos")]
 fn stored_frames(path: &Path) -> (usize, Vec<bool>) {
     use objc2_av_foundation::{AVAssetReader, AVAssetReaderTrackOutput, AVMediaTypeVideo};
     use objc2_core_foundation::{CFBoolean, CFDictionary};
@@ -909,6 +918,7 @@ fn stored_frames(path: &Path) -> (usize, Vec<bool>) {
     (not_sync.len(), not_sync)
 }
 
+#[cfg(target_os = "macos")]
 #[test]
 fn encodes_av1_with_rav1e() {
     let source = temporary("av1-source.mp4");
@@ -927,9 +937,7 @@ fn encodes_av1_with_rav1e() {
     )
     .unwrap();
     for i in 0..60 {
-        let buffer = writer.pixel_buffer().unwrap();
-        with_pixels(&buffer, |pixels, _| pixels.fill(grey(i % 30)));
-        writer.add_frame(&buffer).unwrap();
+        add_drawn(&mut writer, (64, 64), |pixels, _| pixels.fill(grey(i % 30))).unwrap();
     }
     writer.finish().unwrap();
 
@@ -1004,6 +1012,7 @@ fn encodes_av1_with_rav1e() {
 }
 
 /// A film's subtitle track as stored: each sample's start, end and text.
+#[cfg(target_os = "macos")]
 fn stored_subtitles(path: &Path) -> Vec<(f64, f64, String)> {
     use objc2_av_foundation::{AVAssetReader, AVAssetReaderTrackOutput, AVMediaTypeSubtitle};
     use std::ptr::NonNull;
@@ -1045,6 +1054,7 @@ fn stored_subtitles(path: &Path) -> Vec<(f64, f64, String)> {
     samples
 }
 
+#[cfg(target_os = "macos")]
 #[test]
 fn writes_subtitle_tracks_as_timed_text() {
     let source = temporary("subtitled-source.mp4");
@@ -1068,14 +1078,14 @@ fn writes_subtitle_tracks_as_timed_text() {
             video_quality: None,
             audio: None,
             audio_copy: None,
-            subtitles: vec![super::subtitle::SubtitleTrack {
+            subtitles: vec![super::settings::SubtitleTrack {
                 cues: vec![
-                    super::subtitle::SubtitleCue {
+                    super::settings::SubtitleCue {
                         start: 0.2,
                         end: 0.5,
                         text: "Hello".into(),
                     },
-                    super::subtitle::SubtitleCue {
+                    super::settings::SubtitleCue {
                         start: 0.7,
                         end: 0.9,
                         text: "Café\nau lait".into(),

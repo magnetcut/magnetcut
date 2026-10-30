@@ -3,6 +3,9 @@
 
 use std::path::Path;
 
+use super::av::{any, av, bridged, describe, dictionary, file_url, seconds, to_seconds};
+use super::settings::SourceInfo;
+use super::turn::Turner;
 use objc2::rc::Retained;
 use objc2_av_foundation::{
     AVAssetReader, AVAssetReaderStatus, AVAssetReaderTrackOutput, AVAssetTrack, AVMediaTypeVideo,
@@ -17,19 +20,6 @@ use objc2_core_video::{
     kCVPixelBufferPixelFormatTypeKey, kCVPixelFormatType_32BGRA,
 };
 use objc2_foundation::{NSDictionary, NSNumber, NSString};
-use serde::Serialize;
-
-use super::av::{any, av, bridged, describe, dictionary, file_url, seconds, to_seconds};
-use super::turn::Turner;
-
-/// A source's picture as the editor shows it: turned as the file says.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
-pub struct SourceInfo {
-    pub width: u32,
-    pub height: u32,
-    /// Clockwise, in degrees: 0, 90, 180 or 270.
-    pub rotation: u32,
-}
 
 // The tolerance between a time asked for and a frame's: far under a frame.
 const EPSILON: f64 = 1e-4;
