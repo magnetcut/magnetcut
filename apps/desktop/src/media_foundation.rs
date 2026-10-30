@@ -252,9 +252,9 @@ impl Writer {
         let end = (self.sound_frames + count as i64) * TICKS_PER_SECOND / rate;
         let chunk = sample(
             |data| {
-                for (bytes, value) in data.chunks_exact_mut(2).zip(samples) {
+                for (bytes, value) in data.as_chunks_mut::<2>().0.iter_mut().zip(samples) {
                     let value = (value.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16;
-                    bytes.copy_from_slice(&value.to_le_bytes());
+                    *bytes = value.to_le_bytes();
                 }
             },
             count * channels as usize * 2,
