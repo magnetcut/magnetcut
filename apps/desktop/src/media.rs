@@ -141,7 +141,8 @@ impl MediaFiles {
         }
     }
 
-    fn location(&self, path: &str) -> Option<PathBuf> {
+    /// Where a file the editor was given is now; none for one it wasn't.
+    pub fn location(&self, path: &str) -> Option<PathBuf> {
         let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         entries.get(path).map(|entry| entry.location.clone())
     }

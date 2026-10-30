@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{Seek, SeekFrom, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -25,6 +25,21 @@ pub struct Exports {
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+impl Exports {
+    /// Uses up a pick from the save dialog: another export asks again.
+    pub fn take_pick(&self, path: &Path) -> Result<(), String> {
+        if !lock(&self.picked).remove(path) {
+            return Err("not a file picked in the save dialog".into());
+        }
+        Ok(())
+    }
+
+    /// A finished export, which may be shown.
+    pub fn add_saved(&self, path: PathBuf) {
+        lock(&self.saved).insert(path);
+    }
 }
 
 /// The save dialog for an export, opening in `directory` if there is one (as
@@ -64,9 +79,7 @@ pub async fn pick_export_file(
 #[tauri::command]
 pub fn open_export_file(exports: State<'_, Exports>, path: String) -> Result<u32, String> {
     let path = PathBuf::from(path);
-    if !lock(&exports.picked).remove(&path) {
-        return Err("not a file picked in the save dialog".into());
-    }
+    exports.take_pick(&path)?;
     let file = File::create(&path).map_err(|error| error.to_string())?;
     let id = exports.next_id.fetch_add(1, Ordering::Relaxed);
     lock(&exports.open).insert(id, (path, file));
@@ -103,7 +116,7 @@ pub fn close_export_file(exports: State<'_, Exports>, id: u32, keep: bool) -> Re
     let (path, file) = lock(&exports.open).remove(&id).ok_or("no such export")?;
     if keep {
         file.sync_all().map_err(|error| error.to_string())?;
-        lock(&exports.saved).insert(path);
+        exports.add_saved(path);
         return Ok(());
     }
     drop(file);

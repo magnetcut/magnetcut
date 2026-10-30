@@ -42,6 +42,20 @@ base64 = "0.22"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSError", "NSString", "NSURL"] }
 objc2-app-kit = { version = "0.3", features = ["NSPasteboard"] }
+# The native export (src/render/): AVFoundation decodes the sources and
+# encodes the film, and the editor's own compositor (rust/crates) draws each
+# frame between them on the GPU, so no frame crosses into the web view.
+objc2-av-foundation = { version = "0.3", features = ["block2", "objc2-core-media", "objc2-core-video"] }
+objc2-avf-audio = "0.3"
+objc2-core-media = { version = "0.3", features = ["objc2-core-audio-types", "objc2-core-video"] }
+objc2-core-video = "0.3"
+objc2-core-audio-types = "0.3"
+objc2-core-foundation = "0.3"
+block2 = "0.6"
+compositor = { path = "../../rust/crates/compositor" }
+gpu = { path = "../../rust/crates/gpu" }
+# Waits for the GPU on the export's thread.
+futures-executor = "0.3"
 
 # The web view on Linux: its settings, to switch on the features the editor
 # needs (src/webkit.rs). The versions Tauri itself uses.

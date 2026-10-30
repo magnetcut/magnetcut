@@ -18,6 +18,9 @@ All notable changes to this project are documented here. The format is based on
   sound uncut and the container takes its codec (on by default; Audio in the export panel).
 
 ### Changed
+- On macOS, Export decodes, draws and encodes natively, on the GPU with the Mac's own encoders,
+  when the film is MP4 or MOV in H.264 or HEVC from files on disk. H.264 comes out in the High
+  profile, which looks better for its size than the Baseline the web view's encoder makes.
 - The desktop app reads imported media where it is on your computer instead of copying it into
   its own storage, so a file of any size can go in (on Linux that storage held 1 GB). That's
   files picked with Import, and on macOS files dropped on the window; a file moved or renamed

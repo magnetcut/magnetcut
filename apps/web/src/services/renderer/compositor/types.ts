@@ -1,6 +1,7 @@
 import type { BlendMode } from "@/rendering";
 import type { EffectPass } from "@/effects/types";
 import type { TransitionParamValue } from "@/timeline";
+import type { VideoReference } from "../nodes/visual-node";
 
 export type FrameDescriptor = {
 	width: number;
@@ -88,6 +89,19 @@ export type RenderedTextureDescriptor = {
 	draw: TextureCanvasDrawFn;
 };
 
+/**
+ * A video's frame that the exporter decodes and uploads itself (the desktop
+ * app's native export): only the file and the time are given.
+ */
+export type VideoTextureDescriptor = {
+	kind: "video";
+	id: string;
+	reference: VideoReference;
+	width: number;
+	height: number;
+};
+
 export type TextureUploadDescriptor =
 	| ExternalTextureDescriptor
-	| RenderedTextureDescriptor;
+	| RenderedTextureDescriptor
+	| VideoTextureDescriptor;

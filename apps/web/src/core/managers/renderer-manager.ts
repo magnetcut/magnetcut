@@ -3,9 +3,15 @@ import type { RootNode } from "@/services/renderer/nodes/root-node";
 import type { ExportOptions, ExportResult } from "@/export";
 import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import { SceneExporter } from "@/services/renderer/scene-exporter";
+import {
+	NativeSceneExporter,
+	findNativeSources,
+} from "@/services/renderer/native-exporter";
+import type { NativeExportOptions, NativeSourceInfo } from "@/export/native";
 import { openExportFile } from "@/export/disk-target";
+import { DiskFile } from "@/media/disk-file";
 import { buildScene } from "@/services/renderer/scene-builder";
-import { mixTimelineAudio } from "@/media/audio-mix";
+import { EXPORT_SAMPLE_RATE, mixTimelineAudio } from "@/media/audio-mix";
 import {
 	fitExportSize,
 	getVideoBitrate,
@@ -195,6 +201,7 @@ export class RendererManager {
 				hasCrop ||
 				outputSize.width !== canvasSize.width ||
 				outputSize.height !== canvasSize.height;
+
 			// The source's sound copied, if asked for and it can be.
 			passthrough = audio?.passthrough
 				? await openAudioPassthrough({ tracks, mediaAssets, duration, format })
@@ -219,6 +226,54 @@ export class RendererManager {
 				canvasSize,
 				background: activeProject.settings.background,
 			});
+			// The desktop app's own export, where it can make this one: it
+			// copies sound from a file on disk.
+			const copiedFile = passthrough?.file;
+			const nativeSources =
+				path && (!copiedFile || copiedFile instanceof DiskFile)
+					? await findNativeSources({
+							rootNode: scene,
+							format,
+							videoCodec,
+							audioCodec: passthrough?.codec ?? audio?.codec ?? null,
+						})
+					: null;
+			if (path && nativeSources) {
+				const audioCopy =
+					passthrough && copiedFile instanceof DiskFile
+						? { path: copiedFile.path, end: passthrough.end }
+						: undefined;
+				passthrough?.close();
+				passthrough = null;
+				return await this.exportNatively({
+					scene,
+					sources: nativeSources,
+					path,
+					options: {
+						path,
+						format,
+						width: canvasSize.width,
+						height: canvasSize.height,
+						crop: hasCrop ? crop : undefined,
+						outputWidth: outputSize.width,
+						outputHeight: outputSize.height,
+						fps: exportFps,
+						videoCodec,
+						videoBitrate,
+						audio:
+							audio && !audioCopy
+								? {
+										channels: audio.channels,
+										sampleRate: EXPORT_SAMPLE_RATE,
+										bitrate: audio.kbps * 1000,
+									}
+								: null,
+						audioCopy,
+					},
+					onProgress,
+					onCancel,
+				});
+			}
 
 			const exporter = new SceneExporter({
 				width: canvasSize.width,
@@ -280,6 +335,55 @@ export class RendererManager {
 				success: false,
 				error: error instanceof Error ? error.message : "Unknown export error",
 			};
+		}
+	}
+
+	/** An export made by the desktop app, natively (`NativeSceneExporter`). */
+	private async exportNatively({
+		scene,
+		sources,
+		path,
+		options,
+		onProgress,
+		onCancel,
+	}: {
+		scene: RootNode;
+		sources: Map<string, NativeSourceInfo>;
+		path: string;
+		options: NativeExportOptions;
+		onProgress?: ({ progress }: { progress: number }) => void;
+		onCancel?: () => boolean;
+	}): Promise<ExportResult> {
+		const tracks = this.editor.scenes.getActiveScene().tracks;
+		const mediaAssets = this.editor.media.getAssets();
+		const duration = this.editor.timeline.getTotalDuration();
+		// Mixed as the frames go; none when nothing's heard, and no sound track.
+		const audio = options.audio
+			? mixTimelineAudio({ tracks, mediaAssets, duration })
+			: null;
+		const exporter = new NativeSceneExporter({
+			options: { ...options, audio: audio ? options.audio : null },
+			sources,
+			audio: audio ?? undefined,
+		});
+		exporter.on("progress", (progress) => {
+			onProgress?.({ progress });
+		});
+		let cancelled = false;
+		const cancelInterval = setInterval(() => {
+			if (onCancel?.()) {
+				cancelled = true;
+				exporter.cancel();
+			}
+		}, 100);
+		try {
+			const isMade = await exporter.export({ rootNode: scene });
+			if (cancelled || !isMade) {
+				return { success: false, cancelled: true };
+			}
+			return { success: true, path };
+		} finally {
+			clearInterval(cancelInterval);
 		}
 	}
 

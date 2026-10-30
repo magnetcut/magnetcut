@@ -22,6 +22,10 @@ const BITRATE_SAMPLE_PACKETS = 200;
 
 /** A source's sound, ready to copy into the export. */
 export interface AudioPassthrough {
+	/** The file it's copied from. */
+	file: MediaAsset["file"];
+	/** Where the timeline stops hearing it, in seconds. */
+	end: number;
 	track: InputAudioTrack;
 	codec: AudioCodec;
 	numberOfChannels: number;
@@ -73,6 +77,8 @@ export async function openAudioPassthrough({
 
 		const sink = new EncodedPacketSink(track);
 		passthrough = {
+			file: clip.asset.file,
+			end: clip.end,
 			track,
 			codec,
 			numberOfChannels: track.numberOfChannels,

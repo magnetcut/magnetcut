@@ -147,13 +147,22 @@ and give it constant quality and the encoders the web views lack.
   local storage (`export/choices-store.ts`), and checked field by field when read back.
 
 ### 4. Natively on macOS
-- `rust/crates/media` (new): decode with VideoToolbox (`objc2-video-toolbox`, MIT), frames as
-  `CVPixelBuffer`s on IOSurfaces, imported into wgpu as Metal textures (no copy).
-- The web view still resolves the timeline into frame descriptors and draws the non-video
-  textures; it sends them to Rust (a texture only when it changes). Rust decodes the video,
-  composites with the same crate on Metal and encodes with VideoToolbox: constant quality
-  (`kVTCompressionPropertyKey_Quality`), H.264, HEVC (10-bit too) and ProRes; muxed natively.
-- What the web view can't decode (ProRes, DNxHR) works there too.
+- `apps/desktop/src/render/`: AVFoundation's reader and writer, which drive VideoToolbox, and
+  the compositor crate on Metal through wgpu. The web view still resolves the timeline, but a
+  video becomes a reference (file, time) instead of a frame: it sends each frame's description,
+  its own drawings when they change (text, images, stickers), and the mix a few seconds ahead.
+- Rust decodes each video with an `AVAssetReader` (BGRA, on IOSurfaces), composites, crops and
+  scales on the GPU, reads the frame back into the encoder's own pixel buffer and hands it to
+  an `AVAssetWriter`: H.264 High, HEVC Main and ProRes 422 (HQ too) in QuickTime; AAC from the
+  mix, or the source's sound passed through as it's stored when Export copies it (AAC only, so
+  far); BT.709; a key frame at least every 2 s; MP4s with their index first.
+- Export takes this road on macOS when it can: MP4 or MOV, H.264 or HEVC, AAC or no sound, and
+  every video a file on disk that AVFoundation decodes, none of them turned, none blurred
+  behind itself. Otherwise the web view's export, as before.
+- Still to do: constant quality (`AVVideoQualityKey`), ProRes in the panel, turned videos,
+  the decoded frame used as a Metal texture without the copy, and 10-bit HEVC.
+- What the web view can't decode (ProRes, DNxHR) can work there too, once the editor can show
+  it.
 
 ### 5. Windows and Linux
 - Windows: Media Foundation through the `windows` crate (MIT/Apache): source reader with D3D11
@@ -176,7 +185,8 @@ and give it constant quality and the encoders the web views lack.
 - Export's sound now always goes through the limiter, as playback's does: before, only a mix
   that peaked over 0.98 did. A quiet mix comes out about 0.5 dB louder (the limiter's makeup
   gain) and 6 ms later (its lookahead), as it plays in the editor.
-- H.264 Baseline gives less quality for its bitrate than High, until phase 4 encodes natively.
+- H.264 Baseline gives less quality for its bitrate than High where the web view encodes it:
+  on Windows and Linux, and on macOS where the native export doesn't apply.
 - Copied sound skips the limiter, so it's the file's, not quite as it played in the editor
   (half a decibel at most), and without the priming packets its first milliseconds decode a
   little differently.
@@ -215,3 +225,10 @@ and give it constant quality and the encoders the web views lack.
   the clip and scaled to 854x480, every frame, with no black left. A clip's AAC sound copied
   into MP4 and MKV: all 188 packets from zero byte for byte as in the source and at its times
   (the priming packet at -21 ms left out), the MP4's sound ending at 4.000 s with the picture.
+- Phase 4's core, on macOS. In the app, from a test page running the editor's own exporter:
+  a 6 s 1080p H.264 film to H.264 MP4 and a 6 s 4K HEVC one to HEVC MOV, and a 4 s 720p
+  timeline with an image over a 360p clip with sound to 854x480 with AAC. Every frame (180,
+  180, 120), H.264 in High, HEVC as `hvc1`, a key frame each 2 s; all three play in
+  AVFoundation; the frame at 2 s is the source's, with the image over it; the colour bars
+  within 3 levels of the source's; the sound 4.000 s long like the timeline, at 440 Hz like the
+  source. In a debug build, 1080p at 63 frames a second and 4K at 22.

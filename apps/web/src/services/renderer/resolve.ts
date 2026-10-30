@@ -49,29 +49,50 @@ import type {
 	ResolvedVisualSourceNodeState,
 	VisualNodeParams,
 } from "./nodes/visual-node";
+import type { MediaFile } from "@/media/disk-file";
+
+/**
+ * Videos left to an exporter that decodes them itself (the desktop app's,
+ * natively): each resolves to its file and time, not a frame.
+ */
+export type VideoReferences = {
+	/** A source's picture size, as it shows. */
+	getSize: ({ file }: { file: MediaFile }) => {
+		width: number;
+		height: number;
+	} | null;
+};
 
 type ResolveContext = {
 	renderer: CanvasRenderer;
 	time: number;
+	videoReferences?: VideoReferences;
 };
 
 export async function resolveRenderTree({
 	node,
 	renderer,
 	time,
+	videoReferences,
 }: {
 	node: AnyBaseNode;
 	renderer: CanvasRenderer;
 	time: number;
+	videoReferences?: VideoReferences;
 }): Promise<void> {
 	await resolveNode({
 		node,
 		context: {
 			renderer,
 			time,
+			videoReferences,
 		},
 	});
 }
+
+// What a video referred to shows as: nothing is drawn from it.
+let placeholder: OffscreenCanvas | null = null;
+const getPlaceholder = () => (placeholder ??= new OffscreenCanvas(1, 1));
 
 async function resolveNode({
 	node,
@@ -227,10 +248,41 @@ async function resolveVideoNode({
 				retime: node.params.retime,
 			}),
 	);
+	const sourceTime = mediaTimeToSeconds({
+		time: roundMediaTime({ time: sourceTimeTicks }),
+	});
+
+	if (context.videoReferences) {
+		const size = context.videoReferences.getSize({ file: node.params.file });
+		if (!size) {
+			return null;
+		}
+		const visualState = resolveVisualState({
+			params: node.params,
+			context,
+			sourceWidth: size.width,
+			sourceHeight: size.height,
+		});
+		if (!visualState) {
+			return null;
+		}
+		return {
+			...visualState,
+			source: getPlaceholder(),
+			sourceWidth: size.width,
+			sourceHeight: size.height,
+			videoReference: {
+				file: node.params.file,
+				streamKey: node.params.streamKey,
+				time: sourceTime,
+			},
+		};
+	}
+
 	const frame = await videoCache.getFrameAt({
 		mediaId: node.params.mediaId,
 		file: node.params.file,
-		time: mediaTimeToSeconds({ time: roundMediaTime({ time: sourceTimeTicks }) }),
+		time: sourceTime,
 		streamKey: node.params.streamKey,
 	});
 	if (!frame) {

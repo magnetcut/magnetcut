@@ -1,3 +1,6 @@
+// A render pass takes the GPU, its encoder, its textures and their size.
+#![allow(clippy::too_many_arguments)]
+
 mod blend_mode;
 mod compositor;
 mod frame;

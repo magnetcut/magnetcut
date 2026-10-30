@@ -81,8 +81,11 @@ class WasmCompositor {
 		for (const texture of textures) {
 			if (texture.kind === "external") {
 				this.syncExternalTexture(texture);
-			} else {
+			} else if (texture.kind === "rendered") {
 				this.syncRenderedTexture(texture);
+			} else {
+				// Resolved only for the native export, which uploads its own.
+				throw new Error(`Video texture ${texture.id} has no frame to upload`);
 			}
 		}
 	}

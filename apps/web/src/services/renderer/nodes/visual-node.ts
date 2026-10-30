@@ -3,6 +3,7 @@ import type { Effect, EffectPass } from "@/effects/types";
 import type { Mask } from "@/masks/types";
 import type { BlendMode, Transform } from "@/rendering";
 import type { RetimeConfig, VisualElement } from "@/timeline";
+import type { MediaFile } from "@/media/disk-file";
 
 export interface VisualNodeParams {
 	duration: number;
@@ -30,10 +31,20 @@ export interface ResolvedVisualNodeState {
 	effectPasses: EffectPass[][];
 }
 
+/** A video's frame, by file and time, for an exporter that decodes it itself. */
+export interface VideoReference {
+	file: MediaFile;
+	streamKey?: string;
+	/** In the source, in seconds. */
+	time: number;
+}
+
 export interface ResolvedVisualSourceNodeState extends ResolvedVisualNodeState {
 	source: CanvasImageSource;
 	sourceWidth: number;
 	sourceHeight: number;
+	/** Set instead of drawing `source`, for videos left to the exporter. */
+	videoReference?: VideoReference;
 }
 
 export abstract class VisualNode<

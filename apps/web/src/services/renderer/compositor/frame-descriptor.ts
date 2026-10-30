@@ -302,13 +302,26 @@ async function collectVisualSourceNode({
 			: (node.resolved as ResolvedVisualSourceNodeState).sourceHeight;
 
 	const textureId = `${path}:source`;
-	textures.set(textureId, {
-		kind: "external",
-		id: textureId,
-		source,
-		width: sourceWidth,
-		height: sourceHeight,
-	});
+	const videoReference =
+		node instanceof VideoNode ? node.resolved.videoReference : undefined;
+	textures.set(
+		textureId,
+		videoReference
+			? {
+					kind: "video",
+					id: textureId,
+					reference: videoReference,
+					width: sourceWidth,
+					height: sourceHeight,
+				}
+			: {
+					kind: "external",
+					id: textureId,
+					source,
+					width: sourceWidth,
+					height: sourceHeight,
+				},
+	);
 
 	const transform = computeVisualTransform({
 		renderer,
