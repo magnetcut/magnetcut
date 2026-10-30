@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useEditor } from "@/editor/use-editor";
-import { formatTimecode } from "opencut-wasm";
+import { formatTimecode } from "magnetcut-wasm";
 import { invokeAction } from "@/actions";
 import { EditableTimecode } from "@/components/editable-timecode";
 import { Button } from "@/components/ui/button";

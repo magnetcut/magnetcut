@@ -34,3 +34,6 @@ CLAUDE.md
 
 # Release signing configuration: local, never committed (release.env.example)
 apps/desktop/release.env
+
+# The editor's Rust side as WebAssembly, built by packages/wasm.
+packages/wasm/pkg/

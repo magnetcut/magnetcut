@@ -1,4 +1,4 @@
-import type { FrameRate } from "opencut-wasm";
+import type { FrameRate } from "magnetcut-wasm";
 import type { MediaAsset } from "@/media/types";
 
 type MediaAssetFpsInput = Pick<MediaAsset, "type" | "fps">;

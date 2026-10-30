@@ -38,16 +38,19 @@ signed with MagnetCut's key.
 
 ## Run it from source
 
-You need [Bun](https://bun.sh).
+You need [Bun](https://bun.sh), and [Rust](https://rustup.rs) with the WebAssembly target and
+wasm-pack: the editor's core is Rust (below).
 
 ```sh
+rustup target add wasm32-unknown-unknown && cargo install wasm-pack   # once
 bun install
+bun run build:wasm # the Rust core, as WebAssembly (bun dev:web and build:web do it too)
 bun dev:web        # the editor at http://localhost:3000
 bun test
 bun run build:web  # the static app, in apps/web/out
 ```
 
-The desktop app needs [Rust](https://rustup.rs) and the Tauri CLI (`cargo install tauri-cli`):
+The desktop app also needs the Tauri CLI (`cargo install tauri-cli`):
 
 ```sh
 cd apps/desktop
@@ -59,19 +62,11 @@ Releases are made as [docs/RELEASING.md](docs/RELEASING.md) says.
 
 ### The Rust core
 
-`rust/` holds the platform-independent core (GPU compositor, effects, masks, time), which the
-web app uses as WebAssembly through the published `opencut-wasm` package. Only if you're editing
-`rust/wasm`, build it and link it instead:
-
-```sh
-cargo install wasm-pack cargo-watch   # once
-bun run build:wasm
-cd rust/wasm/pkg && bun link
-cd ../../../apps/web && bun link opencut-wasm
-bun dev:wasm                          # rebuilds on changes
-```
-
-`bun add opencut-wasm` in `apps/web` goes back to the published package.
+`rust/` holds the platform-independent core (GPU compositor, effects, masks, time). The web app
+uses it as WebAssembly: `rust/wasm` exports it, and `packages/wasm` (the `magnetcut-wasm`
+package) builds it with wasm-pack, which Turborepo runs before the web app's dev server and build
+whenever `rust/` changed. While you edit it, `bun dev:wasm` (with `cargo install cargo-watch`)
+rebuilds on every change.
 
 ## Contributing
 

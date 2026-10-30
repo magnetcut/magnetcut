@@ -1,0 +1,16 @@
+{
+  "name": "magnetcut-wasm",
+  "private": true,
+  "description": "The editor's Rust side (rust/wasm and rust/crates), compiled to WebAssembly",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "main": "pkg/magnetcut_wasm.js",
+  "types": "pkg/magnetcut_wasm.d.ts",
+  "sideEffects": [
+    "./pkg/magnetcut_wasm.js",
+    "./pkg/snippets/*"
+  ],
+  "scripts": {
+    "build": "wasm-pack build ../../rust/wasm --target bundler --out-dir ../../packages/wasm/pkg --no-pack"
+  }
+}

@@ -1,10 +1,11 @@
 [package]
-name = "opencut-wasm"
-version = "0.2.10"
+name = "magnetcut-wasm"
+version = "0.1.0"
 edition = "2024"
-description = "Shared video editor logic compiled to WebAssembly"
-repository = "https://github.com/opencut/opencut"
-license = "MIT"
+description = "The editor's Rust side, for the web app as WebAssembly (packages/wasm builds it)"
+repository = "https://github.com/magnetcut/magnetcut"
+license = "AGPL-3.0-only"
+publish = false
 
 [lib]
 path = "src/wasm.rs"

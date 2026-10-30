@@ -97,8 +97,8 @@ telemetry: everything stays on the computer. Not for iOS or Android.
   `soundtouchjs` (LGPL-2.1) goes: pitch-preserving speed changes move to a Rust time-stretch.
 - **Name and marks.** OpenCut's guidelines forbid its name or logo on another product, so every
   "OpenCut" goes, logos included, except credits ("Based on OpenCut") and the licence notice.
-  The `opencut-wasm` npm package stays a dependency until `rust/wasm` is built and published as
-  `magnetcut-wasm`.
+  The Rust core is built from source as `magnetcut-wasm` (`packages/wasm`), not taken from
+  upstream's `opencut-wasm` npm package.
 
 ## Order
 
@@ -114,9 +114,8 @@ Acknowledgements, which wait for step 7's notices).
    deb, rpm; signed `latest.json`; a draft GitHub release).
 6. App Store edition: entitlements, profile, upload script.
 7. Licence check and notices; replace soundtouchjs.
-8. Transitions: build `rust/wasm` ourselves instead of using `opencut-wasm`, then the
-   cross-dissolve end to end, edits, audio crossfades, the Transitions tab and the other eleven
-   (docs/TRANSITIONS.md has the phases).
+8. Transitions: the cross-dissolve end to end, edits, audio crossfades, the Transitions tab
+   and the other eleven (docs/TRANSITIONS.md has the phases).
 9. The native pipeline (hardware decode, wgpu, hardware encode, zero-copy); Export moves onto
    it with HandBrake's settings, then the AV1/VP9 software encoders and the filters.
 10. Subtitle editor and sync.

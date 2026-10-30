@@ -12,8 +12,8 @@ import {
 	QUALITY_HIGH,
 	QUALITY_VERY_HIGH,
 } from "mediabunny";
-import type { FrameRate } from "opencut-wasm";
-import { mediaTimeToSeconds } from "opencut-wasm";
+import type { FrameRate } from "magnetcut-wasm";
+import { mediaTimeToSeconds } from "magnetcut-wasm";
 import { TICKS_PER_SECOND } from "@/wasm";
 import { frameRateToFloat } from "@/fps/utils";
 import type { RootNode } from "./nodes/root-node";

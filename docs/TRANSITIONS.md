@@ -54,9 +54,8 @@ person to a solid first version with twelve transitions.
   `CanvasSink` with `poolSize: 3`, one iterator, newer requests superseding older ones,
   forward-only within 2 s, else a seek). Two files decode side by side fine; **two halves of one
   split clip, the commonest cross-dissolve, would get stale frames and seek on every frame.**
-- The editor uses the Rust side through the npm package `opencut-wasm`; changing the compositor
-  means building `rust/wasm` ourselves (`rust/wasm/README.md`), on the way to publishing
-  `magnetcut-wasm`.
+- The editor uses the Rust side as `magnetcut-wasm`, built from `rust/wasm` (`packages/wasm`),
+  so changing the compositor is changing the code (upstream used a published npm package).
 
 ### Audio (`media/audio.ts`, `timeline/audio-state.ts`, `core/managers/audio-manager.ts`)
 - No fades or crossfades anywhere. A clip's gain is `params.volume` in dB, which can be
@@ -178,14 +177,14 @@ More are a catalogue entry each afterwards.
 
 | Phase | What | Done when | Days |
 |---|---|---|---|
-| 0. Build our own wasm | Build `rust/wasm` and use it instead of `opencut-wasm`; `cargo test` in CI; frame tests (Playwright, two clips of solid colours, pixel checks) | A frame test fails, then passes | 2–3 |
+| 0. Tests | `cargo test` in CI; frame tests (Playwright, two clips of solid colours, pixel checks). (`rust/wasm` is built from source already.) | A frame test fails, then passes | 1–2 |
 | 1. Cross-dissolve | Model and timing crate, with tests; the `transition` frame item in TS and Rust; `TransitionPipeline` with Fade; scene builder and resolve at handle times; a decoder per element; an action to add one (no UI yet) | Preview and export dissolve correctly between two files **and two halves of one**: the expected pixels at 0, 0.5 and 1; no seek per frame | 8–10 |
 | 2. Edits | Commands, the reactor, split, trim and speed clamping, ripple; a test per edit | Every edit keeps a valid transition or drops it, and undo brings it back | 4–5 |
 | 3. Audio | Equal-power crossfade in export and preview; audio into the handles | Exported audio crossfades (sample checks); preview sounds and meters the same | 3–4 |
 | 4. Interface | The tab with previews, drop on a cut, right-click and shortcut, timeline bar, selection, inspector | Someone adds, changes and removes transitions without the action | 6–8 |
 | 5. The other eleven | Their parameters; WebGL2 and every system's web view; reusing upload textures (each upload makes a new one today); 4K two-stream playback | All twelve pass the frame tests on WebGPU and WebGL2; 1080p transitions play at frame rate on a mid-range laptop | 5–7 |
 
-About 28 to 37 days; phases 3 and 4 can run side by side after phase 2.
+About 27 to 36 days; phases 3 and 4 can run side by side after phase 2.
 
 ## Risks
 - **Two streams at once** (4K, or one file at two times) may not hold frame rate on weak

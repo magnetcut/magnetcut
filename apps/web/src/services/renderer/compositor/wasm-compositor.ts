@@ -6,7 +6,7 @@ import {
 	renderFrame,
 	resizeCompositor,
 	uploadTexture,
-} from "opencut-wasm";
+} from "magnetcut-wasm";
 import {
 	incrementCounter,
 	isRenderPerfEnabled,

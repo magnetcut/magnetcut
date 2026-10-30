@@ -5,8 +5,8 @@
   "build": {
     "devUrl": "http://localhost:3000",
     "frontendDist": "../web/out",
-    "beforeDevCommand": { "script": "bun run dev", "cwd": "../web" },
-    "beforeBuildCommand": { "script": "bun run build", "cwd": "../web" }
+    "beforeDevCommand": { "script": "bun run dev:web", "cwd": "../.." },
+    "beforeBuildCommand": { "script": "bun run build:web", "cwd": "../.." }
   },
   "app": {
     "windows": [

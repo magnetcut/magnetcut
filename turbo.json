@@ -8,10 +8,21 @@
 				"NODE_ENV"
 			]
 		},
+		"magnetcut-wasm#build": {
+			"inputs": [
+				"$TURBO_ROOT$/rust/**",
+				"!$TURBO_ROOT$/rust/**/*.md",
+				"$TURBO_ROOT$/Cargo.toml",
+				"$TURBO_ROOT$/Cargo.lock",
+				"package.json"
+			],
+			"outputs": ["pkg/**"]
+		},
 		"check-types": {
 			"dependsOn": ["^check-types"]
 		},
 		"dev": {
+			"dependsOn": ["^build"],
 			"persistent": true,
 			"cache": false
 		},

@@ -3,12 +3,11 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "opencut",
+      "name": "magnetcut",
       "dependencies": {
         "@types/react": "^19.2.10",
         "@types/react-dom": "^19.2.3",
         "next": "^16.1.3",
-        "opencut-wasm": "^0.2.10",
       },
       "devDependencies": {
         "@eslint/js": "^9.39.4",
@@ -42,11 +41,11 @@
         "culori": "^4.0.2",
         "eventemitter3": "^5.0.1",
         "lucide-react": "^0.562.0",
+        "magnetcut-wasm": "workspace:*",
         "mediabunny": "^1.29.1",
         "motion": "^12.18.1",
         "next": "16.1.3",
         "next-themes": "^0.4.4",
-        "opencut-wasm": "^0.2.10",
         "radix-ui": "^1.4.3",
         "react": "^19.0.0",
         "react-day-picker": "^8.10.1",
@@ -74,6 +73,9 @@
         "tailwindcss": "^4.2.1",
         "typescript": "^5.8.3",
       },
+    },
+    "packages/wasm": {
+      "name": "magnetcut-wasm",
     },
   },
   "trustedDependencies": [
@@ -886,6 +888,8 @@
 
     "magic-string": ["magic-string@0.30.21", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.5" } }, "sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ=="],
 
+    "magnetcut-wasm": ["magnetcut-wasm@workspace:packages/wasm"],
+
     "matcher": ["matcher@3.0.0", "", { "dependencies": { "escape-string-regexp": "^4.0.0" } }, "sha512-OkeDaAZ/bQCxeFAozM55PKcKU0yJMPGifLwV4Qgjitu+5MoAfSQN4lsLJeXZ1b8w0x+/Emda6MZgXS1jvsapng=="],
 
     "math-intrinsics": ["math-intrinsics@1.1.0", "", {}, "sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g=="],
@@ -941,8 +945,6 @@
     "onnxruntime-node": ["onnxruntime-node@1.21.0", "", { "dependencies": { "global-agent": "^3.0.0", "onnxruntime-common": "1.21.0", "tar": "^7.0.1" }, "os": [ "linux", "win32", "darwin", ] }, "sha512-NeaCX6WW2L8cRCSqy3bInlo5ojjQqu2fD3D+9W5qb5irwxhEyWKXeH2vZ8W9r6VxaMPUan+4/7NDwZMtouZxEw=="],
 
     "onnxruntime-web": ["onnxruntime-web@1.22.0-dev.20250409-89f8206ba4", "", { "dependencies": { "flatbuffers": "^25.1.24", "guid-typescript": "^1.0.9", "long": "^5.2.3", "onnxruntime-common": "1.22.0-dev.20250409-89f8206ba4", "platform": "^1.3.6", "protobufjs": "^7.2.4" } }, "sha512-0uS76OPgH0hWCPrFKlL8kYVV7ckM7t/36HfbgoFw6Nd0CZVVbQC4PkrR8mBX8LtNUFZO25IQBqV2Hx2ho3FlbQ=="],
-
-    "opencut-wasm": ["opencut-wasm@0.2.10", "", {}, "sha512-dy+Z9SWwpjLjgmTAMQoMMIUmdbUk9OXoWXLoacl9xT9TCrekIGSeMM0F7bJ1H3VJwwUxbGasaVibvn5AfmeZrg=="],
 
     "optionator": ["optionator@0.9.4", "", { "dependencies": { "deep-is": "^0.1.3", "fast-levenshtein": "^2.0.6", "levn": "^0.4.1", "prelude-ls": "^1.2.1", "type-check": "^0.4.0", "word-wrap": "^1.2.5" } }, "sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g=="],
 
