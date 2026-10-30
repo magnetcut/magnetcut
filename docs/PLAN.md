@@ -53,7 +53,8 @@ telemetry: everything stays on the computer. Not for iOS or Android.
   burned in; deinterlace and denoise (GPU). Presets of your own. None of HandBrake's code: it's
   GPL and so are x264/x265. Encoders: the system's hardware ones for H.264/HEVC (fast, patents
   covered by the OS; see GPU below), and for the best quality per byte the royalty-free AV1
-  (rav1e/SVT-AV1, BSD) and VP9 (libvpx, BSD) in software. Not included: DVD and Blu-ray
+  (the web view's encoder, and rav1e, BSD, on a Mac, where WebKit has none) and VP9 (every web
+  view's own). Not included: DVD and Blu-ray
   ripping (breaking CSS/AACS is unlawful in the EU and US, and the App Store refuses it), and
   input codecs the system can't decode (MPEG-2, WMV and DivX vary by OS).
 - **Subtitles, like Jubler, synced as easily as in YouTube's editor.** A subtitle track on the
@@ -107,7 +108,10 @@ telemetry: everything stays on the computer. Not for iOS or Android.
 ## Order
 
 Done: 1, 2, 3, 4, 5 (0.1.0 is a draft release on GitHub, for the author to publish), 6 but for
-the App Store Connect record and profile (docs/RELEASING.md), 7 and 8.
+the App Store Connect record and profile (docs/RELEASING.md), 7 and 8. 9 but for Windows and
+Linux natively (docs/NATIVE.md, phase 5). 10 but for Whisper's word timings (docs/SUBTITLES.md).
+What's been done since 0.1.0 without the app open (the native export's panel, the subtitle
+editor) is tested in code but not yet tried in the app.
 
 1. Strip the server, accounts, analytics and website; static export; editor works in a browser.
 2. Rebrand: names, package scopes, storage keys, logo and icon.
