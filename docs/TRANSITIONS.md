@@ -146,10 +146,12 @@ interface Transition {
    check: that mediabunny's canvas pool doesn't reuse a canvas still being uploaded.
 
 ### Audio crossfade
-- Across the window, equal power. The gain goes in where `resolveEffectiveAudioGain`'s callers
-  apply it: per sample in `mixAudioChannels` for export; in preview, clips under a transition take
-  the prepared-buffer path with gain automation.
-- Each such clip's audio extends into its handle for the window.
+- Where a transition has `crossfadeAudio`, each clip's audio reaches into its handle across the
+  window (`getAudioCrossfades`, `transitions/audio.ts`) and fades with equal power: the outgoing
+  clip's gain follows a cosine, the incoming one's a sine, so their squares add up to one.
+- Export multiplies the gain in per sample (`mixAudioChannels`). In preview, clips under a
+  crossfade take the prepared-buffer path, and their gain automation follows the curve. Volume
+  keyframes still count from the clip's start.
 
 ### Edits
 - Commands to add, update and remove a transition (`commands/timeline/transition/`), on
@@ -201,7 +203,9 @@ About 27 to 36 days; phases 3 and 4 can run side by side after phase 2.
 Done: 0, with the frame tests in Rust (`rust/crates/compositor/src/tests.rs`: the compositor's
 own pixels, on Metal here and Mesa's software Vulkan in CI) rather than Playwright; and 1, checked
 in Chrome between two files and between two times of one file. Export builds the same scene but
-hasn't been checked by eye yet. And 2, checked in Chrome too (split, delete, undo).
+hasn't been checked by eye yet. And 2, checked in Chrome too (split, delete, undo). And 3: the
+export mix checked sample by sample in tests; in Chrome, the preview's gain ramps follow the
+curves.
 
 ## Risks
 - **Two streams at once** (4K, or one file at two times) may not hold frame rate on weak

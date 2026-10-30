@@ -25,6 +25,11 @@ import {
 	computeRmsBuckets,
 	type SampleBucket,
 } from "@/media/waveform-summary";
+import {
+	type AudioCrossfade,
+	getAudioCrossfades,
+	getCrossfadeGain,
+} from "@/transitions";
 
 const MAX_AUDIO_CHANNELS = 2;
 const EXPORT_SAMPLE_RATE = 44100;
@@ -39,6 +44,42 @@ export interface CollectedAudioElement {
 	volume: number;
 	muted: boolean;
 	retime?: RetimeConfig;
+	crossfade?: AudioCrossfade;
+}
+
+/**
+ * A clip's audio timing in seconds: its own, or reaching into its handles
+ * where a transition crossfades it.
+ */
+function getAudioTiming({
+	element,
+	crossfade,
+}: {
+	element: AudioCapableElement;
+	crossfade?: AudioCrossfade;
+}): {
+	startTime: number;
+	duration: number;
+	trimStart: number;
+	trimEnd: number;
+} {
+	const head = crossfade?.head ?? 0;
+	const tail = crossfade?.tail ?? 0;
+	const { retime } = element;
+	return {
+		startTime: element.startTime / TICKS_PER_SECOND - head,
+		duration: element.duration / TICKS_PER_SECOND + head + tail,
+		trimStart: Math.max(
+			0,
+			element.trimStart / TICKS_PER_SECOND -
+				getSourceTimeAtClipTime({ clipTime: head, retime }),
+		),
+		trimEnd: Math.max(
+			0,
+			element.trimEnd / TICKS_PER_SECOND -
+				getSourceTimeAtClipTime({ clipTime: tail, retime }),
+		),
+	};
 }
 
 export function createAudioContext({
@@ -146,6 +187,7 @@ export async function collectAudioElements({
 	const mediaMap = new Map<string, MediaAsset>(
 		mediaAssets.map((media) => [media.id, media]),
 	);
+	const crossfades = getAudioCrossfades({ tracks });
 	const pendingElements: Array<Promise<CollectedAudioElement | null>> = [];
 
 	for (const { element, mediaAsset } of candidates) {
@@ -186,13 +228,11 @@ export async function collectAudioElements({
 					audioContext,
 				}).then((audioBuffer) => {
 					if (!audioBuffer) return null;
+					const crossfade = crossfades.get(element.id);
 					return {
 						timelineElement: element,
 						buffer: audioBuffer,
-						startTime: element.startTime / TICKS_PER_SECOND,
-						duration: element.duration / TICKS_PER_SECOND,
-						trimStart: element.trimStart / TICKS_PER_SECOND,
-						trimEnd: element.trimEnd / TICKS_PER_SECOND,
+						...getAudioTiming({ element, crossfade }),
 						volume: resolveEffectiveAudioGain({
 							element,
 							trackMuted: false,
@@ -200,6 +240,7 @@ export async function collectAudioElements({
 						}),
 						muted: isElementMuted({ element }),
 						retime: element.retime,
+						crossfade,
 					};
 				}),
 			);
@@ -361,6 +402,7 @@ export interface AudioClipSource {
 	volume: number;
 	muted: boolean;
 	retime?: RetimeConfig;
+	crossfade?: AudioCrossfade;
 }
 
 async function fetchLibraryAudioSource({
@@ -462,24 +504,24 @@ function collectMediaAudioClip({
 	mediaAsset,
 	muted,
 	volume,
+	crossfade,
 }: {
 	element: AudioCapableElement;
 	mediaAsset: MediaAsset;
 	muted: boolean;
 	volume: number;
+	crossfade?: AudioCrossfade;
 }): AudioClipSource {
 	return {
 		timelineElement: element,
 		id: element.id,
 		sourceKey: mediaAsset.id,
 		file: mediaAsset.file,
-		startTime: element.startTime / TICKS_PER_SECOND,
-		duration: element.duration / TICKS_PER_SECOND,
-		trimStart: element.trimStart / TICKS_PER_SECOND,
-		trimEnd: element.trimEnd / TICKS_PER_SECOND,
+		...getAudioTiming({ element, crossfade }),
 		volume,
 		muted,
 		retime: element.retime,
+		crossfade,
 	};
 }
 
@@ -558,6 +600,7 @@ export async function collectAudioClips({
 	const mediaMap = new Map<string, MediaAsset>(
 		mediaAssets.map((asset) => [asset.id, asset]),
 	);
+	const crossfades = getAudioCrossfades({ tracks });
 	const pendingLibraryClips: Array<Promise<AudioClipSource | null>> = [];
 
 	for (const track of orderedTracks) {
@@ -607,6 +650,7 @@ export async function collectAudioClips({
 							mediaAsset,
 							muted,
 							volume,
+							crossfade: crossfades.get(element.id),
 						}),
 					);
 				}
@@ -811,7 +855,8 @@ export function extractRmsRange({
 	});
 }
 
-function mixAudioChannels({
+/** Adds a clip's audio into the output, sample by sample. */
+export function mixAudioChannels({
 	element,
 	buffer,
 	trimStart,
@@ -852,12 +897,19 @@ function mixAudioChannels({
 			const lowerIndex = Math.floor(sourceIndex);
 			const upperIndex = Math.min(sourceData.length - 1, lowerIndex + 1);
 			const fraction = sourceIndex - lowerIndex;
-			const gain = hasAnimatedVolume({ element: element.timelineElement })
+			const volume = hasAnimatedVolume({ element: element.timelineElement })
 				? resolveEffectiveAudioGain({
 						element: element.timelineElement,
-						localTime: clipTime,
+						// The clip's own time: its audio may start in its head handle.
+						localTime: Math.max(0, clipTime - (element.crossfade?.head ?? 0)),
 					})
 				: element.volume;
+			const gain =
+				volume *
+				getCrossfadeGain({
+					crossfade: element.crossfade,
+					time: startTime + clipTime,
+				});
 			outputData[outputIndex] +=
 				(sourceData[lowerIndex] * (1 - fraction) +
 					sourceData[upperIndex] * fraction) *

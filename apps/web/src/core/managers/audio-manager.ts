@@ -4,9 +4,10 @@ import { clampRetimeRate, shouldMaintainPitch } from "@/retime/rate";
 import type { AudioClipSource } from "@/media/audio";
 import { createAudioContext, collectAudioClips } from "@/media/audio";
 import {
-	buildAudioGainAutomation,
 	hasAnimatedVolume,
+	resolveEffectiveAudioGain,
 } from "@/timeline/audio-state";
+import { getCrossfadeGain, getCrossfadeTimes } from "@/transitions";
 import { createAudioMasteringChain } from "@/media/audio-mastering";
 import {
 	getClipTimeAtSourceTime,
@@ -20,6 +21,9 @@ import {
 	Input,
 	type WrappedAudioBuffer,
 } from "mediabunny";
+
+// How often a clip's gain is set while it changes (keyframes, crossfades).
+const GAIN_STEP_SECONDS = 1 / 60;
 
 export class AudioManager {
 	private audioContext: AudioContext | null = null;
@@ -462,6 +466,7 @@ export class AudioManager {
 		return (
 			this.hasCurveRetime({ clip }) ||
 			hasAnimatedVolume({ element: clip.timelineElement }) ||
+			clip.crossfade !== undefined ||
 			shouldMaintainPitch({
 				rate: clip.retime?.rate ?? 1,
 				maintainPitch: clip.retime?.maintainPitch,
@@ -487,33 +492,55 @@ export class AudioManager {
 		startTimestamp: number;
 		startLocalTime: number;
 	}): void {
+		const animated = hasAnimatedVolume({ element: clip.timelineElement });
+		const { crossfade } = clip;
+		// Local times count from the start of the clip's audio, which may begin
+		// in its head handle; the volume's keyframes count from the clip's start.
+		const head = crossfade?.head ?? 0;
+		const gainAt = (localTime: number) =>
+			(animated
+				? resolveEffectiveAudioGain({
+						element: clip.timelineElement,
+						localTime: Math.max(0, localTime - head),
+					})
+				: clip.volume) *
+			getCrossfadeGain({ crossfade, time: clip.startTime + localTime });
+
 		clipGain.gain.cancelScheduledValues(startTimestamp);
-		clipGain.gain.setValueAtTime(clip.volume, startTimestamp);
+		clipGain.gain.setValueAtTime(gainAt(startLocalTime), startTimestamp);
 
-		if (!hasAnimatedVolume({ element: clip.timelineElement })) {
+		if (!animated && !crossfade) {
 			return;
 		}
 
-		const points = buildAudioGainAutomation({
-			element: clip.timelineElement,
-			fromLocalTime: startLocalTime,
-			toLocalTime: clip.duration,
-		});
-
-		if (points.length === 0) {
-			return;
+		const localTimes: number[] = [];
+		if (animated) {
+			for (
+				let localTime = startLocalTime;
+				localTime < clip.duration;
+				localTime += GAIN_STEP_SECONDS
+			) {
+				localTimes.push(localTime);
+			}
+			localTimes.push(clip.duration);
+		} else if (crossfade) {
+			const times = getCrossfadeTimes({
+				crossfade,
+				from: clip.startTime + startLocalTime,
+				to: clip.startTime + clip.duration,
+				step: GAIN_STEP_SECONDS,
+			});
+			for (const time of times) localTimes.push(time - clip.startTime);
+			localTimes.sort((a, b) => a - b);
 		}
 
-		clipGain.gain.setValueAtTime(points[0].gain, startTimestamp);
-		for (let index = 1; index < points.length; index++) {
-			const point = points[index];
-			const pointTimestamp =
-				startTimestamp + (point.localTime - startLocalTime);
+		for (const localTime of localTimes) {
+			const pointTimestamp = startTimestamp + (localTime - startLocalTime);
 			if (pointTimestamp < audioContext.currentTime) {
 				continue;
 			}
 
-			clipGain.gain.linearRampToValueAtTime(point.gain, pointTimestamp);
+			clipGain.gain.linearRampToValueAtTime(gainAt(localTime), pointTimestamp);
 		}
 	}
 
