@@ -142,26 +142,61 @@ export const SIZE_PRESETS = [
 	{ shortSide: 480, label: "480p" },
 ] as const;
 
+/** What's cut from each side of the picture, in the project's pixels. */
+export interface ExportCrop {
+	top: number;
+	bottom: number;
+	left: number;
+	right: number;
+}
+
+export const NO_CROP: ExportCrop = { top: 0, bottom: 0, left: 0, right: 0 };
+
+export function isCropped({ crop }: { crop?: ExportCrop }): boolean {
+	return (
+		!!crop &&
+		[crop.top, crop.bottom, crop.left, crop.right].some((side) => side > 0)
+	);
+}
+
+/** The picture left once cropped, at least 16 pixels each way. */
+export function getCroppedSize({
+	canvas,
+	crop,
+}: {
+	canvas: { width: number; height: number };
+	crop?: ExportCrop;
+}): { width: number; height: number } {
+	if (!crop) return { width: canvas.width, height: canvas.height };
+	return {
+		width: Math.max(16, canvas.width - crop.left - crop.right),
+		height: Math.max(16, canvas.height - crop.top - crop.bottom),
+	};
+}
+
 /**
- * The export's size for a shorter side: the project's shape, in even numbers
- * (H.264 and HEVC need them), never larger than the project.
+ * The export's size for a shorter side: the (cropped) picture's shape, in
+ * even numbers (H.264 and HEVC need them), never larger than the picture.
  */
 export function fitExportSize({
 	canvas,
 	shortSide,
+	crop,
 }: {
 	canvas: { width: number; height: number };
 	shortSide?: number;
+	crop?: ExportCrop;
 }): { width: number; height: number } {
-	const projectShortSide = Math.min(canvas.width, canvas.height);
-	const scale = shortSide ? Math.min(1, shortSide / projectShortSide) : 1;
-	// The nearest even number, though an odd-sized project loses a pixel
+	const picture = getCroppedSize({ canvas, crop });
+	const pictureShortSide = Math.min(picture.width, picture.height);
+	const scale = shortSide ? Math.min(1, shortSide / pictureShortSide) : 1;
+	// The nearest even number, though an odd-sized picture loses a pixel
 	// rather than gains one.
 	const even = ({ value, limit }: { value: number; limit: number }) =>
 		Math.max(2, Math.min(2 * Math.round(value / 2), 2 * Math.floor(limit / 2)));
 	return {
-		width: even({ value: canvas.width * scale, limit: canvas.width }),
-		height: even({ value: canvas.height * scale, limit: canvas.height }),
+		width: even({ value: picture.width * scale, limit: picture.width }),
+		height: even({ value: picture.height * scale, limit: picture.height }),
 	};
 }
 

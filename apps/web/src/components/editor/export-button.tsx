@@ -49,6 +49,7 @@ import {
 import { useEditor } from "@/editor/use-editor";
 import {
 	BUILT_IN_PRESETS,
+	MIN_SHORT_SIDE,
 	QUALITY_MODES,
 	getChosenOptions,
 	isSameExport,
@@ -74,7 +75,11 @@ import {
 	fitAudioCodec,
 	fitExportSize,
 	fitVideoCodec,
+	getCroppedSize,
 	getVideoBitrate,
+	isCropped,
+	NO_CROP,
+	type ExportCrop,
 	type ExportVideoCodec,
 } from "@/export/settings";
 import { frameRateToFloat } from "@/fps/utils";
@@ -181,6 +186,166 @@ function useEncodableCodecs({
 		};
 	}, [width, height]);
 	return encodable;
+}
+
+/**
+ * A width and height of your own, the picture's shape kept: what's typed is
+ * applied on Enter or on leaving the field, as the shorter side it makes.
+ */
+function CustomSizeFields({
+	size,
+	picture,
+	onShortSideChange,
+}: {
+	size: { width: number; height: number };
+	picture: { width: number; height: number };
+	onShortSideChange: ({ shortSide }: { shortSide: number }) => void;
+}) {
+	type Side = "width" | "height";
+	const [draft, setDraft] = useState<{ side: Side; text: string } | null>(
+		null,
+	);
+	const commit = () => {
+		if (!draft) return;
+		setDraft(null);
+		const value = Number(draft.text);
+		if (!(value > 0)) return;
+		const shortSide =
+			(value / picture[draft.side]) * Math.min(picture.width, picture.height);
+		onShortSideChange({ shortSide: Math.max(MIN_SHORT_SIDE, shortSide) });
+	};
+	const renderField = ({ side, label }: { side: Side; label: string }) => (
+		<Input
+			type="number"
+			min={MIN_SHORT_SIDE}
+			step={2}
+			aria-label={label}
+			value={draft?.side === side ? draft.text : String(size[side])}
+			onChange={(event) => setDraft({ side, text: event.target.value })}
+			onBlur={commit}
+			onKeyDown={(event) => {
+				if (event.key === "Enter") commit();
+			}}
+		/>
+	);
+	return (
+		<div className="flex items-center gap-2">
+			{renderField({ side: "width", label: "Width" })}
+			<span className="text-muted-foreground text-sm">×</span>
+			{renderField({ side: "height", label: "Height" })}
+		</div>
+	);
+}
+
+const CROP_SIDES: { side: keyof ExportCrop; label: string }[] = [
+	{ side: "top", label: "Top" },
+	{ side: "bottom", label: "Bottom" },
+	{ side: "left", label: "Left" },
+	{ side: "right", label: "Right" },
+];
+
+/** The crop, side by side, and a button that finds the black bars. */
+function CropFields({
+	crop,
+	canvas,
+	onCropChange,
+}: {
+	crop: ExportCrop;
+	canvas: { width: number; height: number };
+	onCropChange: ({ crop }: { crop: ExportCrop }) => void;
+}) {
+	const editor = useEditor();
+	const [isFinding, setIsFinding] = useState(false);
+	const [finding, setFinding] = useState<string | null>(null);
+
+	const handleFind = async () => {
+		setIsFinding(true);
+		setFinding(null);
+		try {
+			const found = await editor.renderer.detectBlackBars();
+			if (!found) return;
+			onCropChange({ crop: found });
+			setFinding(isCropped({ crop: found }) ? null : "No black bars found");
+		} catch (error) {
+			console.error("Couldn't look for black bars:", error);
+			setFinding("Couldn't look for black bars");
+		} finally {
+			setIsFinding(false);
+		}
+	};
+
+	const setSide = ({
+		side,
+		value,
+	}: {
+		side: keyof ExportCrop;
+		value: number;
+	}) => {
+		const across =
+			side === "top" || side === "bottom" ? canvas.height : canvas.width;
+		const opposite = {
+			top: "bottom",
+			bottom: "top",
+			left: "right",
+			right: "left",
+		} as const;
+		// Whole pixels, leaving some picture; the size encoded is made even.
+		const most = across - crop[opposite[side]] - MIN_SHORT_SIDE;
+		const pixels = Math.floor(Math.max(0, Math.min(value, most)));
+		onCropChange({ crop: { ...crop, [side]: pixels } });
+	};
+
+	return (
+		<div className="flex flex-col gap-2">
+			<div className="grid grid-cols-4 gap-2">
+				{CROP_SIDES.map(({ side, label }) => (
+					<div key={side} className="flex flex-col gap-1">
+						<Label
+							htmlFor={`crop-${side}`}
+							className="text-muted-foreground text-xs"
+						>
+							{label}
+						</Label>
+						<Input
+							id={`crop-${side}`}
+							type="number"
+							min={0}
+							step={2}
+							value={crop[side]}
+							onChange={(event) =>
+								setSide({ side, value: Number(event.target.value) || 0 })
+							}
+						/>
+					</div>
+				))}
+			</div>
+			<div className="flex items-center gap-2">
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={isFinding}
+					onClick={() => void handleFind()}
+				>
+					{isFinding ? "Looking for black bars…" : "Find black bars"}
+				</Button>
+				{isCropped({ crop }) && !isFinding && (
+					<Button
+						variant="ghost"
+						size="sm"
+						onClick={() => {
+							onCropChange({ crop: NO_CROP });
+							setFinding(null);
+						}}
+					>
+						No crop
+					</Button>
+				)}
+				{finding && (
+					<span className="text-muted-foreground text-xs">{finding}</span>
+				)}
+			</div>
+		</div>
+	);
 }
 
 /** The presets, built in and your own: chosen from, saved and removed. */
@@ -327,9 +492,17 @@ function ExportPopover({
 	const options = getChosenOptions({ choices });
 	const { quality, shortSide, audio } = options;
 
+	// The crop is the film's, not the settings': it starts afresh each time.
+	const [crop, setCrop] = useState<ExportCrop>(NO_CROP);
+	const [isCustomSize, setIsCustomSize] = useState(
+		shortSide !== undefined &&
+			!SIZE_PRESETS.some((preset) => preset.shortSide === shortSide),
+	);
+
 	const canvasSize = activeProject.settings.canvasSize;
-	const projectShortSide = Math.min(canvasSize.width, canvasSize.height);
-	const outputSize = fitExportSize({ canvas: canvasSize, shortSide });
+	const picture = getCroppedSize({ canvas: canvasSize, crop });
+	const pictureShortSide = Math.min(picture.width, picture.height);
+	const outputSize = fitExportSize({ canvas: canvasSize, shortSide, crop });
 	const encodable = useEncodableCodecs(outputSize);
 	const fps = options.fps ?? activeProject.settings.fps;
 	const duration = editor.timeline.getTotalDuration() / TICKS_PER_SECOND;
@@ -383,6 +556,7 @@ function ExportPopover({
 				videoCodec,
 				quality,
 				shortSide,
+				crop: isCropped({ crop }) ? crop : undefined,
 				fps,
 				audio,
 				path,
@@ -604,35 +778,38 @@ function ExportPopover({
 
 									<Section collapsible defaultOpen={false}>
 										<SectionHeader>
-											<SectionTitle>Size and frame rate</SectionTitle>
+											<SectionTitle>Size, crop and frame rate</SectionTitle>
 										</SectionHeader>
 										<SectionContent>
 											<SectionFields>
 												<SectionField label="Size">
 													<Select
 														value={
-															shortSide && shortSide < projectShortSide
-																? String(shortSide)
-																: "project"
+															isCustomSize
+																? "custom"
+																: shortSide && shortSide < pictureShortSide
+																	? String(shortSide)
+																	: "full"
 														}
-														onValueChange={(value) =>
+														onValueChange={(value) => {
+															setIsCustomSize(value === "custom");
+															if (value === "custom") return;
 															setChoices({
 																choices: {
-																	shortSide:
-																		value === "project" ? null : Number(value),
+																	shortSide: value === "full" ? null : Number(value),
 																},
-															})
-														}
+															});
+														}}
 													>
 														<SelectTrigger variant="outline">
 															<SelectValue />
 														</SelectTrigger>
 														<SelectContent position="popper">
-															<SelectItem value="project">
-																{`The project's (${canvasSize.width}×${canvasSize.height})`}
+															<SelectItem value="full">
+																{`Full size (${picture.width}×${picture.height})`}
 															</SelectItem>
 															{SIZE_PRESETS.filter(
-																(preset) => preset.shortSide < projectShortSide,
+																(preset) => preset.shortSide < pictureShortSide,
 															).map((preset) => (
 																<SelectItem
 																	key={preset.shortSide}
@@ -641,8 +818,25 @@ function ExportPopover({
 																	{preset.label}
 																</SelectItem>
 															))}
+															<SelectItem value="custom">Your own</SelectItem>
 														</SelectContent>
 													</Select>
+													{isCustomSize && (
+														<CustomSizeFields
+															size={outputSize}
+															picture={picture}
+															onShortSideChange={({ shortSide: side }) =>
+																setChoices({ choices: { shortSide: side } })
+															}
+														/>
+													)}
+												</SectionField>
+												<SectionField label="Crop">
+													<CropFields
+														crop={crop}
+														canvas={canvasSize}
+														onCropChange={({ crop: next }) => setCrop(next)}
+													/>
 												</SectionField>
 												<SectionField label="Frame rate">
 													<Select

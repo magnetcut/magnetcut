@@ -13,6 +13,7 @@ All notable changes to this project are documented here. The format is based on
   mono. The panel says what it will make and about how big before it starts.
 - Export presets: a few built in (Fast 1080p, Fits in 25 MB, Web 1080p and others) and your
   own. Export remembers the settings you used last.
+- Crop on export, with Find black bars to take off letterboxing, and a size of your own.
 
 ### Changed
 - The desktop app reads imported media where it is on your computer instead of copying it into

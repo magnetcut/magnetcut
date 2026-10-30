@@ -6,11 +6,20 @@ import { SceneExporter } from "@/services/renderer/scene-exporter";
 import { openExportFile } from "@/export/disk-target";
 import { buildScene } from "@/services/renderer/scene-builder";
 import { mixTimelineAudio } from "@/media/audio-mix";
-import { fitExportSize, getVideoBitrate } from "@/export/settings";
+import {
+	fitExportSize,
+	getVideoBitrate,
+	isCropped,
+	type ExportCrop,
+} from "@/export/settings";
+import { findFrameBars, mergeBlackBars } from "@/export/black-bars";
 import { formatTimecode } from "magnetcut-wasm";
 import { TICKS_PER_SECOND } from "@/wasm";
 import { frameRateToFloat } from "@/fps/utils";
 import { downloadBlob } from "@/utils/browser";
+
+// Frames looked at for black bars, spread across the timeline.
+const BLACK_BAR_SAMPLES = 12;
 
 type SnapshotResult =
 	| { success: true; blob: Blob; filename: string }
@@ -150,7 +159,7 @@ export class RendererManager {
 		onProgress?: ({ progress }: { progress: number }) => void;
 		onCancel?: () => boolean;
 	}): Promise<ExportResult> {
-		const { format, videoCodec, quality, shortSide, fps, audio, path } =
+		const { format, videoCodec, quality, shortSide, crop, fps, audio, path } =
 			options;
 
 		try {
@@ -170,8 +179,14 @@ export class RendererManager {
 			const exportFps = fps ?? activeProject.settings.fps;
 			const canvasSize = activeProject.settings.canvasSize;
 
-			const outputSize = fitExportSize({ canvas: canvasSize, shortSide });
+			const hasCrop = isCropped({ crop });
+			const outputSize = fitExportSize({
+				canvas: canvasSize,
+				shortSide,
+				crop: hasCrop ? crop : undefined,
+			});
 			const isScaled =
+				hasCrop ||
 				outputSize.width !== canvasSize.width ||
 				outputSize.height !== canvasSize.height;
 			const audioBitrate = audio ? audio.kbps * 1000 : 0;
@@ -195,6 +210,7 @@ export class RendererManager {
 				width: canvasSize.width,
 				height: canvasSize.height,
 				outputSize: isScaled ? outputSize : undefined,
+				crop: hasCrop ? crop : undefined,
 				fps: exportFps,
 				format,
 				videoCodec,
@@ -248,6 +264,41 @@ export class RendererManager {
 				error: error instanceof Error ? error.message : "Unknown export error",
 			};
 		}
+	}
+
+	/**
+	 * Black bars around the picture, for Export's crop, from frames rendered
+	 * across the timeline as they'd be exported: null if there's nothing to look at.
+	 */
+	async detectBlackBars(): Promise<ExportCrop | null> {
+		const activeProject = this.editor.project.getActiveOrNull();
+		const duration = this.editor.timeline.getTotalDuration();
+		if (!activeProject || duration === 0) return null;
+
+		const { canvasSize, fps, background } = activeProject.settings;
+		const scene = buildScene({
+			tracks: this.editor.scenes.getActiveScene().tracks,
+			mediaAssets: this.editor.media.getAssets(),
+			duration,
+			canvasSize,
+			background,
+		});
+		const renderer = new CanvasRenderer({ ...canvasSize, fps });
+		const target = document.createElement("canvas");
+		target.width = canvasSize.width;
+		target.height = canvasSize.height;
+		const context = target.getContext("2d", { willReadFrequently: true });
+		if (!context) return null;
+
+		// One frame's pixels at a time: a dozen 4K frames would be 400 MB.
+		const bars = [];
+		for (let i = 0; i < BLACK_BAR_SAMPLES; i++) {
+			const time = Math.floor(((i + 0.5) / BLACK_BAR_SAMPLES) * duration);
+			await renderer.renderToCanvas({ node: scene, time, targetCanvas: target });
+			const frame = context.getImageData(0, 0, target.width, target.height);
+			bars.push(findFrameBars({ frame }));
+		}
+		return mergeBlackBars({ bars, ...canvasSize });
 	}
 
 	subscribe(listener: () => void): () => void {

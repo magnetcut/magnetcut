@@ -123,9 +123,15 @@ and give it constant quality and the encoders the web views lack.
   anything is encoded: a level is mediabunny's own sum (3 Mbit/s for medium H.264 at 1080p,
   scaled by the picture and the codec; a test keeps the two equal), a file size what's left
   after the audio and about 1% for the container, encoded at a constant bitrate.
-- Size: the project's, or 4K, 1440p, 1080p, 720p or 480p by the shorter side, so a portrait
-  project stays portrait; never larger than the project, in even numbers. The compositor still
-  draws at the project's size, and each frame is scaled onto a canvas of the size encoded.
+- Size: the full picture, 4K, 1440p, 1080p, 720p or 480p by the shorter side (so a portrait
+  project stays portrait), or a width or height of your own, the shape kept; never larger than
+  the picture, in even numbers. The compositor still draws at the project's size, and each
+  frame is cropped and scaled onto a canvas of the size encoded.
+- Crop: pixels off each side, typed or found. Find black bars renders twelve frames across the
+  timeline as they'd be exported and keeps the rows and columns along the edges that are black
+  in every frame with a picture (dark on average and nowhere bright, which allows for a
+  compressed source's noise; `export/black-bars.ts`), in even numbers, and none if they'd take
+  most of the picture. The crop belongs to the film, so it isn't kept with the settings.
 - Frame rate: the project's or another, constant (23.976 to 60).
 - Audio: AAC or Opus, the bitrate, stereo or mono (the mix downmixed).
 - The panel says what it'll make (codec, size, rate, sound, about how big) before it starts.
@@ -133,8 +139,8 @@ and give it constant quality and the encoders the web views lack.
   and Archive (HEVC), one greyed out where its codec can't be encoded; and your own, saved
   from the panel. The panel's choices are kept for the next export, presets with them, in
   local storage (`export/choices-store.ts`), and checked field by field when read back.
-- Still to do: a size of your own and crop, with black bars found from sampled frames; audio
-  passthrough when the soundtrack is one source's audio uncut (`EncodedAudioPacketSource`).
+- Still to do: audio passthrough when the soundtrack is one source's audio uncut
+  (`EncodedAudioPacketSource`).
 
 ### 4. Natively on macOS
 - `rust/crates/media` (new): decode with VideoToolbox (`objc2-video-toolbox`, MIT), frames as
@@ -197,4 +203,6 @@ and give it constant quality and the encoders the web views lack.
   at 25 fps), with the codec, size and channels asked for; the MP4s and MOVs play in
   AVFoundation (HEVC as `hvc1`), and the 480p frame is the whole picture, scaled. AV1 is the
   one codec this Mac's web view doesn't encode. Presets, in Chrome: chosen, saved, kept
-  across a reload with the last choices, and removed.
+  across a reload with the last choices, and removed. A 16:9 clip on black in a 4:3 project:
+  bars of 120 found at top and bottom in all twelve frames, in 0.8 s, and the export cropped to
+  the clip and scaled to 854x480, every frame, with no black left.

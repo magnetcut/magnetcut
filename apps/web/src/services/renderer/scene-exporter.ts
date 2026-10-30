@@ -22,7 +22,9 @@ import type { ExportFormat } from "@/export";
 import type { ExportFile } from "@/export/disk-target";
 import {
 	FORMAT_CODECS,
+	NO_CROP,
 	type ExportAudioSettings,
+	type ExportCrop,
 	type ExportVideoCodec,
 } from "@/export/settings";
 import { EXPORT_SAMPLE_RATE } from "@/media/audio-mix";
@@ -34,6 +36,8 @@ type ExportParams = {
 	height: number;
 	/** The size encoded, if not the project's: the picture is scaled to it. */
 	outputSize?: { width: number; height: number };
+	/** What's cut from the picture's edges first; needs `outputSize`. */
+	crop?: ExportCrop;
 	fps: FrameRate;
 	format: ExportFormat;
 	videoCodec: ExportVideoCodec;
@@ -154,6 +158,7 @@ export type SceneExporterEvents = {
 export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 	private renderer: CanvasRenderer;
 	private outputSize?: { width: number; height: number };
+	private crop?: ExportCrop;
 	private format: ExportFormat;
 	private videoCodec: ExportVideoCodec;
 	private videoBitrate: number;
@@ -168,6 +173,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		width,
 		height,
 		outputSize,
+		crop,
 		fps,
 		format,
 		videoCodec,
@@ -185,6 +191,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		});
 
 		this.outputSize = outputSize;
+		this.crop = crop;
 		this.format = format;
 		this.videoCodec = videoCodec;
 		this.videoBitrate = videoBitrate;
@@ -239,8 +246,15 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 			: new BufferTarget();
 		const output = new Output({ format: outputFormat, target });
 
-		// The composited frame, or a copy scaled to the size encoded.
+		// The composited frame, or a copy cropped and scaled to the size encoded.
 		const composited = this.renderer.getOutputCanvas();
+		const crop = this.crop ?? NO_CROP;
+		const source = {
+			x: crop.left,
+			y: crop.top,
+			width: this.renderer.width - crop.left - crop.right,
+			height: this.renderer.height - crop.top - crop.bottom,
+		};
 		const scaled = this.outputSize
 			? new OffscreenCanvas(this.outputSize.width, this.outputSize.height)
 			: null;
@@ -300,7 +314,17 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 			await soundtrack?.addUntil({ time: timeSeconds });
 			await this.renderer.render({ node: rootNode, time: timeTicks });
 			if (scaled && scaledContext) {
-				scaledContext.drawImage(composited, 0, 0, scaled.width, scaled.height);
+				scaledContext.drawImage(
+					composited,
+					source.x,
+					source.y,
+					source.width,
+					source.height,
+					0,
+					0,
+					scaled.width,
+					scaled.height,
+				);
 			}
 			await videoSource.add(timeSeconds, 1 / fpsFloat);
 

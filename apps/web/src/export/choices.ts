@@ -10,7 +10,6 @@ import {
 	DEFAULT_AUDIO_KBPS,
 	FORMAT_CODECS,
 	FRAME_RATE_PRESETS,
-	SIZE_PRESETS,
 	type ExportAudioCodec,
 	type ExportAudioSettings,
 	type ExportVideoCodec,
@@ -31,7 +30,7 @@ export interface ExportChoices {
 	level: ExportQuality;
 	videoKbps: number;
 	megabytes: number;
-	/** The shorter side; none for the project's size. */
+	/** The shorter side, a preset's or your own; none for the full size. */
 	shortSide: number | null;
 	/** A `FRAME_RATE_PRESETS` label; none for the project's rate. */
 	fpsLabel: string | null;
@@ -193,6 +192,9 @@ export function isSameExport({
 	return effective(a) === effective(b);
 }
 
+// The smallest picture offered: below it, encoders refuse or it's no use.
+export const MIN_SHORT_SIDE = 16;
+
 function readField({ value, key }: { value: unknown; key: string }): unknown {
 	if (typeof value !== "object" || value === null) return undefined;
 	const field: unknown = Reflect.get(value, key);
@@ -246,9 +248,10 @@ export function sanitizeChoices({ value }: { value: unknown }): ExportChoices {
 			defaults.level,
 		videoKbps: isPositiveNumber(videoKbps) ? videoKbps : defaults.videoKbps,
 		megabytes: isPositiveNumber(megabytes) ? megabytes : defaults.megabytes,
-		shortSide: SIZE_PRESETS.some((preset) => preset.shortSide === shortSide)
-			? Number(shortSide)
-			: null,
+		shortSide:
+			isPositiveNumber(shortSide) && shortSide >= MIN_SHORT_SIDE
+				? shortSide
+				: null,
 		fpsLabel:
 			FRAME_RATE_PRESETS.find((preset) => preset.label === fpsLabel)?.label ??
 			null,

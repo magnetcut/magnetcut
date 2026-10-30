@@ -2,6 +2,7 @@ import type { FrameRate } from "magnetcut-wasm";
 import { EXPORT_MIME_TYPES } from "./mime-types";
 import type {
 	ExportAudioSettings,
+	ExportCrop,
 	ExportVideoCodec,
 	ExportVideoQuality,
 } from "./settings";
@@ -24,6 +25,8 @@ export interface ExportOptions {
 	quality: ExportVideoQuality;
 	/** The shorter side of the picture; the project's size if none. */
 	shortSide?: number;
+	/** What's cut from the picture's edges, before it's scaled. */
+	crop?: ExportCrop;
 	fps?: FrameRate;
 	/** None: no sound. */
 	audio: ExportAudioSettings | null;

@@ -40,7 +40,7 @@ describe("sanitizeChoices", () => {
 					level: "best",
 					videoKbps: -1,
 					megabytes: Number.NaN,
-					shortSide: 1234,
+					shortSide: 8,
 					fpsLabel: "61",
 					hasAudio: "yes",
 					channels: 6,
