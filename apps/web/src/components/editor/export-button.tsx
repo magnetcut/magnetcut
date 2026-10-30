@@ -919,7 +919,7 @@ function ExportPopover({
 																/>
 																<p className="text-muted-foreground text-xs">
 																	{canKeepQuality
-																		? "Kept by the Mac's encoder. Where it can't make the film (a turned or blurred clip), a bitrate like it."
+																		? "Kept by the Mac's encoder. Where it can't make the film (a clip with a blurred background), a bitrate like it."
 																		: "Kept only in H.264 and HEVC on a Mac with Apple silicon; here, a bitrate like it."}
 																</p>
 															</SectionField>

@@ -156,9 +156,11 @@ and give it constant quality and the encoders the web views lack.
   an `AVAssetWriter`: H.264 High, HEVC Main and ProRes 422 (HQ too) in QuickTime; AAC from the
   mix, or the source's sound passed through as it's stored when Export copies it (AAC only, so
   far); BT.709; a key frame at least every 2 s; MP4s with their index first.
-- Export takes this road on macOS when it can: MP4 or MOV, H.264 or HEVC, AAC or no sound, and
-  every video a file on disk that AVFoundation decodes, none of them turned, none blurred
-  behind itself. Otherwise the web view's export, as before.
+- Export takes this road on macOS when it can: MP4 or MOV, H.264, HEVC or ProRes, AAC or no
+  sound, and every video a file on disk that AVFoundation decodes, none blurred behind itself.
+  Otherwise the web view's export, as before.
+- A video stored on its side (a phone's, held upright) is turned on the GPU as it's shown
+  (`turn.rs`) before the compositor draws it; the editor already lays it out at that size.
 - Constant quality instead of a bitrate (`AVVideoQualityKey`) for H.264 and HEVC on Apple
   silicon, whose hardware encoders take it (`native_export_capabilities` says so). Settings are
   checked with `canApplyOutputSettings` first: an input raises an exception for settings it
@@ -169,10 +171,9 @@ and give it constant quality and the encoders the web views lack.
 - The panel offers ProRes 422 and 422 HQ in QuickTime where the native export is, its size
   reckoned from Apple's rates (147 and 220 Mbit/s at 1080p and 29.97); and Constant quality,
   1 to 100, on Apple silicon. Where the native export can't make the film, ProRes fails with
-  why (`findNativeSources` says: a turned or blurred clip, a file the Mac can't decode) and a
+  why (`findNativeSources` says: a blurred background, a file the Mac can't decode) and a
   constant quality becomes a bitrate like it: Medium's at 60, twice as much each 10 more.
-- Still to do: turned videos, the decoded frame used as a Metal texture without the copy, and
-  10-bit HEVC.
+- Still to do: the decoded frame used as a Metal texture without the copy, and 10-bit HEVC.
 - What the web view can't decode (ProRes, DNxHR) can work there too, once the editor can show
   it.
 

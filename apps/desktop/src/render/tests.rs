@@ -124,16 +124,21 @@ fn decodes_the_frames_it_encoded() {
 
 /// A layer showing the texture `id` over the whole of a `size` canvas.
 fn frame_showing(id: &str, size: u32) -> compositor::FrameDescriptor {
-    let half = size as f32 / 2.0;
+    frame_sized(id, size, size)
+}
+
+/// A layer showing the texture `id` over the whole of a canvas this size.
+fn frame_sized(id: &str, width: u32, height: u32) -> compositor::FrameDescriptor {
+    let (center_x, center_y) = (width as f32 / 2.0, height as f32 / 2.0);
     serde_json::from_value(serde_json::json!({
-        "width": size,
-        "height": size,
+        "width": width,
+        "height": height,
         "clear": { "color": [0, 0, 0, 1] },
         "items": [{
             "type": "layer",
             "textureId": id,
             "transform": {
-                "centerX": half, "centerY": half, "width": size, "height": size,
+                "centerX": center_x, "centerY": center_y, "width": width, "height": height,
                 "rotationDegrees": 0, "flipX": false, "flipY": false
             },
             "opacity": 1,
@@ -497,4 +502,121 @@ fn constant_quality_steers_the_encoder() {
             "{codec:?}: {low} bytes at 0.2, {high} at 0.9"
         );
     }
+}
+
+/// A second of 64x32 frames, bright above and dark below, written as a
+/// phone does one held upright: stored on its side, to be turned 90 degrees.
+fn make_turned_source(stored: &Path, turned: &Path) {
+    use objc2_av_foundation::{
+        AVFileTypeQuickTimeMovie, AVMediaTypeVideo, AVMovieWritingOptions, AVMutableMovie,
+    };
+    use objc2_core_foundation::CGAffineTransform;
+
+    let video = VideoSettings {
+        codec: VideoCodec::Avc,
+        width: 64,
+        height: 32,
+        bitrate: 2_000_000,
+        quality: None,
+        fps: FPS,
+    };
+    let mut writer = Writer::new(stored, Container::Mov, &video, None).unwrap();
+    for _ in 0..30 {
+        let buffer = writer.pixel_buffer().unwrap();
+        with_pixels(&buffer, |pixels, row| {
+            for (y, line) in pixels.chunks_exact_mut(row).enumerate() {
+                let level = if y < 16 { 230 } else { 20 };
+                for pixel in line.as_chunks_mut::<4>().0 {
+                    *pixel = [level, level, level, 255];
+                }
+            }
+        });
+        writer.add_frame(&buffer).unwrap();
+    }
+    writer.finish().unwrap();
+
+    let url = super::av::file_url(stored).unwrap();
+    let movie = unsafe { AVMutableMovie::movieWithURL_options_error(&url, None) }.unwrap();
+    let track = unsafe { movie.tracksWithMediaType(AVMediaTypeVideo.unwrap()) }
+        .firstObject()
+        .unwrap();
+    // A quarter turn clockwise, moved back into view.
+    let quarter = CGAffineTransform {
+        a: 0.0,
+        b: 1.0,
+        c: -1.0,
+        d: 0.0,
+        tx: 32.0,
+        ty: 0.0,
+    };
+    unsafe { track.setPreferredTransform(quarter) };
+    let _ = std::fs::remove_file(turned);
+    let out = super::av::file_url(turned).unwrap();
+    unsafe {
+        movie.writeMovieHeaderToURL_fileType_options_error(
+            &out,
+            AVFileTypeQuickTimeMovie.unwrap(),
+            AVMovieWritingOptions::AddMovieHeaderToDestination,
+        )
+    }
+    .unwrap();
+}
+
+#[test]
+fn turns_a_source_as_it_is_shown() {
+    let (stored, turned) = (temporary("stored.mov"), temporary("turned.mov"));
+    make_turned_source(&stored, &turned);
+    assert_eq!(
+        decode::probe(&turned).unwrap(),
+        Some(SourceInfo {
+            width: 32,
+            height: 64,
+            rotation: 90
+        })
+    );
+
+    let path = temporary("upright.mp4");
+    let options = StartOptions {
+        path: path.to_str().unwrap().to_owned(),
+        format: Container::Mp4,
+        width: 32,
+        height: 64,
+        crop: Crop::default(),
+        output_width: 32,
+        output_height: 64,
+        fps: FPS,
+        video_codec: VideoCodec::Avc,
+        video_bitrate: 1_000_000,
+        video_quality: None,
+        audio: None,
+        audio_copy: None,
+    };
+    let Ok(mut worker) = Worker::new(&path, &options) else {
+        eprintln!("No GPU: skipped");
+        return;
+    };
+    for i in 0..30 {
+        let video = VideoFrame {
+            texture_id: "video".into(),
+            location: turned.clone(),
+            stream: String::new(),
+            time: f64::from(i) / 30.0,
+        };
+        let message = Message::Frame {
+            frame: frame_sized("video", 32, 64),
+            videos: vec![video],
+            released: vec![],
+        };
+        worker.handle(message).unwrap();
+    }
+    worker.finish().unwrap();
+
+    // Turned clockwise, what was above is on the right.
+    let mut reader = VideoReader::open(&path, 0.0).unwrap();
+    let (_, pixels) = reader.frame_at(0.5).unwrap().unwrap();
+    let (left, right) = with_pixels(pixels, |pixels, row| {
+        let at = |x: usize, y: usize| pixels[y * row + x * 4];
+        (at(8, 32), at(24, 32))
+    });
+    assert!(right > 200 && left < 50, "left {left}, right {right}");
 }

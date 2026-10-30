@@ -14,6 +14,8 @@ use objc2_core_video::{
 };
 use serde::Deserialize;
 
+use super::turn::Turner;
+
 /// What's cut from the picture's edges, in the project's pixels.
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
 pub struct Crop {
@@ -26,6 +28,9 @@ pub struct Crop {
 pub struct FrameRenderer {
     context: GpuContext,
     compositor: Compositor,
+    turner: Turner,
+    /// Turned sources' pictures as they're stored, by texture id.
+    stored: HashMap<String, wgpu::Texture>,
     /// The cut picture, when it's also scaled.
     cropped: Option<wgpu::Texture>,
     /// The sizes it's halved through on the way down, then the size encoded.
@@ -88,9 +93,12 @@ impl FrameRenderer {
             mapped_at_creation: false,
         });
         let compositor = Compositor::new(&context);
+        let turner = Turner::new(&context);
         Ok(Self {
             context,
             compositor,
+            turner,
+            stored: HashMap::new(),
             cropped,
             steps,
             crop,
@@ -101,11 +109,16 @@ impl FrameRenderer {
         })
     }
 
-    /// Puts a picture in the texture of that id: the one there if it's the
-    /// same size, otherwise a new one.
+    /// Puts a picture in the texture of that id.
     pub fn upload(&mut self, id: &str, pixels: Pixels<'_>) {
-        let size = (pixels.width, pixels.height);
-        let texture = match self.compositor.texture(id) {
+        let texture = self.texture(id, (pixels.width, pixels.height));
+        self.write(&texture, &pixels);
+    }
+
+    /// The texture of that id: the one there if it's this size, otherwise a
+    /// new one.
+    fn texture(&mut self, id: &str, size: (u32, u32)) -> wgpu::Texture {
+        match self.compositor.texture(id) {
             Some(texture) if (texture.width(), texture.height()) == size => texture.clone(),
             _ => {
                 let texture = self
@@ -115,10 +128,13 @@ impl FrameRenderer {
                     .upsert_texture(id.to_owned(), texture.clone());
                 texture
             }
-        };
+        }
+    }
+
+    fn write(&self, texture: &wgpu::Texture, pixels: &Pixels<'_>) {
         self.context.queue().write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: &texture,
+                texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -129,16 +145,18 @@ impl FrameRenderer {
                 bytes_per_row: Some(pixels.bytes_per_row),
                 rows_per_image: Some(pixels.height),
             },
-            wgpu::Extent3d {
-                width: size.0,
-                height: size.1,
-                depth_or_array_layers: 1,
-            },
+            extent((pixels.width, pixels.height)),
         );
     }
 
-    /// Puts a decoded picture in the texture of that id.
-    pub fn upload_pixel_buffer(&mut self, id: &str, buffer: &CVPixelBuffer) -> Result<(), String> {
+    /// Puts a decoded picture in the texture of that id, turned clockwise by
+    /// `rotation` degrees as the source says it's shown.
+    pub fn upload_pixel_buffer(
+        &mut self,
+        id: &str,
+        buffer: &CVPixelBuffer,
+        rotation: u32,
+    ) -> Result<(), String> {
         let lock = CVPixelBufferLockFlags::ReadOnly;
         if unsafe { CVPixelBufferLockBaseAddress(buffer, lock) } != kCVReturnSuccess {
             return Err("couldn't read a decoded picture".into());
@@ -147,28 +165,53 @@ impl FrameRenderer {
         let height = CVPixelBufferGetHeight(buffer);
         let bytes_per_row = CVPixelBufferGetBytesPerRow(buffer);
         let base = CVPixelBufferGetBaseAddress(buffer);
-        if !base.is_null() {
+        let result = if base.is_null() {
+            Err("a decoded picture has no pixels".into())
+        } else {
             // SAFETY: locked, the buffer's memory is its rows, each this long.
             let data =
                 unsafe { std::slice::from_raw_parts(base.cast::<u8>(), bytes_per_row * height) };
-            self.upload(
-                id,
-                Pixels {
-                    width: width as u32,
-                    height: height as u32,
-                    bytes_per_row: bytes_per_row as u32,
-                    data,
-                },
-            );
-        }
+            let pixels = Pixels {
+                width: width as u32,
+                height: height as u32,
+                bytes_per_row: bytes_per_row as u32,
+                data,
+            };
+            self.upload_turned(id, &pixels, rotation)
+        };
         unsafe { CVPixelBufferUnlockBaseAddress(buffer, lock) };
-        if base.is_null() {
-            return Err("a decoded picture has no pixels".into());
+        result
+    }
+
+    fn upload_turned(
+        &mut self,
+        id: &str,
+        pixels: &Pixels<'_>,
+        rotation: u32,
+    ) -> Result<(), String> {
+        let size = (pixels.width, pixels.height);
+        if rotation == 0 {
+            let texture = self.texture(id, size);
+            self.write(&texture, pixels);
+            return Ok(());
         }
-        Ok(())
+        let stored = match self.stored.get(id) {
+            Some(texture) if (texture.width(), texture.height()) == size => texture.clone(),
+            _ => {
+                let texture = self
+                    .context
+                    .create_render_texture(size.0, size.1, "export-stored");
+                self.stored.insert(id.to_owned(), texture.clone());
+                texture
+            }
+        };
+        self.write(&stored, pixels);
+        let shown = self.texture(id, Turner::shown_size(size, rotation));
+        self.turner.turn(&self.context, &stored, &shown, rotation)
     }
 
     pub fn release(&mut self, id: &str) {
+        self.stored.remove(id);
         self.compositor.release_texture(id);
     }
 

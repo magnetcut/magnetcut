@@ -18,6 +18,7 @@ use objc2_foundation::{NSDictionary, NSNumber, NSString};
 use serde::Serialize;
 
 use super::av::{any, av, bridged, describe, dictionary, file_url, seconds, to_seconds};
+use super::turn::Turner;
 
 /// A source's picture as the editor shows it: turned as the file says.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -46,24 +47,15 @@ pub fn probe(location: &Path) -> Result<Option<SourceInfo>, String> {
     };
     // The synchronous properties: on the export's thread, waiting is fine.
     #[allow(deprecated)]
-    let (decodable, size, transform) = unsafe {
-        (
-            track.isDecodable(),
-            track.naturalSize(),
-            track.preferredTransform(),
-        )
-    };
+    let (decodable, size) = unsafe { (track.isDecodable(), track.naturalSize()) };
     if !decodable {
         return Ok(None);
     }
-    let degrees = transform.b.atan2(transform.a).to_degrees();
-    let rotation = ((degrees / 90.0).round() as i32).rem_euclid(4) as u32 * 90;
-    let (width, height) = (size.width.round() as u32, size.height.round() as u32);
-    let (width, height) = if rotation.is_multiple_of(180) {
-        (width, height)
-    } else {
-        (height, width)
-    };
+    let rotation = rotation(&track);
+    let (width, height) = Turner::shown_size(
+        (size.width.round() as u32, size.height.round() as u32),
+        rotation,
+    );
     Ok(Some(SourceInfo {
         width,
         height,
@@ -74,6 +66,15 @@ pub fn probe(location: &Path) -> Result<Option<SourceInfo>, String> {
 pub(super) fn open_asset(location: &Path) -> Result<Retained<AVURLAsset>, String> {
     let url = file_url(location)?;
     Ok(unsafe { AVURLAsset::URLAssetWithURL_options(&url, None) })
+}
+
+/// How the track's pictures are turned to be shown: clockwise, in degrees,
+/// to the nearest quarter turn.
+fn rotation(track: &AVAssetTrack) -> u32 {
+    #[allow(deprecated)]
+    let transform = unsafe { track.preferredTransform() };
+    let degrees = transform.b.atan2(transform.a).to_degrees();
+    ((degrees / 90.0).round() as i32).rem_euclid(4) as u32 * 90
 }
 
 fn video_track(asset: &AVURLAsset) -> Result<Option<Retained<AVAssetTrack>>, String> {
@@ -101,6 +102,7 @@ pub struct VideoReader {
     is_done: bool,
     /// Where reading may start and still find a frame: before the last.
     latest_start: f64,
+    rotation: u32,
 }
 
 impl VideoReader {
@@ -112,6 +114,7 @@ impl VideoReader {
         let latest_start = to_seconds(range.start) + to_seconds(range.duration) - LAST_SEEK;
         let time = time.min(latest_start);
         let (reader, output) = start_reading(&asset, &track, time)?;
+        let rotation = rotation(&track);
         Ok(Self {
             asset,
             track,
@@ -122,7 +125,13 @@ impl VideoReader {
             next: None,
             is_done: false,
             latest_start,
+            rotation,
         })
+    }
+
+    /// How its pictures are turned to be shown: clockwise, in degrees.
+    pub fn rotation(&self) -> u32 {
+        self.rotation
     }
 
     /// The frame showing at `time`: the last one to start by then, or the

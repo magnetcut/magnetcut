@@ -44,8 +44,9 @@ export type NativeSources =
 /**
  * The scene's videos as the native export sees them, by path, if it can make
  * this export: on macOS, into MP4 or QuickTime, in H.264, HEVC or ProRes with
- * AAC or no sound, from videos on disk that AVFoundation decodes, none of
- * them turned. Otherwise why not, and the web view makes it (but ProRes).
+ * AAC or no sound, from videos on disk that AVFoundation decodes (turned as
+ * they're shown: their sizes are). Otherwise why not, and the web view makes
+ * it (but ProRes).
  */
 export async function findNativeSources({
 	rootNode,
@@ -83,7 +84,6 @@ export async function findNativeSources({
 	for (const [index, info] of infos.entries()) {
 		const name = paths[index].split(/[\\/]/).pop();
 		if (!info) return { reason: `the Mac can't decode ${name}` };
-		if (info.rotation !== 0) return { reason: `${name} is turned` };
 		sources.set(paths[index], info);
 	}
 	return { sources };

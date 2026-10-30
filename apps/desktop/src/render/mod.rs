@@ -11,6 +11,7 @@ mod encode;
 mod frames;
 #[cfg(test)]
 mod tests;
+mod turn;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -531,10 +532,11 @@ impl Worker {
             let (source, reader) =
                 self.sources
                     .reader(&video.location, &video.stream, video.time)?;
+            let rotation = reader.rotation();
             match reader.frame_at(video.time)? {
                 Some((time, pixels)) if !self.uploaded.has(&video.texture_id, source, time) => {
                     self.renderer
-                        .upload_pixel_buffer(&video.texture_id, pixels)?;
+                        .upload_pixel_buffer(&video.texture_id, pixels, rotation)?;
                     self.uploaded.set(&video.texture_id, source, time);
                 }
                 // A source with no pictures at all shows nothing.
