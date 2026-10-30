@@ -133,14 +133,18 @@ and give it constant quality and the encoders the web views lack.
   compressed source's noise; `export/black-bars.ts`), in even numbers, and none if they'd take
   most of the picture. The crop belongs to the film, so it isn't kept with the settings.
 - Frame rate: the project's or another, constant (23.976 to 60).
-- Audio: AAC or Opus, the bitrate, stereo or mono (the mix downmixed).
+- Audio: AAC or Opus, the bitrate, stereo or mono (the mix downmixed); or the source's sound
+  copied, as HandBrake's passthru does, when the whole soundtrack is one file's, uncut (one
+  clip heard, from the start of the timeline and of its file, no speed change or crossfade,
+  at 0 dB without keyframes; it may stop early) in a codec the container takes
+  (`export/passthrough.ts`). Its packets go into the file as they are, a little ahead of the
+  frames, through the one the soundtrack ends in. Packets before zero, the encoder's priming
+  that the source's edit list hides, are left out: mediabunny writes no edit lists.
 - The panel says what it'll make (codec, size, rate, sound, about how big) before it starts.
 - Presets: Default, Fast 1080p, Small 720p, Fits in 25 MB, Fits in 10 MB, Web 1080p (WebM)
   and Archive (HEVC), one greyed out where its codec can't be encoded; and your own, saved
   from the panel. The panel's choices are kept for the next export, presets with them, in
   local storage (`export/choices-store.ts`), and checked field by field when read back.
-- Still to do: audio passthrough when the soundtrack is one source's audio uncut
-  (`EncodedAudioPacketSource`).
 
 ### 4. Natively on macOS
 - `rust/crates/media` (new): decode with VideoToolbox (`objc2-video-toolbox`, MIT), frames as
@@ -173,6 +177,9 @@ and give it constant quality and the encoders the web views lack.
   that peaked over 0.98 did. A quiet mix comes out about 0.5 dB louder (the limiter's makeup
   gain) and 6 ms later (its lookahead), as it plays in the editor.
 - H.264 Baseline gives less quality for its bitrate than High, until phase 4 encodes natively.
+- Copied sound skips the limiter, so it's the file's, not quite as it played in the editor
+  (half a decibel at most), and without the priming packets its first milliseconds decode a
+  little differently.
 - A file size is a ceiling, not a promise: WebKit's encoder spends less than the constant
   bitrate asked for on a picture that's easy to encode (1 MB asked, 745 KB made, on a test
   pattern). It isn't meant to go over.
@@ -196,7 +203,7 @@ and give it constant quality and the encoders the web views lack.
   timeline to the sample, the joins as smooth as the tone, the limiter holding the peak under
   0.98 across them. Exported at 320x180 and 1920x1080 with that soundtrack: every frame
   (750), the sound whole, 1080p at 2.2 times real time.
-- Phase 3, the settings above but for what's still to do. In the app on macOS, a 4 s 720p
+- Phase 3. In the app on macOS, a 4 s 720p
   timeline exported seven ways: HEVC in MP4; H.264 in MOV at 480p with mono AAC; H.264 and
   AAC in MKV; VP9 and Opus in MKV and, mono, in WebM; HEVC in MOV at 25 fps from a 30 fps
   timeline, at 3 Mbit/s (2.98 made); H.264 to fit in 1 MB. Every frame in each (120, and 100
@@ -205,4 +212,6 @@ and give it constant quality and the encoders the web views lack.
   one codec this Mac's web view doesn't encode. Presets, in Chrome: chosen, saved, kept
   across a reload with the last choices, and removed. A 16:9 clip on black in a 4:3 project:
   bars of 120 found at top and bottom in all twelve frames, in 0.8 s, and the export cropped to
-  the clip and scaled to 854x480, every frame, with no black left.
+  the clip and scaled to 854x480, every frame, with no black left. A clip's AAC sound copied
+  into MP4 and MKV: all 188 packets from zero byte for byte as in the source and at its times
+  (the priming packet at -21 ms left out), the MP4's sound ending at 4.000 s with the picture.

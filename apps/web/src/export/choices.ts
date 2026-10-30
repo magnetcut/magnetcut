@@ -35,6 +35,8 @@ export interface ExportChoices {
 	/** A `FRAME_RATE_PRESETS` label; none for the project's rate. */
 	fpsLabel: string | null;
 	hasAudio: boolean;
+	/** Copy the source's sound when it's the whole soundtrack, uncut. */
+	audioPassthrough: boolean;
 	audioCodec: ExportAudioCodec;
 	audioKbps: number;
 	channels: 1 | 2;
@@ -56,6 +58,7 @@ export const DEFAULT_EXPORT_CHOICES: ExportChoices = {
 	shortSide: null,
 	fpsLabel: null,
 	hasAudio: true,
+	audioPassthrough: true,
 	audioCodec: "aac",
 	audioKbps: 192,
 	channels: 2,
@@ -156,6 +159,7 @@ export function getChosenAudio({
 		codec: choices.audioCodec,
 		kbps: choices.audioKbps,
 		channels: choices.channels,
+		passthrough: choices.audioPassthrough,
 	};
 }
 
@@ -237,6 +241,7 @@ export function sanitizeChoices({ value }: { value: unknown }): ExportChoices {
 	const megabytes = read("megabytes");
 	const audioKbps = read("audioKbps");
 	const hasAudio = read("hasAudio");
+	const audioPassthrough = read("audioPassthrough");
 	return {
 		format,
 		videoCodec,
@@ -256,6 +261,10 @@ export function sanitizeChoices({ value }: { value: unknown }): ExportChoices {
 			FRAME_RATE_PRESETS.find((preset) => preset.label === fpsLabel)?.label ??
 			null,
 		hasAudio: typeof hasAudio === "boolean" ? hasAudio : defaults.hasAudio,
+		audioPassthrough:
+			typeof audioPassthrough === "boolean"
+				? audioPassthrough
+				: defaults.audioPassthrough,
 		audioCodec,
 		audioKbps:
 			oneOf({ value: audioKbps, values: AUDIO_BITRATES[audioCodec] }) ??

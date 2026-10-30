@@ -16,6 +16,8 @@ import {
 	type MixedAudioClip,
 } from "@/media/audio";
 import {
+	getElementVolume,
+	hasAnimatedVolume,
 	isElementMuted,
 	resolveEffectiveAudioGain,
 } from "@/timeline/audio-state";
@@ -386,6 +388,53 @@ function collectMixClips({
 		});
 	}
 	return clips.sort((a, b) => a.firstSample - b.firstSample);
+}
+
+/** The clip whose sound is the whole soundtrack, as it is in its file. */
+export interface PassthroughClip {
+	asset: MediaAsset;
+	/** Where the timeline stops hearing it, in seconds. */
+	end: number;
+}
+
+// How far from the start, in seconds, still counts as at the start.
+const START_TOLERANCE = 1e-6;
+
+/**
+ * The one clip heard on the timeline, if it plays its file's sound unchanged
+ * from the start (it may stop early): no other sound, no speed change, no
+ * crossfade, its volume at 0 dB and not keyframed. Export copies its sound.
+ */
+export function findPassthroughClip({
+	tracks,
+	mediaAssets,
+	duration,
+}: {
+	tracks: SceneTracks;
+	mediaAssets: MediaAsset[];
+	/** The timeline's, in ticks. */
+	duration: number;
+}): PassthroughClip | null {
+	const clips = collectMixClips({
+		tracks,
+		mediaAssets,
+		sampleRate: EXPORT_SAMPLE_RATE,
+	});
+	if (clips.length !== 1) return null;
+	const [clip] = clips;
+	const element = clip.timelineElement;
+	const isUnchanged =
+		clip.startTime < START_TOLERANCE &&
+		clip.trimStart < START_TOLERANCE &&
+		(!clip.retime || clip.retime.rate === 1) &&
+		!clip.crossfade &&
+		getElementVolume({ element }) === 0 &&
+		!hasAnimatedVolume({ element });
+	if (!clip.asset || !isUnchanged) return null;
+	return {
+		asset: clip.asset,
+		end: Math.min(clip.startTime + clip.duration, duration / TICKS_PER_SECOND),
+	};
 }
 
 /**

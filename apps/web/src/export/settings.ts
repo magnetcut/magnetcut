@@ -215,6 +215,8 @@ export interface ExportAudioSettings {
 	codec: ExportAudioCodec;
 	kbps: number;
 	channels: 1 | 2;
+	/** The source's sound copied instead, when it's the whole soundtrack, uncut. */
+	passthrough?: boolean;
 }
 
 /** The bitrates offered, in kbit/s: AAC's are those encoders take everywhere. */

@@ -2,16 +2,13 @@ import EventEmitter from "eventemitter3";
 
 import {
 	Output,
-	Mp4OutputFormat,
-	MovOutputFormat,
-	MkvOutputFormat,
-	WebMOutputFormat,
 	BufferTarget,
 	StreamTarget,
 	CanvasSource,
 	AudioBufferSource,
+	EncodedAudioPacketSource,
 	canEncodeAudio,
-	type OutputFormat,
+	type EncodedPacket,
 } from "mediabunny";
 import type { FrameRate } from "magnetcut-wasm";
 import { mediaTimeToSeconds } from "magnetcut-wasm";
@@ -20,6 +17,8 @@ import { frameRateToFloat } from "@/fps/utils";
 import type { RootNode } from "./nodes/root-node";
 import type { ExportFormat } from "@/export";
 import type { ExportFile } from "@/export/disk-target";
+import { createOutputFormat } from "@/export/output-format";
+import type { AudioPassthrough } from "@/export/passthrough";
 import {
 	FORMAT_CODECS,
 	NO_CROP,
@@ -48,6 +47,8 @@ type ExportParams = {
 	/** The soundtrack, a window at a time (`mixTimelineAudio`), and how it's encoded. */
 	audio?: AsyncGenerator<AudioBuffer, void, undefined>;
 	audioSettings?: ExportAudioSettings;
+	/** A source's sound copied as it is, instead of `audio`. */
+	audioPassthrough?: AudioPassthrough;
 	/** Where it's written as it's made; otherwise it's kept in memory. */
 	file?: ExportFile;
 };
@@ -57,27 +58,6 @@ export type ExportOutput = { buffer: ArrayBuffer } | { file: ExportFile };
 
 // What's handed to the file at a time.
 const FILE_CHUNK_SIZE = 16 * 1024 * 1024;
-
-/** The container, with MP4's and MOV's index at the end when written to a file as it goes. */
-function createOutputFormat({
-	format,
-	isStreamed,
-}: {
-	format: ExportFormat;
-	isStreamed: boolean;
-}): OutputFormat {
-	const fastStart = isStreamed ? false : "in-memory";
-	switch (format) {
-		case "mp4":
-			return new Mp4OutputFormat({ fastStart });
-		case "mov":
-			return new MovOutputFormat({ fastStart });
-		case "mkv":
-			return new MkvOutputFormat();
-		case "webm":
-			return new WebMOutputFormat();
-	}
-}
 
 /** A window of the stereo mix, as one channel. */
 function downmix({ buffer }: { buffer: AudioBuffer }): AudioBuffer {
@@ -148,6 +128,42 @@ class SoundtrackFeed {
 	}
 }
 
+/** A source's sound, its packets handed over as they're due, ahead of the frames. */
+class PassthroughFeed {
+	private readonly packets: AsyncGenerator<EncodedPacket, void, unknown>;
+	private readonly source: EncodedAudioPacketSource;
+	private readonly decoderConfig: AudioDecoderConfig;
+	private time = 0;
+	private isDone = false;
+
+	constructor({
+		passthrough,
+		source,
+	}: {
+		passthrough: AudioPassthrough;
+		source: EncodedAudioPacketSource;
+	}) {
+		this.packets = passthrough.packets();
+		this.decoderConfig = passthrough.decoderConfig;
+		this.source = source;
+	}
+
+	/** Adds packets until the sound is past `time` seconds, or all in. */
+	async addUntil({ time }: { time: number }) {
+		while (!this.isDone && this.time <= time) {
+			const next = await this.packets.next();
+			if (next.done) {
+				this.isDone = true;
+				this.source.close();
+				return;
+			}
+			const packet = next.value;
+			await this.source.add(packet, { decoderConfig: this.decoderConfig });
+			this.time = packet.timestamp + packet.duration;
+		}
+	}
+}
+
 export type SceneExporterEvents = {
 	progress: [progress: number];
 	complete: [output: ExportOutput];
@@ -165,6 +181,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 	private bitrateMode?: "constant" | "variable";
 	private audio?: AsyncGenerator<AudioBuffer, void, undefined>;
 	private audioSettings?: ExportAudioSettings;
+	private audioPassthrough?: AudioPassthrough;
 	private file?: ExportFile;
 
 	private isCancelled = false;
@@ -181,6 +198,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		bitrateMode,
 		audio,
 		audioSettings,
+		audioPassthrough,
 		file,
 	}: ExportParams) {
 		super();
@@ -198,6 +216,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		this.bitrateMode = bitrateMode;
 		this.audio = audio;
 		this.audioSettings = audioSettings;
+		this.audioPassthrough = audioPassthrough;
 		this.file = file;
 	}
 
@@ -218,6 +237,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		} finally {
 			// Stops the mix where it got to, closing its files.
 			await this.audio?.return(undefined);
+			this.audioPassthrough?.close();
 		}
 	}
 
@@ -290,8 +310,21 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 			output.addAudioTrack(audioSource);
 		}
 
+		const { audioPassthrough } = this;
+		const passthroughSource = audioPassthrough
+			? new EncodedAudioPacketSource(audioPassthrough.codec)
+			: null;
+		if (passthroughSource) output.addAudioTrack(passthroughSource);
+
 		await output.start();
 
+		const passthrough =
+			audioPassthrough && passthroughSource
+				? new PassthroughFeed({
+						passthrough: audioPassthrough,
+						source: passthroughSource,
+					})
+				: null;
 		const soundtrack =
 			audioSource && this.audio
 				? new SoundtrackFeed({
@@ -312,6 +345,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 			const timeTicks = i * ticksPerFrame;
 			const timeSeconds = mediaTimeToSeconds({ time: timeTicks });
 			await soundtrack?.addUntil({ time: timeSeconds });
+			await passthrough?.addUntil({ time: timeSeconds });
 			await this.renderer.render({ node: rootNode, time: timeTicks });
 			if (scaled && scaledContext) {
 				scaledContext.drawImage(
@@ -339,6 +373,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		}
 
 		await soundtrack?.addUntil({ time: Infinity });
+		await passthrough?.addUntil({ time: Infinity });
 		videoSource.close();
 		await output.finalize();
 		this.emit("progress", 1);

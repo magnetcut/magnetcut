@@ -56,6 +56,7 @@ import {
 	type QualityMode,
 } from "@/export/choices";
 import { useExportChoicesStore } from "@/export/choices-store";
+import { openAudioPassthrough } from "@/export/passthrough";
 import {
 	getRevealLabel,
 	pickExportFile,
@@ -186,6 +187,71 @@ function useEncodableCodecs({
 		};
 	}, [width, height]);
 	return encodable;
+}
+
+/** What Export would copy of the source's sound. */
+interface PassthroughInfo {
+	codec: string;
+	numberOfChannels: number;
+	sampleRate: number;
+	bitrate: number;
+}
+
+const SOURCE_AUDIO_CODEC_NAMES: Record<string, string> = {
+	aac: "AAC",
+	opus: "Opus",
+	mp3: "MP3",
+	ac3: "AC-3",
+	eac3: "E-AC-3",
+	flac: "FLAC",
+	vorbis: "Vorbis",
+};
+
+function getSourceCodecName({ codec }: { codec: string }): string {
+	return SOURCE_AUDIO_CODEC_NAMES[codec] ?? codec.toUpperCase();
+}
+
+/**
+ * The source's sound Export could copy into this container, if the
+ * soundtrack is one file's, uncut: asked when the panel opens and when the
+ * container changes.
+ */
+function usePassthroughInfo({
+	format,
+}: {
+	format: ExportFormat;
+}): PassthroughInfo | null {
+	const editor = useEditor();
+	const [info, setInfo] = useState<PassthroughInfo | null>(null);
+	useEffect(() => {
+		let isCurrent = true;
+		openAudioPassthrough({
+			tracks: editor.scenes.getActiveScene().tracks,
+			mediaAssets: editor.media.getAssets(),
+			duration: editor.timeline.getTotalDuration(),
+			format,
+		})
+			.then((passthrough) => {
+				passthrough?.close();
+				if (!isCurrent) return;
+				setInfo(
+					passthrough && {
+						codec: passthrough.codec,
+						numberOfChannels: passthrough.numberOfChannels,
+						sampleRate: passthrough.sampleRate,
+						bitrate: passthrough.bitrate,
+					},
+				);
+			})
+			.catch((error: unknown) => {
+				console.error("Couldn't read the source's sound:", error);
+				if (isCurrent) setInfo(null);
+			});
+		return () => {
+			isCurrent = false;
+		};
+	}, [editor, format]);
+	return info;
 }
 
 /**
@@ -485,6 +551,7 @@ function ExportPopover({
 		megabytes,
 		fpsLabel,
 		hasAudio,
+		audioPassthrough,
 		audioCodec,
 		audioKbps,
 		channels,
@@ -505,8 +572,14 @@ function ExportPopover({
 	const outputSize = fitExportSize({ canvas: canvasSize, shortSide, crop });
 	const encodable = useEncodableCodecs(outputSize);
 	const fps = options.fps ?? activeProject.settings.fps;
+	const passthroughInfo = usePassthroughInfo({ format });
+	const copied = hasAudio && audioPassthrough ? passthroughInfo : null;
 	const duration = editor.timeline.getTotalDuration() / TICKS_PER_SECOND;
-	const audioBitrate = audio ? audio.kbps * 1000 : 0;
+	const audioBitrate = copied
+		? copied.bitrate
+		: audio
+			? audio.kbps * 1000
+			: 0;
 	const videoBitrate = getVideoBitrate({
 		quality,
 		codec: videoCodec,
@@ -603,9 +676,11 @@ function ExportPopover({
 	const projectFps = frameRateToFloat(activeProject.settings.fps);
 	const summary = [
 		`${VIDEO_CODEC_NAMES[videoCodec]}, ${outputSize.width}×${outputSize.height}, ${+frameRateToFloat(fps).toFixed(3)} fps`,
-		audio
-			? `${AUDIO_CODEC_NAMES[audio.codec]} ${audio.kbps} kbit/s${audio.channels === 1 ? " mono" : ""}`
-			: "no sound",
+		copied
+			? `${getSourceCodecName(copied)} copied`
+			: audio
+				? `${AUDIO_CODEC_NAMES[audio.codec]} ${audio.kbps} kbit/s${audio.channels === 1 ? " mono" : ""}`
+				: "no sound",
 		`about ${formatMegabytes({ bytes: estimatedBytes })}`,
 	].join(" · ");
 
@@ -887,6 +962,31 @@ function ExportPopover({
 													</Label>
 												</div>
 												{hasAudio && (
+													<div className="flex flex-col gap-1">
+														<div className="flex items-center space-x-2">
+															<Checkbox
+																id="audio-passthrough"
+																checked={audioPassthrough}
+																onCheckedChange={(checked) =>
+																	setChoices({
+																		choices: { audioPassthrough: !!checked },
+																	})
+																}
+															/>
+															<Label htmlFor="audio-passthrough">
+																{"Copy the source's sound when it can"}
+															</Label>
+														</div>
+														{audioPassthrough && (
+															<p className="text-muted-foreground text-xs">
+																{copied
+																	? `Copies the ${getSourceCodecName(copied)} sound as it is: ${copied.numberOfChannels === 1 ? "mono" : `${copied.numberOfChannels} channels`}, ${copied.sampleRate / 1000} kHz, about ${Math.round(copied.bitrate / 1000)} kbit/s.`
+																	: "Only when the whole soundtrack is one file's sound, uncut, in a codec this container takes. Otherwise:"}
+															</p>
+														)}
+													</div>
+												)}
+												{hasAudio && !copied && (
 													<div className="grid grid-cols-3 gap-2">
 														<Select
 															value={audioCodec}

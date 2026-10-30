@@ -13,6 +13,10 @@ import {
 	type ExportCrop,
 } from "@/export/settings";
 import { findFrameBars, mergeBlackBars } from "@/export/black-bars";
+import {
+	openAudioPassthrough,
+	type AudioPassthrough,
+} from "@/export/passthrough";
 import { formatTimecode } from "magnetcut-wasm";
 import { TICKS_PER_SECOND } from "@/wasm";
 import { frameRateToFloat } from "@/fps/utils";
@@ -161,6 +165,8 @@ export class RendererManager {
 	}): Promise<ExportResult> {
 		const { format, videoCodec, quality, shortSide, crop, fps, audio, path } =
 			options;
+		// Closed by the exporter, or here if it never gets to run.
+		let passthrough: AudioPassthrough | null = null;
 
 		try {
 			const tracks = this.editor.scenes.getActiveScene().tracks;
@@ -189,7 +195,15 @@ export class RendererManager {
 				hasCrop ||
 				outputSize.width !== canvasSize.width ||
 				outputSize.height !== canvasSize.height;
-			const audioBitrate = audio ? audio.kbps * 1000 : 0;
+			// The source's sound copied, if asked for and it can be.
+			passthrough = audio?.passthrough
+				? await openAudioPassthrough({ tracks, mediaAssets, duration, format })
+				: null;
+			const audioBitrate = passthrough
+				? passthrough.bitrate
+				: audio
+					? audio.kbps * 1000
+					: 0;
 			const videoBitrate = getVideoBitrate({
 				quality,
 				codec: videoCodec,
@@ -218,10 +232,12 @@ export class RendererManager {
 				// A file size is kept to only at a constant bitrate.
 				bitrateMode: quality.mode === "size" ? "constant" : undefined,
 				// Mixed as the frames go, a window ahead.
-				audio: audio
-					? (mixTimelineAudio({ tracks, mediaAssets, duration }) ?? undefined)
-					: undefined,
+				audio:
+					audio && !passthrough
+						? (mixTimelineAudio({ tracks, mediaAssets, duration }) ?? undefined)
+						: undefined,
 				audioSettings: audio ?? undefined,
+				audioPassthrough: passthrough ?? undefined,
 				file: path ? await openExportFile({ path }) : undefined,
 			});
 
@@ -258,6 +274,7 @@ export class RendererManager {
 				clearInterval(cancelInterval);
 			}
 		} catch (error) {
+			passthrough?.close();
 			console.error("Export failed:", error);
 			return {
 				success: false,

@@ -14,6 +14,8 @@ All notable changes to this project are documented here. The format is based on
 - Export presets: a few built in (Fast 1080p, Fits in 25 MB, Web 1080p and others) and your
   own. Export remembers the settings you used last.
 - Crop on export, with Find black bars to take off letterboxing, and a size of your own.
+- Export copies a film's sound as it is, without re-encoding it, when the timeline plays that
+  sound uncut and the container takes its codec (on by default; Audio in the export panel).
 
 ### Changed
 - The desktop app reads imported media where it is on your computer instead of copying it into

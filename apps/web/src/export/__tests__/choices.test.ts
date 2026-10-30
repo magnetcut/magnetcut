@@ -21,6 +21,7 @@ describe("sanitizeChoices", () => {
 			shortSide: 720,
 			fpsLabel: "23.976",
 			hasAudio: false,
+			audioPassthrough: false,
 			audioCodec: "opus",
 			audioKbps: 96,
 			channels: 1,
@@ -129,7 +130,7 @@ describe("getChosenOptions", () => {
 			quality: { mode: "bitrate", kbps: 4000 },
 			shortSide: 720,
 			fps: { numerator: 30000, denominator: 1001 },
-			audio: { codec: "aac", kbps: 192, channels: 1 },
+			audio: { codec: "aac", kbps: 192, channels: 1, passthrough: true },
 		});
 	});
 });
