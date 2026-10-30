@@ -74,3 +74,43 @@ is opened. The updates themselves are signed with the updater key either way.
 - Installed copies see the update within a day; Check Now sees it at once.
 - `https://github.com/magnetcut/magnetcut/releases/latest/download/MagnetCut.dmg` always
   downloads the latest macOS app, for links that shouldn't change.
+
+## The Mac App Store edition
+
+The same app without the updater (`--no-default-features`: no Check for Updates in the menu,
+Settings or About), sandboxed, under its own bundle id so that its settings and projects stay
+apart from the direct download's. It goes to App Store Connect as an installer package, and the
+App Store updates it. The sandbox (`apps/desktop/AppStore.entitlements`) lets it open and save
+the files the user picks, write to Downloads and make outgoing connections (fonts, transcription
+models).
+
+### Once
+
+- In Certificates, Identifiers & Profiles: an App ID for the store edition, `APP_STORE_BUNDLE_ID`
+  (no capabilities to add), and a **Mac App Store Connect** provisioning profile for it,
+  downloaded to `APP_STORE_PROFILE`.
+- The team's **Apple Distribution** and **Mac Installer Distribution** certificates, in the login
+  keychain.
+- In App Store Connect, Apps → New App: macOS, that bundle id. The API can't create it.
+- An App Store Connect API key (Users and Access → Integrations, App Manager): the `.p8` in
+  `~/.appstoreconnect/private_keys/AuthKey_<key id>.p8`, where altool looks, and `ASC_KEY_JSON`
+  (or `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`) in `apps/desktop/release.env`.
+- Xcode 26, whose actool turns `apps/desktop/icons/MagnetCut.icon` into the macOS 26 icon.
+
+### Each version
+
+1. On the release's commit, `apps/desktop/scripts/app-store.sh`, into `target/app-store/`. It
+   refuses a dirty working tree, then:
+   - builds the universal app with the store's bundle id, entitlements, profile and build number
+     (the version, unless `BUILD_NUMBER` says otherwise), signed as Apple Distribution;
+   - checks the bundle id, the build number, the profile, the icon, both architectures, that the
+     updater isn't in it, the signature, the sandbox, that nothing is quarantined and that every
+     file stays readable once installed;
+   - packages it with productbuild, signed as Mac Installer Distribution, and has App Store
+     Connect validate it.
+2. `apps/desktop/scripts/app-store.sh --upload` validates it again and uploads it as a new build.
+   App Store Connect takes each build number once: another build of the same version is
+   `BUILD_NUMBER=x.y.z.1 apps/desktop/scripts/app-store.sh --upload`.
+3. In App Store Connect: the listing, the screenshots and the privacy answers (Data Not
+   Collected), then submit the build for review. Submitting is what ships it, as publishing
+   does on GitHub.

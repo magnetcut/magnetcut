@@ -35,10 +35,11 @@ telemetry: everything stays on the computer. Not for iOS or Android.
   It's the one request made without a feature being used. The key stays on the maintainer's
   Mac: CI builds the Windows and Linux installers with no secrets, and
   `apps/desktop/scripts/release.sh` signs them (docs/RELEASING.md).
-- **App Store edition.** `--app-store` builds a sandboxed Mac App Store app (user-selected
-  files read-write, network client for model and font downloads), its own bundle id, no
-  updater compiled in. Same features otherwise, so no "Lite". Microsoft Store and Flathub can
-  follow from the same builds.
+- **App Store edition.** `apps/desktop/scripts/app-store.sh` builds a sandboxed Mac App Store
+  app (user-selected files and Downloads read-write, network client for model and font
+  downloads), its own bundle id, no updater compiled in (`--no-default-features`), and has App
+  Store Connect validate it; `--upload` sends it (docs/RELEASING.md). Same features otherwise,
+  so no "Lite". Microsoft Store and Flathub can follow from the same builds.
 - **About box, as in MyDiskIsFull.** Icon, name, version, the update line (direct download
   only), one sentence on what it does, a card with what it keeps on this computer (the storage
   its projects and media take, of what the web view lets it keep), "Completely free and open source, under the GNU AGPL 3.0 licence. No
@@ -105,7 +106,8 @@ telemetry: everything stays on the computer. Not for iOS or Android.
 
 ## Order
 
-Done: 1, 2, 3, 4 on macOS, 5 but for making the first release, and 7.
+Done: 1, 2, 3, 4 on macOS, 5 but for making the first release, 6 but for the App Store Connect
+record and profile (docs/RELEASING.md), and 7.
 
 1. Strip the server, accounts, analytics and website; static export; editor works in a browser.
 2. Rebrand: names, package scopes, storage keys, logo and icon.
