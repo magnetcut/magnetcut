@@ -100,6 +100,10 @@ telemetry: everything stays on the computer. Not for iOS or Android.
   that ships; CI fails if the notices are out of date.
   `soundtouchjs` (LGPL-2.1) is gone: pitch-preserving speed changes use a Rust time-stretch
   (`rust/crates/audio`, WSOLA).
+- **Agents steer it through MCP** (docs/AUTOMATION.md). The app's own binary, run with `--mcp`,
+  speaks MCP to the agent and relays to the open editor over a local socket; the editor's
+  TypeScript does the work. Off until switched on in Settings, local only, files only from
+  folders the user granted, every batch of edits one step of undo.
 - **Name and marks.** OpenCut's guidelines forbid its name or logo on another product, so every
   "OpenCut" goes, logos included, except credits ("Based on OpenCut") and the licence notice.
   The Rust core is built from source as `magnetcut-wasm` (`packages/wasm`), not taken from
@@ -134,7 +138,9 @@ hiding faces and plates was tried end to end in the built app, its panel not yet
 10. Subtitle editor and sync (docs/SUBTITLES.md has the phases).
 11. Hiding faces and plates: a region blurred, pixelated or covered, keyframed, tracked, or
     found by itself (docs/HIDE.md has the phases).
-12. Then: make it better.
+12. Agents steering it: Claude Code, Codex or any MCP client reads, edits, looks at, listens to
+    and exports a project in the open app, in few tokens (docs/AUTOMATION.md has the phases).
+13. Then: make it better.
 
 ## Web view support
 
