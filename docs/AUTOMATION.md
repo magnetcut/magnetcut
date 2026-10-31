@@ -205,6 +205,18 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
   (2,832 bytes of descriptions), a project made, a film imported onto it, the summary read (119
   characters), a clip described, a sheet of four frames looked at, an H.264 MP4 exported with
   12 progress notes, and a second export to the same path refused. The App Store edition may
-  now listen and use Movies (its entitlements, and the review note in docs/RELEASING.md). Left
-  of phase 1: `.magnetcut` project files, and in the App Store edition the folders granted in
-  Settings and the dialog for a path outside them (for now, such a path is refused, saying why).
+  now listen and use Movies (its entitlements, and the review note in docs/RELEASING.md). Then
+  `.magnetcut` project files: `project` saves the open one and opens one by its path, as a new
+  project, its media found by their paths (the app lets the call open the media the file names),
+  and the user has File, Open Project… and Save Project As… (the logo's menu on Windows and
+  Linux); on CI, a project saved and opened again with the same tracks, clip for clip. Left of
+  phase 1: in the App Store edition, folders granted in Settings and the dialog for a path
+  outside them (for now, such a path is refused, saying why).
+- Phase 2. `edit`: insert, text, cut, trim, move, delete (closing the gap or not) and
+  transition, done in order with the editor's own commands, then folded into one step of undo
+  (`CommandManager.foldSince`); a dry run, or an operation that fails, puts everything back and
+  says which operation and why. The answer is the changes in the summary's terms, and the new
+  rev; a batch planned on an older rev is refused. `undo`, with `redo`. On CI on all three
+  systems: a dry run that left the summary as it was; a cut, a cross-dissolve at it and a title,
+  answered with just those three changes; the same batch on the old rev refused; one undo
+  putting all of it back; the film exported with the edits redone.
