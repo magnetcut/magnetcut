@@ -319,4 +319,7 @@ and give it constant quality and the encoders the web views lack.
   multiple of 16; a cancelled export leaving no file. In the app itself, on the runners (the
   probe): Windows's export makes H.264 in MP4 (no HEVC encoder there); Linux's makes H.264 and
   HEVC with GStreamer's plugins installed, nothing with only the base ones, and the web view's
-  export then makes the film; the Mac's, all it does.
+  export then makes the film; the Mac's, all it does. And through the app's own commands, as
+  the editor calls them: a drawing and a tone into a film, then that film, decoded, into
+  another, read back at its size, on all three (3 s on macOS and Windows; 61 s on Linux, where
+  Mesa's software Vulkan compiles the compositor's shaders on the CPU for each export).

@@ -109,8 +109,8 @@ telemetry: everything stays on the computer. Not for iOS or Android.
 
 Done: 1, 2, 3, 4, 5 (0.1.0 is a draft release on GitHub, for the author to publish), 6 (build
 0.1.0 is in App Store Connect; its listing and submitting it are the author's, docs/RELEASING.md),
-7 and 8. 9 (docs/NATIVE.md; on Windows and Linux checked on CI, not yet in the app there). 10
-(docs/SUBTITLES.md).
+7 and 8. 9 (docs/NATIVE.md; on Windows and Linux checked in the app on CI's machines, not yet
+on a desktop of either). 10 (docs/SUBTITLES.md).
 What's been done since 0.1.0 without the app open (the native export's panel, the subtitle
 editor, the native export on Windows and Linux) is tested in code but not yet tried in the app.
 
