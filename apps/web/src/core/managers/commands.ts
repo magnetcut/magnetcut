@@ -99,6 +99,30 @@ export class CommandManager {
 		return this.history.length > 0;
 	}
 
+	/** How many steps there are to undo: a mark for `foldSince`. */
+	getHistoryLength(): number {
+		return this.history.length;
+	}
+
+	/** Folds the steps taken since the history was `length` long into one,
+	 * `command`, already applied: an agent's batch of edits, one undo. */
+	foldSince({ length, command }: { length: number; command: Command }): void {
+		const first = this.history[length];
+		this.history.length = Math.min(this.history.length, length);
+		this.history.push({
+			command,
+			previousSelection:
+				first?.previousSelection ?? this.getSelectionSnapshot(),
+		});
+		this.redoStack = [];
+	}
+
+	/** Forgets the steps taken since the history was `length` long, their
+	 * changes already put back: a dry run, or a batch that failed. */
+	dropSince({ length }: { length: number }): void {
+		this.history.length = Math.min(this.history.length, length);
+	}
+
 	canRedo(): boolean {
 		return this.redoStack.length > 0;
 	}

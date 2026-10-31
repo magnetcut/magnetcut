@@ -112,7 +112,7 @@ report({ step: "initialize", detail: JSON.stringify(init.reply?.result?.serverIn
 
 const listed = await rpc({ method: "tools/list" });
 const names = ((listed.reply?.result?.tools ?? []) as Array<{ name: string }>).map((t) => t.name);
-for (const wanted of ["status", "project", "media", "summary", "describe", "look", "export"]) {
+for (const wanted of ["status", "project", "media", "summary", "describe", "edit", "undo", "look", "export"]) {
 	if (!names.includes(wanted)) throw new Error(`no ${wanted} tool: ${names.join(", ")}`);
 }
 const toolsSize = JSON.stringify(listed.reply?.result?.tools).length;
@@ -136,6 +136,49 @@ report({ step: "describe", detail: described.text.split("\n")[0] });
 const looked = await tool({ name: "look", args: { count: 4, width: 320 } });
 if (looked.images !== 1) throw new Error(`look gave ${looked.images} images`);
 report({ step: "look", detail: looked.text });
+
+// Edits: a dry run changes nothing; a batch is one undo, and a stale rev is
+// refused.
+const rev = /rev (\w+)/.exec(summary.text)?.[1] ?? "";
+const dry = await tool({
+	name: "edit",
+	args: { dryRun: true, rev, operations: [{ op: "cut", at: 0.1 }] },
+});
+const unchanged = await tool({ name: "summary" });
+if (!dry.text.startsWith("would change") || unchanged.text !== summary.text) {
+	throw new Error(`a dry run changed the project: ${dry.text}`);
+}
+report({ step: "dry run", detail: dry.text });
+const edited = await tool({
+	name: "edit",
+	args: {
+		rev,
+		operations: [
+			{ op: "cut", at: 0.1 },
+			{ op: "transition", from: clip, duration: 0.05 },
+			{ op: "text", text: "Hello", at: 0, to: 0.2 },
+		],
+	},
+});
+if (!/^\+ /m.test(edited.text) || !/cross-dissolve/.test(edited.text)) {
+	throw new Error(`the batch didn't do what it said: ${edited.text}`);
+}
+report({ step: "edit", detail: edited.text });
+const stale = await tool({
+	name: "edit",
+	args: { rev, operations: [{ op: "delete", ids: [clip] }] },
+}).catch((error: Error) => error);
+if (!(stale instanceof Error) || !/changed since/.test(stale.message)) {
+	throw new Error("an edit planned on an old rev went through");
+}
+report({ step: "stale rev", detail: stale.message });
+const undone = await tool({ name: "undo" });
+const afterUndo = await tool({ name: "summary" });
+if (afterUndo.text !== summary.text) {
+	throw new Error(`one undo didn't undo the batch: ${afterUndo.text}`);
+}
+report({ step: "undo", detail: undone.text });
+await tool({ name: "undo", args: { redo: true } });
 
 const exported = await tool({ name: "export", args: { path: output, destination: "anything" } });
 if (!existsSync(output) || statSync(output).size === 0) throw new Error(`no film at ${output}`);

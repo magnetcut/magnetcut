@@ -8,7 +8,12 @@ import type {
 } from "@/timeline";
 import { mediaTime, TICKS_PER_SECOND } from "@/wasm";
 import { resolveId, shortIds } from "../ids";
-import { buildSummary, describe, type SummaryInput } from "../summary";
+import {
+	buildSummary,
+	describe,
+	diffTracks,
+	type SummaryInput,
+} from "../summary";
 import { formatTime, parseTime } from "../time";
 
 const seconds = (value: number) =>
@@ -188,5 +193,35 @@ group("the summary", () => {
 		expect(clip).toContain('"trimStart": "0:04.0"');
 		expect(describe({ id: "m2bbb", input: input() })).toContain("music.mp3");
 		expect(describe({ id: "nothing", input: input() })).toBeNull();
+	});
+});
+
+group("a batch's changes", () => {
+	test("say what went, what came and what moved, in the summary's terms", () => {
+		const before = input();
+		const after = input();
+		after.tracks.main.elements = [
+			clip({ id: "c3f9a1xx", start: 0, length: 10, trim: 4 }),
+			clip({ id: "c9999fxx", start: 10, length: 5 }),
+		];
+		after.tracks.main.transitions = [];
+		expect(
+			diffTracks({
+				before: before.tracks,
+				after: after.tracks,
+				assets: before.assets,
+			}).split("\n"),
+		).toEqual([
+			"- c8b20",
+			"~ V1 c3f9a m1aaa 0:00.0-0:10.0 src 0:04.0-0:14.0 (was V1 c3f9a m1aaa 0:00.0-0:12.4 src 0:04.0-0:16.4 >cross-dissolve 0.5)",
+			"+ V1 c9999 m1aaa 0:10.0-0:15.0",
+		]);
+		expect(
+			diffTracks({
+				before: before.tracks,
+				after: before.tracks,
+				assets: before.assets,
+			}),
+		).toBe("no change");
 	});
 });

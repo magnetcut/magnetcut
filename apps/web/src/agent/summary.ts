@@ -277,3 +277,50 @@ export function describe({
 	}
 	return null;
 }
+
+/** What a batch of edits changed, in the summary's terms: `- id` gone,
+ * `+ track line` new, `~ track line (was …)` changed. */
+export function diffTracks({
+	before,
+	after,
+	assets,
+}: {
+	before: SceneTracks;
+	after: SceneTracks;
+	assets: MediaAsset[];
+}): string {
+	const short = shortIds({
+		ids: [
+			...new Set([
+				...allIds({ tracks: before, assets }),
+				...allIds({ tracks: after, assets }),
+			]),
+		],
+	});
+	const lines = ({ tracks }: { tracks: SceneTracks }) => {
+		const found = new Map<string, string>();
+		for (const { name, track } of namedTracks({ tracks })) {
+			const transitions =
+				track.type === "video" ? track.transitions : undefined;
+			for (const element of track.elements) {
+				found.set(
+					element.id,
+					`${name} ${describeShort({ element, short })}${transitionAfter({ element, transitions })}`,
+				);
+			}
+		}
+		return found;
+	};
+	const was = lines({ tracks: before });
+	const now = lines({ tracks: after });
+	const changes: string[] = [];
+	for (const id of was.keys()) {
+		if (!now.has(id)) changes.push(`- ${short.get(id) ?? id}`);
+	}
+	for (const [id, line] of now) {
+		const old = was.get(id);
+		if (old === undefined) changes.push(`+ ${line}`);
+		else if (old !== line) changes.push(`~ ${line} (was ${old})`);
+	}
+	return changes.length > 0 ? changes.join("\n") : "no change";
+}

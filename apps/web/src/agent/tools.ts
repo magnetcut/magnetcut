@@ -31,46 +31,19 @@ import { resolveId, shortIds } from "./ids";
 import { look, MAX_SHEET } from "./look";
 import { buildSummary, describe, type SummaryInput } from "./summary";
 import { formatTime, parseTime } from "./time";
+import { editTool, undoTool } from "./edit";
+import {
+	revisionOf,
+	ToolError,
+	type Tool,
+	type ToolResult,
+} from "./tools-base";
+
+export { ToolError, type ToolResult } from "./tools-base";
 
 // What an agent can do in MagnetCut (docs/AUTOMATION.md), as MCP tools: each
 // one's name, a short description (it's in every request an agent makes),
 // the arguments it takes, and the work, done over the editor's managers.
-
-export type ToolContent =
-	| { type: "text"; text: string }
-	| { type: "image"; data: string; mimeType: string };
-
-export interface ToolResult {
-	content: ToolContent[];
-	isError?: boolean;
-}
-
-export interface ToolContext {
-	editor: EditorCore;
-	/** The call's number, which the app checks paths against. */
-	call: number;
-	agent: string;
-	navigate: (url: string) => void;
-	progress: (update: {
-		progress: number;
-		total?: number;
-		message?: string;
-	}) => void;
-	isStopped: () => boolean;
-}
-
-export interface Tool {
-	name: string;
-	description: string;
-	inputSchema: Record<string, unknown>;
-	run: (call: {
-		args: Record<string, unknown>;
-		context: ToolContext;
-	}) => Promise<ToolResult>;
-}
-
-/** A failure the agent reads and can act on. */
-export class ToolError extends Error {}
 
 const text = (value: string): ToolResult => ({
 	content: [{ type: "text", text: value }],
@@ -99,19 +72,6 @@ function needProject({ editor }: { editor: EditorCore }) {
 		);
 	}
 	return project;
-}
-
-/** A short fingerprint of the timeline: it changes when anything on it does. */
-export function revisionOf({ value }: { value: unknown }): string {
-	const json = JSON.stringify(value, (key, item: unknown) =>
-		key === "buffer" ? undefined : item,
-	);
-	let hash = 0x811c9dc5;
-	for (let i = 0; i < json.length; i++) {
-		hash ^= json.charCodeAt(i);
-		hash = Math.imul(hash, 0x01000193) >>> 0;
-	}
-	return hash.toString(16).padStart(8, "0").slice(0, 6);
 }
 
 function summaryInput({ editor }: { editor: EditorCore }): SummaryInput {
@@ -632,6 +592,8 @@ export const TOOLS: Tool[] = [
 	media,
 	summary,
 	describeTool,
+	editTool,
+	undoTool,
 	lookTool,
 	exportTool,
 ];
