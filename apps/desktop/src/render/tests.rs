@@ -1348,5 +1348,9 @@ fn writes_subtitle_tracks_as_timed_text() {
         assert!(near(*start, 0.2) && near(*end, 0.5), "{name}: {samples:?}");
         let (start, end, _) = lines[1];
         assert!(near(*start, 0.7) && near(*end, 0.9), "{name}: {samples:?}");
+        // And it's still a film this computer plays.
+        let mut reader = VideoReader::open(&path, 0.0).unwrap();
+        let (_, picture) = reader.frame_at(0.5).unwrap().unwrap();
+        assert_grey(middle(picture), grey(15));
     }
 }
