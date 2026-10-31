@@ -189,3 +189,22 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
 - The tools' descriptions cost tokens on every request: kept few and short, and measured.
 
 ## Done
+- Phase 1, most of it. The server in Rust (`apps/desktop/src/agent/`): HTTP/1.1 on 127.0.0.1,
+  one request a connection, 16 MB at most; a token for each agent, kept as its SHA-256 with
+  the switch and the port in `agents.json`, compared in constant time; a request with an
+  `Origin`, another `Host` or no good token refused before it's read as MCP; JSON-RPC with
+  `initialize`, `ping`, `tools/list` and `tools/call`, progress as server-sent events. A path is
+  opened for the editor only if it's in that agent's call. Tested in code: refusals, revoking,
+  notifications, the tools listed, a call handed on with its progress streamed back. Settings,
+  Agents: the switch, the agents with when each was last used, Revoke, and Add, which shows the
+  token once in the lines for Claude Code and Codex; the strip with Stop. The tools (`apps/web/
+  src/agent/`): `status`, `project` (list, new, open), `media` (import by path, onto the
+  timeline too; list), `summary`, `describe`, `look`, `export`. On CI on all three systems
+  (`.github/workflows/probe.yml`, `apps/desktop/scripts/agent-check.ts`), the built app with a
+  test token and a script as the MCP client: a wrong token refused, the seven tools listed
+  (2,832 bytes of descriptions), a project made, a film imported onto it, the summary read (119
+  characters), a clip described, a sheet of four frames looked at, an H.264 MP4 exported with
+  12 progress notes, and a second export to the same path refused. The App Store edition may
+  now listen and use Movies (its entitlements, and the review note in docs/RELEASING.md). Left
+  of phase 1: `.magnetcut` project files, and in the App Store edition the folders granted in
+  Settings and the dialog for a path outside them (for now, such a path is refused, saying why).

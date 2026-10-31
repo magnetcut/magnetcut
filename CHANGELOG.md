@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format is based on
 ## Unreleased
 
 ### Added
+- Agent mode: Claude Code, Codex or another AI agent can use MagnetCut through MCP, in the
+  window that's open. Switch it on in Settings, Agents (it's off by default), and add each agent
+  by name: it gets its own token, shown once in the line to paste into Claude Code or Codex, and
+  revoked there. It's served on this computer only. An agent can make and open projects, import
+  files by their paths, read the project in a few lines, look at frames, and export, never over
+  a file unless it says so; a strip at the top of the window shows when one is at work, with
+  Stop.
 - Each export says MagnetCut made it, with the version, in the field its container keeps for
   the program that wrote it: MP4's encoding tool, QuickTime's software, Matroska's and WebM's
   writing application and encoder tag. ffprobe and MediaInfo show it.
