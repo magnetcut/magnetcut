@@ -131,7 +131,9 @@ editor, the native export on Windows and Linux) is tested in code but not yet tr
    stops a conversion today: media copied into the web view, and exports kept in memory
    (docs/NATIVE.md has the phases).
 10. Subtitle editor and sync (docs/SUBTITLES.md has the phases).
-11. Then: make it better.
+11. Hiding faces and plates: a region blurred, pixelated or covered, keyframed, tracked, or
+    found by itself (docs/HIDE.md has the phases).
+12. Then: make it better.
 
 ## Web view support
 

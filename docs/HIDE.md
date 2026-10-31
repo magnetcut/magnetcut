@@ -1,0 +1,52 @@
+# Hiding faces and plates
+
+`docs/PLAN.md` step 11: blurring a child's face, pixelating or blacking out a car's plate, as
+the region moves through the shot, by hand, tracked, or found by itself. Nothing leaves the
+computer. What's built is under Done.
+
+## What was there
+
+From OpenCut: a Blur effect; masks (rectangle, ellipse, star and others, freeform) on video,
+image and graphic clips, moved and sized with handles in the preview, feathered; adjustment
+layers (effects on an effect track, applied to everything beneath); keyframes on clips'
+transforms and on effects' and graphics' parameters. Not there: a mask on an adjustment layer,
+so an effect over part of the picture only; keyframes on a mask, so a mask that follows what
+moves.
+
+## The phases
+
+### 1. A Hide region
+- An adjustment layer with a mask: its effect applied to what's beneath, cut by the mask and
+  laid over the picture, so only what's inside changes (the compositor's scene effect, given a
+  mask as a layer is).
+- Three looks: Blur, Pixelate (the size of the blocks), and Cover (a solid colour, black by
+  default). In the Adjustment tab's Hide section; dropped on the timeline above the clip, with
+  an ellipse for a face or a rectangle for a plate in the middle of the picture, moved and sized
+  in the preview with the mask's handles.
+- Masks keyframed: position, size, rotation and feather, on any clip's mask as on a Hide
+  region's, with the keyframe buttons the other parameters have.
+- In both exports, the web view's and the native one: the mask is one of the editor's drawings,
+  uploaded as a texture.
+
+### 2. Tracking
+- Track, in the region's properties: from the frame showing, what's inside the region followed
+  frame by frame to the region's end, and back to its start; a keyframe for each frame, thinned
+  where the motion is straight, each one editable.
+- On decoded frames at a small size, in a worker: the region's picture matched around where it
+  was (normalised cross-correlation), at a few scales; the template renewed while the match is
+  sure, and the tracking stopped, saying where, once it isn't.
+- In Rust (`rust/crates/tracking`), reaching the editor as `magnetcut-wasm`.
+
+### 3. Finding faces and plates
+- Find faces and Find plates: a detection model, downloaded once when it's first used (from
+  Hugging Face, as Whisper's models are), run on the computer. Each face or plate found becomes a
+  Hide region, followed by phase 2's tracker between detections, the same one joined across
+  frames.
+- The models: small ones, with licences MagnetCut can download and use (checked as the code's
+  are), chosen when this phase starts.
+- The network: one download for each model, when it's first used; nothing uploaded. CLAUDE.md
+  lists it with the others.
+
+## Risks
+- A frame the region misses shows the face: tracking and detection help, they don't promise.
+  The panel says to check the result, and both exports hide exactly what the preview shows.
