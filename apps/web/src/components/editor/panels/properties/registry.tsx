@@ -322,7 +322,7 @@ function getEffectConfig({
 }): ElementPropertiesConfig {
 	return {
 		defaultTab: "effects",
-		tabs: [buildStandaloneEffectTab({ element })],
+		tabs: [buildStandaloneEffectTab({ element }), buildMasksTab({ element })],
 	};
 }
 

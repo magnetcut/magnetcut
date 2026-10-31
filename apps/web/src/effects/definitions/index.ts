@@ -5,12 +5,15 @@ import {
 	vignetteDefinition,
 } from "./adjustments";
 import { blurEffectDefinition } from "./blur";
+import { coverDefinition, pixelateDefinition } from "./hide";
 
 const defaultEffects = [
 	blurEffectDefinition,
 	colorAdjustmentDefinition,
 	vignetteDefinition,
 	sharpenDefinition,
+	pixelateDefinition,
+	coverDefinition,
 ];
 
 export function registerDefaultEffects(): void {

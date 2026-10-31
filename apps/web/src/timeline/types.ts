@@ -197,6 +197,9 @@ export interface GraphicElement extends BaseTimelineElement {
 export interface EffectElement extends BaseTimelineElement {
 	type: "effect";
 	effectType: string;
+	/** Where it applies: within the first mask only, if there is one (a Hide
+	 * region, docs/HIDE.md); everywhere beneath, if not. */
+	masks?: Mask[];
 }
 
 export type ElementUpdatePatch = { params?: Partial<ParamValues> };
@@ -216,7 +219,12 @@ function elementTypes<T extends ElementType[]>(...types: T): T {
 	return types;
 }
 
-export const MASKABLE_ELEMENT_TYPES = elementTypes("video", "image", "graphic");
+export const MASKABLE_ELEMENT_TYPES = elementTypes(
+	"video",
+	"image",
+	"graphic",
+	"effect",
+);
 
 export type MaskableElement = Extract<
 	TimelineElement,

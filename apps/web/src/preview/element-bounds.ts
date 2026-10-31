@@ -245,6 +245,45 @@ export function getEdgeHandlePosition({
 	};
 }
 
+/**
+ * Adjustment layers with a mask showing now (Hide regions, docs/HIDE.md),
+ * their bounds the whole canvas, where their masks are placed: for the mask's
+ * handles only, so a click on the picture still finds the clips beneath.
+ */
+export function getMaskedAdjustmentLayers({
+	tracks,
+	currentTime,
+	canvasSize,
+}: {
+	tracks: SceneTracks;
+	currentTime: number;
+	canvasSize: { width: number; height: number };
+}): ElementWithBounds[] {
+	const bounds: ElementBounds = {
+		cx: canvasSize.width / 2,
+		cy: canvasSize.height / 2,
+		width: canvasSize.width,
+		height: canvasSize.height,
+		rotation: 0,
+	};
+	return tracks.overlay.flatMap((track) =>
+		track.elements
+			.filter(
+				(element) =>
+					element.type === "effect" &&
+					(element.masks?.length ?? 0) > 0 &&
+					currentTime >= element.startTime &&
+					currentTime < element.startTime + element.duration,
+			)
+			.map((element) => ({
+				trackId: track.id,
+				elementId: element.id,
+				element,
+				bounds,
+			})),
+	);
+}
+
 export function getVisibleElementsWithBounds({
 	tracks,
 	currentTime,

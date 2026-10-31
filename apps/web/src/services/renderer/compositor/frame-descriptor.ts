@@ -1,6 +1,7 @@
 import { drawCssBackground } from "@/gradients";
 import type { FilterPasses } from "@/export/filters";
 import { getMaskDefinition } from "@/masks";
+import type { Mask } from "@/masks/types";
 import { incrementCounter } from "@/diagnostics/render-perf";
 import type { AnyBaseNode } from "../nodes/base-node";
 import type { CanvasRenderer } from "../canvas-renderer";
@@ -137,9 +138,18 @@ async function collectNode({
 		if (!node.resolved || node.resolved.passes.length === 0) {
 			return;
 		}
+		// A Hide region: its mask over the whole canvas.
+		const { mask } = buildMaskArtifacts({
+			masks: node.params.masks,
+			renderer,
+			path,
+			transform: fullCanvasTransform(renderer),
+			textures,
+		});
 		items.push({
 			type: "sceneEffect",
 			effectPassGroups: [node.resolved.passes],
+			mask,
 		});
 		return;
 	}
@@ -348,7 +358,7 @@ async function collectVisualSourceNode({
 		sourceHeight,
 	});
 	const { mask, strokeLayer } = buildMaskArtifacts({
-		node,
+		masks: node.params.masks,
 		renderer,
 		path,
 		transform,
@@ -466,13 +476,13 @@ function fullCanvasTransform(
 }
 
 function buildMaskArtifacts({
-	node,
+	masks,
 	renderer,
 	path,
 	transform,
 	textures,
 }: {
-	node: VideoNode | ImageNode | StickerNode | GraphicNode;
+	masks: Mask[] | undefined;
 	renderer: CanvasRenderer;
 	path: string;
 	transform: QuadTransformDescriptor;
@@ -481,7 +491,7 @@ function buildMaskArtifacts({
 	mask: LayerMaskDescriptor | null;
 	strokeLayer: FrameItemDescriptor | null;
 } {
-	const mask = node.params.masks?.[0];
+	const mask = masks?.[0];
 	if (!mask) {
 		return { mask: null, strokeLayer: null };
 	}

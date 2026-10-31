@@ -5,6 +5,7 @@ import { useShiftKey } from "@/hooks/use-shift-key";
 import { getMaskDefinition } from "@/masks";
 import { appendPointToFreeformPathMask } from "@/masks/freeform/definition";
 import {
+	getMaskedAdjustmentLayers,
 	getVisibleElementsWithBounds,
 	type ElementBounds,
 } from "@/preview/element-bounds";
@@ -118,12 +119,15 @@ export function useMaskHandles({
 		e.selection.getSelectedMaskPointSelection(),
 	);
 
-	const elementsWithBounds = getVisibleElementsWithBounds({
-		tracks,
-		currentTime,
-		canvasSize,
-		mediaAssets,
-	});
+	const elementsWithBounds = [
+		...getVisibleElementsWithBounds({
+			tracks,
+			currentTime,
+			canvasSize,
+			mediaAssets,
+		}),
+		...getMaskedAdjustmentLayers({ tracks, currentTime, canvasSize }),
+	];
 
 	const selectedWithMask =
 		selectedElements.length === 1

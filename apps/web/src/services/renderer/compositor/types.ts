@@ -29,6 +29,8 @@ export type FrameItemDescriptor =
 	| {
 			type: "sceneEffect";
 			effectPassGroups: EffectPass[][];
+			/** Only within it, if there is one: a Hide region. */
+			mask?: LayerMaskDescriptor | null;
 	  }
 	| {
 			/** Two layers drawn into one (rust/crates/compositor/src/transition.rs). */
