@@ -64,6 +64,11 @@ aarch64-apple-darwin x86_64-apple-darwin`, `gh` (logged in) and `jq`.
    new version.
 6. Read the draft on GitHub, then publish it. Publishing creates the tag.
 
+When the updater's key is on another Mac: `release.sh --unsigned` does step 4 but for the
+signatures and `latest.json`. Copy `target/release-files/` to the Mac with the key, at the same
+commit, run `release.sh --sign` there (in its Terminal: over SSH the login keychain is locked),
+copy the folder back and go on with `--upload`.
+
 ## Not signed yet
 
 The Windows installers have no Authenticode signature, so SmartScreen warns the first time one

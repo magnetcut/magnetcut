@@ -17,6 +17,12 @@
 #       *.sig                                  each update's signature
 #       latest.json                            what installed copies read
 #       notes.md                               this version's CHANGELOG section
+#   apps/desktop/scripts/release.sh --unsigned   the same but for the signatures and
+#                                              latest.json, on a Mac without the
+#                                              updater's key; then, at the same commit,
+#   apps/desktop/scripts/release.sh --sign       on the Mac with the key, with
+#                                              target/release-files copied there: signs
+#                                              the updates and writes latest.json
 #   apps/desktop/scripts/release.sh --upload  put those on a *draft* GitHub release
 #                                              v<version>, for a person to read and
 #                                              publish. Publishing it is what makes
@@ -28,7 +34,8 @@
 #   - notarization: NOTARY_PROFILE (a notarytool keychain profile), or
 #     APPLE_API_KEY_PATH, APPLE_API_KEY_ID and APPLE_API_ISSUER;
 #   - UPDATER_KEY, the updater's private key, and its password: in the login
-#     keychain (UPDATER_KEY_PASSWORD_ITEM) or in TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
+#     keychain (UPDATER_KEY_PASSWORD_ITEM) or in TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+#     (not for --unsigned; only these, cargo tauri and jq for --sign);
 #   - cargo tauri (tauri-cli 2), gh, jq, and the Rust targets
 #     aarch64-apple-darwin and x86_64-apple-darwin.
 #
@@ -162,17 +169,110 @@ upload() {
         --jq '"\(.url) (draft: \(.isDraft)): \([.assets[].name] | join(", "))"'
 }
 
+# The updater's key and its password, and the key id installed copies trust.
+load_key() {
+    [ -n "${UPDATER_KEY:-}" ] && [ -f "$UPDATER_KEY" ] || die "UPDATER_KEY isn't set to the updater's private key file"
+    if [ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
+        PASSWORD="$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+    else
+        [ -n "${UPDATER_KEY_PASSWORD_ITEM:-}" ] || die "no password for UPDATER_KEY (UPDATER_KEY_PASSWORD_ITEM, or TAURI_SIGNING_PRIVATE_KEY_PASSWORD)"
+        PASSWORD=$(security find-generic-password -s "$UPDATER_KEY_PASSWORD_ITEM" -w) \
+            || die "can't read the keychain item $UPDATER_KEY_PASSWORD_ITEM"
+    fi
+    TRUSTED_KEY_ID=$(key_id "$(jq -r .plugins.updater.pubkey apps/desktop/tauri.conf.json)")
+    [ -n "$TRUSTED_KEY_ID" ] || die "no updater public key in apps/desktop/tauri.conf.json"
+}
+
+# Signs the updates in $OUT and writes latest.json, notes.md and the list of
+# files to upload.
+sign_all() {
+    local mac name url
+    mac=$(basename "$MAC_UPDATE")
+    sign_update "$MAC_UPDATE"
+    for name in "${INSTALLERS[@]}"; do
+        sign_update "$OUT/$name"
+    done
+
+    # Each copy looks for {os}-{arch}-{installer} first, then {os}-{arch}: one
+    # installed from the .deb updates from the .deb.
+    url="https://github.com/$REPO/releases/download/$TAG"
+    platform() {
+        jq -n --arg url "$url/$1" --arg signature "$(cat "$OUT/$1.sig")" '{url: $url, signature: $signature}'
+    }
+    jq -n --arg version "$VERSION" --arg notes "$NOTES" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --argjson mac "$(platform "$mac")" \
+        --argjson nsis "$(platform "$WINDOWS_NSIS")" \
+        --argjson msi "$(platform "$WINDOWS_MSI")" \
+        --argjson deb "$(platform "$LINUX_DEB")" \
+        --argjson rpm "$(platform "$LINUX_RPM")" \
+        '{
+            version: $version,
+            notes: $notes,
+            pub_date: $date,
+            platforms: {
+                "darwin-aarch64": $mac,
+                "darwin-x86_64": $mac,
+                "windows-x86_64": $nsis,
+                "windows-x86_64-nsis": $nsis,
+                "windows-x86_64-msi": $msi,
+                "linux-x86_64-deb": $deb,
+                "linux-x86_64-rpm": $rpm
+            }
+        }' > "$OUT/latest.json"
+    [ "$(jq '[.platforms[] | select(.url | startswith("'"$url"'/")) | select(.signature != "")] | length' "$OUT/latest.json")" = 7 ] \
+        || die "latest.json doesn't have seven signed platforms pointing at $TAG"
+
+    printf '%s\n' "$NOTES" > "$OUT/notes.md"
+    {
+        basename "$DMG"
+        echo "$APP_NAME.dmg"
+        echo "$mac"
+        echo "$mac.sig"
+        for name in "${INSTALLERS[@]}"; do
+            echo "$name"
+            echo "$name.sig"
+        done
+        echo latest.json
+    } > "$OUT/files"
+}
+
+# What --unsigned left, signed here: the same commit, so that the notes and
+# the trusted key are the ones it was built with.
+sign_elsewhere() {
+    local name head
+    [ -f "$OUT/unsigned" ] || die "$OUT has no build waiting for signatures: run apps/desktop/scripts/release.sh --unsigned first"
+    head=$(git rev-parse HEAD)
+    [ "$(cat "$OUT/unsigned")" = "$head" ] || die "$OUT was made from $(cat "$OUT/unsigned"), not HEAD ($head)"
+    for name in "$(basename "$DMG")" "$APP_NAME.dmg" "$(basename "$MAC_UPDATE")" "${INSTALLERS[@]}"; do
+        [ -f "$OUT/$name" ] || die "$OUT/$name is missing"
+    done
+    for tool in jq cargo xxd; do
+        command -v "$tool" >/dev/null || die "$tool is not installed"
+    done
+    NOTES="$(release_notes)"
+    [ -n "$NOTES" ] || die "CHANGELOG.md has no section '## [$VERSION]'"
+    load_key
+    say "Sign the updates; latest.json"
+    sign_all
+    echo "$head" > "$OUT/commit"
+    rm -f "$OUT/unsigned"
+    printf "\n\033[1;32mDone\033[0m\n"
+    echo "   Next: apps/desktop/scripts/release.sh --upload   (a draft release $TAG, to read and publish)"
+}
+
+UNSIGNED=no
 case "${1:-}" in
     --upload) upload; exit 0 ;;
+    --sign) sign_elsewhere; exit 0 ;;
+    --unsigned) UNSIGNED=yes ;;
     "") ;;
-    *) die "unknown option: $1 (the only one is --upload)" ;;
+    *) die "unknown option: $1 (--unsigned, --sign or --upload)" ;;
 esac
 
 # ---- Preconditions -----------------------------------------------------------
 
 [ -n "${TEAM_ID:-}" ] || die "TEAM_ID is not set (apps/desktop/release.env.example says how)"
 have_api_key || [ -n "${NOTARY_PROFILE:-}" ] || die "no notarization credentials (NOTARY_PROFILE, or APPLE_API_KEY_*)"
-[ -n "${UPDATER_KEY:-}" ] && [ -f "$UPDATER_KEY" ] || die "UPDATER_KEY isn't set to the updater's private key file"
 for tool in gh jq cargo xxd; do
     command -v "$tool" >/dev/null || die "$tool is not installed"
 done
@@ -187,22 +287,16 @@ if [ -n "$(git status --porcelain)" ]; then
 fi
 HEAD=$(git rev-parse HEAD)
 
-if [ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
-    PASSWORD="$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
-else
-    [ -n "${UPDATER_KEY_PASSWORD_ITEM:-}" ] || die "no password for UPDATER_KEY (UPDATER_KEY_PASSWORD_ITEM, or TAURI_SIGNING_PRIVATE_KEY_PASSWORD)"
-    PASSWORD=$(security find-generic-password -s "$UPDATER_KEY_PASSWORD_ITEM" -w) \
-        || die "can't read the keychain item $UPDATER_KEY_PASSWORD_ITEM"
-fi
-TRUSTED_KEY_ID=$(key_id "$(jq -r .plugins.updater.pubkey apps/desktop/tauri.conf.json)")
-[ -n "$TRUSTED_KEY_ID" ] || die "no updater public key in apps/desktop/tauri.conf.json"
+[ "$UNSIGNED" = yes ] || load_key
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
 # The key and its password, before the long build rather than after it.
-echo "$TAG" > "$OUT/key-check"
-sign_update "$OUT/key-check"
-rm -f "$OUT/key-check" "$OUT/key-check.sig"
+if [ "$UNSIGNED" = no ]; then
+    echo "$TAG" > "$OUT/key-check"
+    sign_update "$OUT/key-check"
+    rm -f "$OUT/key-check" "$OUT/key-check.sig"
+fi
 
 # ---- 1. The Windows and Linux installers start building ----------------------
 
@@ -317,56 +411,20 @@ rm -rf "$CI"
 
 # ---- 4. The updates and the feed ---------------------------------------------
 
-say "6/6  Sign the updates; latest.json"
 # The macOS update is the stapled app itself, packed as the updater expects.
 COPYFILE_DISABLE=1 tar -C "$BUNDLE" -czf "$MAC_UPDATE" "$APP_NAME.app"
-sign_update "$MAC_UPDATE"
-for name in "${INSTALLERS[@]}"; do
-    sign_update "$OUT/$name"
-done
 
-# Each copy looks for {os}-{arch}-{installer} first, then {os}-{arch}: one
-# installed from the .deb updates from the .deb.
-URL="https://github.com/$REPO/releases/download/$TAG"
-platform() {
-    jq -n --arg url "$URL/$1" --arg signature "$(cat "$OUT/$1.sig")" '{url: $url, signature: $signature}'
-}
-MAC=$(basename "$MAC_UPDATE")
-jq -n --arg version "$VERSION" --arg notes "$NOTES" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --argjson mac "$(platform "$MAC")" \
-    --argjson nsis "$(platform "$WINDOWS_NSIS")" \
-    --argjson msi "$(platform "$WINDOWS_MSI")" \
-    --argjson deb "$(platform "$LINUX_DEB")" \
-    --argjson rpm "$(platform "$LINUX_RPM")" \
-    '{
-        version: $version,
-        notes: $notes,
-        pub_date: $date,
-        platforms: {
-            "darwin-aarch64": $mac,
-            "darwin-x86_64": $mac,
-            "windows-x86_64": $nsis,
-            "windows-x86_64-nsis": $nsis,
-            "windows-x86_64-msi": $msi,
-            "linux-x86_64-deb": $deb,
-            "linux-x86_64-rpm": $rpm
-        }
-    }' > "$OUT/latest.json"
-[ "$(jq '[.platforms[] | select(.url | startswith("'"$URL"'/")) | select(.signature != "")] | length' "$OUT/latest.json")" = 7 ] \
-    || die "latest.json doesn't have seven signed platforms pointing at $TAG"
+if [ "$UNSIGNED" = yes ]; then
+    echo "$HEAD" > "$OUT/unsigned"
+    printf "\n\033[1;32mBuilt, not signed\033[0m\n"
+    ls -lh "$OUT" | sed 's/^/   /'
+    echo "   Next: copy $OUT to the Mac with the updater's key, at $HEAD, and there"
+    echo "   apps/desktop/scripts/release.sh --sign; then, with the files back here, --upload"
+    exit 0
+fi
 
-printf '%s\n' "$NOTES" > "$OUT/notes.md"
-{
-    basename "$DMG"
-    echo "$APP_NAME.dmg"
-    echo "$MAC"
-    echo "$MAC.sig"
-    for name in "${INSTALLERS[@]}"; do
-        echo "$name"
-        echo "$name.sig"
-    done
-    echo latest.json
-} > "$OUT/files"
+say "6/6  Sign the updates; latest.json"
+sign_all
 echo "$HEAD" > "$OUT/commit"
 
 printf "\n\033[1;32mDone\033[0m\n"
