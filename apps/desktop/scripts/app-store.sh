@@ -185,5 +185,7 @@ if $UPLOAD; then
     altool "No errors uploading archive" --upload-app -f "$PKG" -t macos "${KEY[@]}"
     say "Uploaded. It shows in App Store Connect once it's processed, usually within the hour."
 else
-    say "Validated: $PKG. apps/desktop/scripts/app-store.sh --upload sends it."
+    again="apps/desktop/scripts/app-store.sh --upload"
+    if [ "$STORE_BUILD" != 0 ]; then again="STORE_BUILD=$STORE_BUILD $again"; fi
+    say "Validated: $PKG. $again sends it."
 fi
