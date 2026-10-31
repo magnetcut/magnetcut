@@ -244,6 +244,17 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
   the app hidden (frames looked at and the film exported with no window showing), then tools
   listed through `--mcp` and the summary printed by `call`.
 
-What's left of step 12: in the App Store edition, folders granted in Settings and the dialog
-for a path outside them; shot changes and Track as tools; and Claude Code trying it by hand,
-the tokens it took written here.
+- Then the rest. `find` gains shots (each frame of the timeline drawn 96 px wide, its
+  brightness histogram against the last's; a cut is a change over 0.3 and three times the
+  usual around it: on CI, a black picture then a white one, the one cut found at 5.00 s, where
+  they meet, on all three systems) and track (Track on a Hide region, from the frame given).
+  The App Store edition: folders granted in Settings, kept as security-scoped bookmarks that
+  read and write, opened again at each launch; and for a path outside Movies, Downloads and
+  them, the window's open or save dialog put at that path, the agent's name in its title, the
+  file the user picks the one used (an export or a project saved says where it went). Written
+  to Apple's rules, not yet tried in a store build. A project opened is waited for by the
+  managers' notices and the clock: polling with timers alone, a hidden window (which slows them)
+  once kept a call waiting six minutes.
+
+What's left of step 12: Claude Code trying it by hand, and the tokens it took written here; and
+the App Store build tried with an agent.

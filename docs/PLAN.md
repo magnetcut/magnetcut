@@ -111,7 +111,8 @@ telemetry: everything stays on the computer. Not for iOS or Android.
 
 ## Order
 
-Done: 1, 2, 3, 4, 7, 8, 10 (docs/SUBTITLES.md) and 11 (docs/HIDE.md). 5 but for publishing 0.1.0, a draft
+Done: 1, 2, 3, 4, 7, 8, 10 (docs/SUBTITLES.md) and 11 (docs/HIDE.md). 12 but for trying
+it by hand with Claude Code and in the App Store build (docs/AUTOMATION.md). 5 but for publishing 0.1.0, a draft
 release on GitHub, which is the author's to do. 6 but for what's the author's in App Store
 Connect: build 0.1.0 is on version 0.1.0 with its listing; the screenshots, the privacy and age
 rating answers, the price and submitting it are left (docs/RELEASING.md). 9 but for a desktop of
