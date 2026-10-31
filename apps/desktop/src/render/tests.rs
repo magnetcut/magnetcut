@@ -1117,16 +1117,44 @@ fn stored_subtitles(path: &Path) -> Vec<(f64, f64, String)> {
     samples
 }
 
-#[cfg(target_os = "macos")]
+/// A film's subtitle track as stored: each sample's start, end and text, as
+/// GStreamer's demuxer reads timed text.
+#[cfg(target_os = "linux")]
+fn stored_subtitles(path: &Path) -> Vec<(f64, f64, String)> {
+    use gstreamer as gst;
+    use gstreamer::prelude::*;
+
+    let pipeline = super::pipeline::launch(
+        "filesrc name=file ! qtdemux name=demux demux.subtitle_0 ! appsink name=text sync=false",
+    )
+    .unwrap();
+    pipeline
+        .by_name("file")
+        .unwrap()
+        .set_property("location", path.to_str().unwrap());
+    let text: gstreamer_app::AppSink = super::pipeline::by_name(&pipeline, "text").unwrap();
+    pipeline.set_state(gst::State::Playing).unwrap();
+    let mut samples = Vec::new();
+    while let Some(sample) = text.try_pull_sample(gst::ClockTime::from_seconds(10)) {
+        let buffer = sample.buffer().unwrap();
+        let start = super::pipeline::seconds(buffer.pts().unwrap());
+        let end = start + buffer.duration().map_or(0.0, super::pipeline::seconds);
+        let data = buffer.map_readable().unwrap();
+        samples.push((start, end, String::from_utf8_lossy(&data).into_owned()));
+    }
+    pipeline.set_state(gst::State::Null).unwrap();
+    samples
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn writes_subtitle_tracks_as_timed_text() {
     let source = temporary("subtitled-source.mp4");
     make_source(&source);
-    for (name, container) in [
-        ("subtitled.mp4", Container::Mp4),
-        ("subtitled.mov", Container::Mov),
-    ] {
-        let path = temporary(name);
+    // MP4 and, on a Mac, QuickTime.
+    for container in super::encode::capabilities().formats {
+        let name = format!("subtitled.{container:?}");
+        let path = temporary(&name);
         let options = StartOptions {
             path: path.to_str().unwrap().to_owned(),
             format: container,
@@ -1176,17 +1204,19 @@ fn writes_subtitle_tracks_as_timed_text() {
         }
         worker.finish().unwrap();
 
+        // The lines, at their times; the empty samples between them clear
+        // the screen, where the demuxer passes them on.
         let samples = stored_subtitles(&path);
         let near = |a: f64, b: f64| (a - b).abs() < 1e-3;
-        let texts: Vec<&str> = samples.iter().map(|(_, _, text)| text.as_str()).collect();
-        assert_eq!(
-            texts,
-            ["", "Hello", "", "Café\nau lait"],
-            "{name}: {samples:?}"
-        );
-        let (start, end, _) = &samples[1];
+        let lines: Vec<&(f64, f64, String)> = samples
+            .iter()
+            .filter(|(_, _, text)| !text.is_empty())
+            .collect();
+        let texts: Vec<&str> = lines.iter().map(|(_, _, text)| text.as_str()).collect();
+        assert_eq!(texts, ["Hello", "Café\nau lait"], "{name}: {samples:?}");
+        let (start, end, _) = lines[0];
         assert!(near(*start, 0.2) && near(*end, 0.5), "{name}: {samples:?}");
-        let (start, end, _) = &samples[3];
+        let (start, end, _) = lines[1];
         assert!(near(*start, 0.7) && near(*end, 0.9), "{name}: {samples:?}");
     }
 }

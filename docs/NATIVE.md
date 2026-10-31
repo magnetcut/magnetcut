@@ -205,16 +205,18 @@ and give it constant quality and the encoders the web views lack.
   with it), through the bindings that share Tauri's glib (0.21; two glibs can't be linked).
   decodebin turns each source into BGRA, through VA-API's decoders where there are some; the
   film goes through appsrc to the best encoder there is (VA-API's, then x264, x265 or
-  OpenH264) and an AAC one (fdk-aac, FFmpeg's, VisualOn's or FAAC), into mp4mux. The packages
-  recommend the plugins with the encoders.
+  OpenH264) and an AAC one (fdk-aac, FFmpeg's, VisualOn's or FAAC), into mp4mux, with subtitle
+  tracks as timed text (tx3g), as on a Mac. The pipeline is set playing without waiting for it
+  to settle, which it can't till it's fed: waited for, each export started 30 s late. The
+  packages recommend the plugins with the encoders.
 - Both writers hold the mix until the frames are near (half a second ahead): the muxer
   interleaves the two, and sound far ahead would wait in it for frames still to come.
 - The portrait fixture (`apps/desktop/fixtures/turned.mp4`, made by ffmpeg) turns the same way
   on all three: AVFoundation's transform, Media Foundation's `MF_MT_VIDEO_ROTATION` and
   GStreamer's `rotate-90` all mean a quarter turn clockwise.
-- Not yet on Windows and Linux: copied sound, subtitle tracks (the web view's export makes
-  those, WebVTT in MP4), constant quality, ProRes and AV1, HDR's tone mapping, and decoding
-  into the GPU's memory (D3D11, VA-API) without the copy out.
+- Not yet on Windows and Linux: copied sound, subtitle tracks on Windows (the web view's export
+  makes those, WebVTT in MP4), constant quality, ProRes and AV1, HDR's tone mapping, and
+  decoding into the GPU's memory (D3D11, VA-API) without the copy out.
 - Checked on CI and, for GStreamer, on a Mac against Homebrew's: no Windows or Linux machine
   here, so not in the app on those systems. The Windows runner has Microsoft's H.264 and AAC
   encoders and no HEVC; WARP stands in for its GPU, and Mesa's software Vulkan for Linux's.
@@ -321,5 +323,5 @@ and give it constant quality and the encoders the web views lack.
   HEVC with GStreamer's plugins installed, nothing with only the base ones, and the web view's
   export then makes the film; the Mac's, all it does. And through the app's own commands, as
   the editor calls them: a drawing and a tone into a film, then that film, decoded, into
-  another, read back at its size, on all three (3 s on macOS and Windows; 61 s on Linux, where
-  Mesa's software Vulkan compiles the compositor's shaders on the CPU for each export).
+  another, read back at its size, on all three (3 s on macOS and Windows; 61 s on Linux, 30 s
+  of each export its writer's start, since fixed).

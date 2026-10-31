@@ -57,6 +57,16 @@ pub fn set_state(pipeline: &gst::Pipeline, state: gst::State) -> Result<(), Stri
     result.map(|_| ()).map_err(|_| failed())
 }
 
+/// Sets a pipeline that's fed playing, without waiting: its sink can't
+/// settle until it's fed, which waiting would hold up (by `set_state`'s 30
+/// seconds, the first Linux exports' start).
+pub fn play(pipeline: &gst::Pipeline) -> Result<(), String> {
+    pipeline
+        .set_state(gst::State::Playing)
+        .map(|_| ())
+        .map_err(|_| failure(pipeline).unwrap_or_else(|| "couldn't start the file".into()))
+}
+
 /// Seconds as GStreamer's time.
 pub fn clock_time(seconds: f64) -> gst::ClockTime {
     gst::ClockTime::from_nseconds((seconds.max(0.0) * 1e9) as u64)

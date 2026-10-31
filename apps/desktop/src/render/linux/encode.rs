@@ -13,10 +13,10 @@ use gstreamer_app::AppSrc;
 use gstreamer_video::{VideoFormat, VideoInfo};
 
 use super::frames::FrameBuffer;
-use super::pipeline::{by_name, failure, first_element, launch, set_state};
+use super::pipeline::{by_name, clock_time, failure, first_element, launch, play};
 use super::settings::{
-    Audio, AudioSettings, Capabilities, Container, KEY_FRAME_INTERVAL, SubtitleTrack, VideoCodec,
-    VideoSettings,
+    Audio, AudioSettings, Capabilities, Container, KEY_FRAME_INTERVAL, SubtitleCue, SubtitleTrack,
+    VideoCodec, VideoSettings,
 };
 
 // A sound buffer's length, in seconds: short, so the sound and the pictures
@@ -62,7 +62,8 @@ pub fn capabilities() -> Capabilities {
         video_codecs,
         constant_quality: constant_quality(),
         audio_copy: false,
-        subtitle_tracks: false,
+        // As timed text (tx3g), which mp4mux writes, as on a Mac.
+        subtitle_tracks: can_mux,
     }
 }
 
@@ -122,8 +123,8 @@ impl Writer {
         Self::with_subtitles(path, container, video, audio, &[])
     }
 
-    /// Starts a file at `path`, replacing what's there. Subtitle tracks and
-    /// copied sound aren't written here yet (`capabilities`).
+    /// Starts a file at `path`, replacing what's there, with subtitle tracks
+    /// as timed text. Copied sound isn't written here yet (`capabilities`).
     pub fn with_subtitles(
         path: &Path,
         container: Container,
@@ -143,9 +144,6 @@ impl Writer {
             }
             None => None,
         };
-        if !subtitles.is_empty() {
-            return Err("Linux's own export doesn't write subtitle tracks yet".into());
-        }
         let aac = match audio {
             Some(_) => {
                 Some(first_element(&AAC_ENCODERS).ok_or("This computer has no AAC encoder")?)
@@ -175,6 +173,15 @@ impl Writer {
                 " appsrc name=audio format=time block=true max-bytes=4000000 ! audioconvert ! \
                  {aac} name=aac ! aacparse ! \
                  queue max-size-buffers=0 max-size-bytes=0 max-size-time=10000000000 ! mux."
+            ));
+        }
+        // Each subtitle track's lines all at once, waiting unbounded for the
+        // frames they go with: they're small.
+        for index in 0..subtitles.len() {
+            description.push_str(&format!(
+                " appsrc name=subtitles{index} format=time \
+                 caps=text/x-raw,format=utf8 ! \
+                 queue max-size-buffers=0 max-size-bytes=0 max-size-time=0 ! mux.subtitle_%u"
             ));
         }
         let pipeline = launch(&description)?;
@@ -225,7 +232,22 @@ impl Writer {
             fps,
             frames: 0,
         };
-        set_state(&writer.pipeline, gst::State::Playing)?;
+        play(&writer.pipeline)?;
+        for (index, track) in subtitles.iter().enumerate() {
+            let source: AppSrc = by_name(&writer.pipeline, &format!("subtitles{index}"))?;
+            for (start, end, text) in subtitle_samples(&track.cues) {
+                let mut buffer = gst::Buffer::from_mut_slice(text.into_bytes());
+                {
+                    let buffer = buffer.get_mut().ok_or("a subtitle's buffer is in use")?;
+                    buffer.set_pts(clock_time(start));
+                    buffer.set_duration(clock_time(end - start));
+                }
+                source
+                    .push_buffer(buffer)
+                    .map_err(|_| writer.failure("Couldn't write the subtitles"))?;
+            }
+            let _ = source.end_of_stream();
+        }
         Ok(writer)
     }
 
@@ -356,6 +378,28 @@ impl Writer {
             None => doing.to_owned(),
         }
     }
+}
+
+/// A track's samples, one after another from zero, as (start, end, text):
+/// each line, and an empty sample for each stretch with none, which clears
+/// the screen (as `subtitle.rs` writes them on a Mac).
+fn subtitle_samples(cues: &[SubtitleCue]) -> Vec<(f64, f64, String)> {
+    let mut cues: Vec<&SubtitleCue> = cues.iter().filter(|cue| cue.end > cue.start).collect();
+    cues.sort_by(|a, b| a.start.total_cmp(&b.start));
+    let mut samples = Vec::new();
+    let mut at = 0.0;
+    for cue in cues {
+        let start = cue.start.max(at);
+        if cue.end <= start {
+            continue;
+        }
+        if start > at {
+            samples.push((at, start, String::new()));
+        }
+        samples.push((start, cue.end, cue.text.clone()));
+        at = cue.end;
+    }
+    samples
 }
 
 /// The bitrate, a key frame every two seconds, and a quick preset, in each

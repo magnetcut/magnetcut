@@ -66,16 +66,17 @@ pub enum Audio {
 
 /// A line of a subtitle track, in seconds.
 #[derive(Debug, Clone, Deserialize)]
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(windows, allow(dead_code))]
 pub struct SubtitleCue {
     pub start: f64,
     pub end: f64,
     pub text: String,
 }
 
-/// A subtitle track, as the editor sends it: written only on the Mac, so far.
+/// A subtitle track, as the editor sends it: written on a Mac and on Linux,
+/// so far.
 #[derive(Debug, Clone, Deserialize)]
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(windows, allow(dead_code))]
 pub struct SubtitleTrack {
     pub cues: Vec<SubtitleCue>,
 }
