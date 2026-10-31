@@ -7,9 +7,10 @@
 #
 #   apps/desktop/scripts/app-store.sh            target/app-store/MagnetCut-<version>-<build>.pkg, validated
 #   apps/desktop/scripts/app-store.sh --upload   and upload it, as a new build of the app
-#   BUILD_NUMBER=0.1.0.2 apps/desktop/scripts/app-store.sh --upload
+#   STORE_BUILD=1 apps/desktop/scripts/app-store.sh --upload
 #                                                another upload of the same version (App
-#                                                Store Connect takes each build number once)
+#                                                Store Connect takes each build number once):
+#                                                0.1.0's second build is 0.1.1
 #
 # Needs, in apps/desktop/release.env (see release.env.example):
 #   TEAM_ID                the team's id
@@ -87,7 +88,14 @@ security cms -D -i "$PROFILE" > "$WORK/profile.plist"
     || die "$PROFILE isn't the Mac App Store profile for $TEAM_ID.$APP_STORE_BUNDLE_ID"
 
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' apps/desktop/Cargo.toml | head -1)
-BUILD="${BUILD_NUMBER:-$VERSION}"
+# A Mac build number is at most three numbers, each build sent to the store
+# higher than every one before it: x.y.(z*100 + n) for the nth rebuild of
+# x.y.z (STORE_BUILD, 0 unless set) stays below x.y.(z+1)'s first.
+STORE_BUILD="${STORE_BUILD:-0}"
+[[ "$STORE_BUILD" =~ ^[0-9]{1,2}$ ]] || die "STORE_BUILD is a number from 0 to 99"
+IFS=. read -r MAJOR MINOR PATCH <<< "$VERSION"
+[[ "$MAJOR.$MINOR.$PATCH" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "the version $VERSION isn't x.y.z"
+BUILD="${BUILD_NUMBER:-$MAJOR.$MINOR.$((10#$PATCH * 100 + 10#$STORE_BUILD))}"
 
 # The store wants the app's entitlements plus who it is, as the profile grants.
 ENT="$WORK/AppStore.entitlements"

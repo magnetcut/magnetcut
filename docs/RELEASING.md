@@ -111,15 +111,17 @@ only, each with a token shown in Settings."
 1. On the release's commit, `apps/desktop/scripts/app-store.sh`, into `target/app-store/`. It
    refuses a dirty working tree, then:
    - builds the universal app with the store's bundle id, entitlements, profile and build number
-     (the version, unless `BUILD_NUMBER` says otherwise), signed as Apple Distribution;
+     (x.y.z×100 for version x.y.z: 0.1.0 is 0.1.0, 0.1.1 is 0.1.100), signed as Apple
+     Distribution;
    - checks the bundle id, the build number, the profile, the icon, both architectures, that the
      updater isn't in it, the signature, the sandbox, that nothing is quarantined and that every
      file stays readable once installed;
    - packages it with productbuild, signed as Mac Installer Distribution, and has App Store
      Connect validate it.
 2. `apps/desktop/scripts/app-store.sh --upload` validates it again and uploads it as a new build.
-   App Store Connect takes each build number once: another build of the same version is
-   `BUILD_NUMBER=x.y.z.1 apps/desktop/scripts/app-store.sh --upload`.
+   App Store Connect takes each build number once, and a Mac build number is at most three
+   numbers, each higher than the last: another build of the same version is
+   `STORE_BUILD=1 apps/desktop/scripts/app-store.sh --upload` (0.1.0's is 0.1.1), then 2.
 3. In App Store Connect: the listing, the screenshots and the privacy answers (Data Not
    Collected), then submit the build for review. Submitting is what ships it, as publishing
    does on GitHub.
