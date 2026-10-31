@@ -79,13 +79,17 @@ moves.
   region, a little bigger than what was found, keyframed on every frame (to a tenth of a pixel:
   mask keyframes kept a percent of the picture before), from five frames before it's first seen
   to five after it's last. Tried end to end in the built app, in Chrome, through the editor's
-  own renderer (the code the button calls; not the button): a 4 s pan across the 1927 Solvay
+  own renderer: a 4 s pan across the 1927 Solvay
   portrait, 24 to 27 faces in view, became 29 Hide regions in 20 s, and every face the model
   sees in the frames at every fifth of a second was hidden (514 of 514), the picture away from
   them unchanged. Find plates, on a 4 s pan across a supermarket's car park (a photo from
   Geograph, CC BY-SA), three plates near and far: three Cover regions, every plate covered (48
   of 48), nothing else; a plate find wider than a third of the frame is dropped, after the roof's
-  beams scored as high as a far plate. Faces of 15 px and less, at the back of a crowd, the
+  beams scored as high as a far plate. Then as a person would, the editor driven in Chrome
+  through the DevTools protocol: a new project, the film through Import, its + button, the
+  Adjustment tab, Find faces; the panel said "29 faces hidden: check each one." after 21 s,
+  29 regions on the timeline and every face blurred in the preview; Plate, Cover, Find plates:
+  "3 plates hidden", the plates black. Faces of 15 px and less, at the back of a crowd, the
   model doesn't see: those stay to be covered by hand. Finding this out found two faults in the renderer, both mended:
   on a frame's very start the frame before could show, depending on what the decoder had ready;
   and the decoder's canvases, used in turn, made the compositor skip uploading a frame when the
