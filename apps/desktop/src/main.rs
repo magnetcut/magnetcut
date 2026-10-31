@@ -8,6 +8,7 @@ mod agent;
 mod export;
 mod media;
 mod menu;
+mod project_file;
 mod render;
 #[cfg(target_os = "linux")]
 mod webkit;
@@ -49,6 +50,8 @@ macro_rules! commands {
             agent::agent_export_to,
             agent::agent_read_project,
             agent::agent_write_project,
+            project_file::pick_project_file,
+            project_file::save_project_file,
             $($more),*
         ]
     };

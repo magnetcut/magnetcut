@@ -10,6 +10,8 @@ use tauri::{AppHandle, Runtime};
 /// the item's id, and it opens its dialog.
 pub const ABOUT: &str = "about";
 pub const SETTINGS: &str = "settings";
+pub const OPEN_PROJECT: &str = "open-project";
+pub const SAVE_PROJECT: &str = "save-project";
 #[cfg(feature = "updater")]
 pub const CHECK_FOR_UPDATES: &str = "check-for-updates";
 
@@ -18,7 +20,7 @@ pub fn is_forwarded(id: &str) -> bool {
     if id == CHECK_FOR_UPDATES {
         return true;
     }
-    id == ABOUT || id == SETTINGS
+    [ABOUT, SETTINGS, OPEN_PROJECT, SAVE_PROJECT].contains(&id)
 }
 
 #[cfg(target_os = "macos")]
@@ -54,6 +56,28 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         1,
     )?;
 
+    let file = Submenu::with_items(
+        app,
+        "File",
+        true,
+        &[
+            &MenuItem::with_id(
+                app,
+                OPEN_PROJECT,
+                "Open Project…",
+                true,
+                Some("CmdOrCtrl+O"),
+            )?,
+            &MenuItem::with_id(
+                app,
+                SAVE_PROJECT,
+                "Save Project As…",
+                true,
+                Some("CmdOrCtrl+Shift+S"),
+            )?,
+        ],
+    )?;
+
     // Text fields need these for the clipboard; the timeline's own shortcuts
     // reach the page first, as WebKit hands it key equivalents before the menu.
     let edit = Submenu::with_items(
@@ -87,5 +111,5 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             &PredefinedMenuItem::close_window(app, None)?,
         ],
     )?;
-    Menu::with_items(app, &[&app_menu, &edit, &view, &window])
+    Menu::with_items(app, &[&app_menu, &file, &edit, &view, &window])
 }

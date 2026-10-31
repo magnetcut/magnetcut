@@ -2,9 +2,11 @@
 
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { AgentBridge } from "@/agent/bridge";
 import { useAppDialogsStore } from "../app-dialogs-store";
+import { openProjectFromDisk, saveProjectToDisk } from "../project-files";
 import { checkForUpdatesIfDue, checkForUpdatesNow } from "../updates";
 import { AboutDialog } from "./about-dialog";
 import { SettingsDialog } from "./settings-dialog";
@@ -44,6 +46,7 @@ export function AppDialogs() {
 
 /** The macOS menu's own items (apps/desktop/src/menu.rs). */
 function useNativeMenu() {
+	const router = useRouter();
 	useEffect(() => {
 		if (!isTauri()) return;
 		const unlisten = listen<string>("menu", ({ payload }) => {
@@ -51,11 +54,15 @@ function useNativeMenu() {
 				useAppDialogsStore.getState().setOpenDialog({ dialog: payload });
 			}
 			if (payload === "check-for-updates") void checkForUpdatesNow();
+			if (payload === "open-project") {
+				void openProjectFromDisk({ navigate: (url) => router.push(url) });
+			}
+			if (payload === "save-project") void saveProjectToDisk();
 		});
 		return () => {
 			void unlisten.then((stop) => stop());
 		};
-	}, []);
+	}, [router]);
 }
 
 function useDailyUpdateCheck() {

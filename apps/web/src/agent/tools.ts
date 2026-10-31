@@ -17,13 +17,8 @@ import { frameRateToFloat } from "@/fps/utils";
 import { DiskFile } from "@/media/disk-file";
 import { processMediaAssets } from "@/media/processing";
 import { getEditorUrl } from "@/project/editor-url";
-import {
-	PROJECT_FILE_EXTENSION,
-	parseProjectFile,
-	toProjectFile,
-} from "@/project/file";
-import { storageService } from "@/services/storage/service";
-import { generateUUID } from "@/utils/id";
+import { PROJECT_FILE_EXTENSION, toProjectFile } from "@/project/file";
+import { importProjectFile } from "@/project/open-file";
 import { DEFAULT_NEW_ELEMENT_DURATION } from "@/timeline/creation";
 import { buildElementFromMedia } from "@/timeline/element-utils";
 import { mediaTime, mediaTimeFromSeconds, TICKS_PER_SECOND } from "@/wasm";
@@ -138,9 +133,8 @@ const status: Tool = {
 	},
 };
 
-/** A .magnetcut file, made a project of its own (a new one, whatever its id
- * was), its media opened from where they are: its id, and the media that
- * couldn't be. */
+/** A .magnetcut file an agent named, made a project of its own, its media
+ * opened by the paths in it. */
 async function openProjectFile({
 	call,
 	path,
@@ -154,44 +148,24 @@ async function openProjectFile({
 	}).catch((error: unknown) => {
 		throw new ToolError(String(error));
 	});
-	let opened: ReturnType<typeof parseProjectFile>;
 	try {
-		opened = parseProjectFile({ text: contents });
+		const opened = await importProjectFile({
+			text: contents,
+			openMedium: async ({ path: mediumPath }) =>
+				new DiskFile(
+					await invoke<ConstructorParameters<typeof DiskFile>[0]>(
+						"agent_open_media",
+						{ call, path: mediumPath },
+					),
+				),
+		});
+		return {
+			id: opened.id,
+			missing: opened.missing.map((line) => `missing ${line}`),
+		};
 	} catch (error) {
 		throw new ToolError(error instanceof Error ? error.message : String(error));
 	}
-	const id = generateUUID();
-	const now = new Date();
-	const project = {
-		...opened.project,
-		metadata: {
-			...opened.project.metadata,
-			id,
-			thumbnail: undefined,
-			createdAt: now,
-			updatedAt: now,
-		},
-	};
-	const missing: string[] = [];
-	for (const medium of opened.media) {
-		try {
-			const info = await invoke<ConstructorParameters<typeof DiskFile>[0]>(
-				"agent_open_media",
-				{ call, path: medium.path },
-			);
-			const [asset] = await processMediaAssets({ files: [new DiskFile(info)] });
-			if (!asset) throw new Error("not read");
-			// Under its id in the file, which the clips name.
-			await storageService.saveMediaAsset({
-				projectId: id,
-				mediaAsset: { ...asset, id: medium.id },
-			});
-		} catch (error) {
-			missing.push(`missing ${medium.name} (${medium.path}): ${String(error)}`);
-		}
-	}
-	await storageService.saveProject({ project });
-	return { id, missing };
 }
 
 const project: Tool = {

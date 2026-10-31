@@ -504,7 +504,7 @@ pub fn agent_export_to(
 }
 
 /// The media paths in a project file: what opening it needs to read.
-fn media_paths(text: &str) -> Vec<String> {
+pub fn media_paths(text: &str) -> Vec<String> {
     let Ok(file) = serde_json::from_str::<Value>(text) else {
         return Vec::new();
     };
