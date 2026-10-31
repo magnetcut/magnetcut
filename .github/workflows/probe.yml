@@ -38,6 +38,8 @@ jobs:
             libayatana-appindicator3-dev librsvg2-dev xvfb \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+          # Mesa's software Vulkan: the GPU the app's own export draws on.
+          sudo apt-get install -y mesa-vulkan-drivers
 
       - name: Update Rust
         run: |
@@ -107,7 +109,7 @@ jobs:
             if [ -f probe-codecs.txt ]; then
               echo "#### With codecs"
               echo '```json'
-              grep '^MAGNETCUT_PROBE ' probe-codecs.txt | sed 's/^MAGNETCUT_PROBE //' | jq -c '{videoEncode, videoDecode, audioEncode, audioDecode}'
+              grep '^MAGNETCUT_PROBE ' probe-codecs.txt | sed 's/^MAGNETCUT_PROBE //' | jq -c '{videoEncode, videoDecode, audioEncode, audioDecode, nativeExport, nativeExportRun}'
               echo '```'
             fi
             # WebKitGTK's feature flags, all of them: SWITCHED marks those the

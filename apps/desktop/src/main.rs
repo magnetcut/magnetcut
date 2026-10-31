@@ -52,6 +52,32 @@ fn probe_report(app: tauri::AppHandle, report: String) {
     app.exit(0);
 }
 
+/// For the probe, which exports through the app's own commands: two files in
+/// a scratch folder to export to, as if picked in the save dialog.
+#[tauri::command]
+fn probe_export_paths(exports: tauri::State<'_, export::Exports>) -> Result<Vec<String>, String> {
+    let directory = std::env::temp_dir().join("magnetcut-probe");
+    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    ["first.mp4", "second.mp4"]
+        .into_iter()
+        .map(|name| {
+            let path = directory.join(name);
+            let shown = path.to_str().map(str::to_owned).ok_or("not a UTF-8 path")?;
+            exports.add_pick(path);
+            Ok(shown)
+        })
+        .collect()
+}
+
+/// For the probe: lets the editor read a film it exported, as if dropped.
+#[tauri::command]
+fn probe_grant(media: tauri::State<'_, media::MediaFiles>, path: String) -> Result<(), String> {
+    match media.grant(vec![std::path::PathBuf::from(path)]).len() {
+        1 => Ok(()),
+        _ => Err("not a media file".into()),
+    }
+}
+
 #[derive(Serialize)]
 struct AppInfo {
     version: String,
@@ -132,7 +158,7 @@ fn main() {
 
     if std::env::var_os(PROBE_ENV).is_some() {
         builder = builder
-            .invoke_handler(commands![probe_report])
+            .invoke_handler(commands![probe_report, probe_export_paths, probe_grant])
             .on_page_load(|webview, payload| {
                 if payload.event() == PageLoadEvent::Finished
                     && let Err(error) = webview.eval(include_str!("probe.js"))

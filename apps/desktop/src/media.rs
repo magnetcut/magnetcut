@@ -103,7 +103,7 @@ impl MediaFiles {
     }
 
     /// Lets the editor read these files from now on: media files only.
-    fn grant(&self, paths: Vec<PathBuf>) -> Vec<DiskFileInfo> {
+    pub fn grant(&self, paths: Vec<PathBuf>) -> Vec<DiskFileInfo> {
         let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         let mut infos = Vec::new();
         for location in paths.into_iter().filter(|path| is_media(path)) {

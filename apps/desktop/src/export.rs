@@ -38,6 +38,11 @@ impl Exports {
         Ok(())
     }
 
+    /// A file to export to, as the save dialog gives one.
+    pub fn add_pick(&self, path: PathBuf) {
+        lock(&self.picked).insert(path);
+    }
+
     /// A finished export, which may be shown.
     pub fn add_saved(&self, path: PathBuf) {
         lock(&self.saved).insert(path);
@@ -72,7 +77,7 @@ pub async fn pick_export_file(
         return Ok(None);
     };
     let shown = path.to_str().map(str::to_owned).ok_or("not a UTF-8 path")?;
-    lock(&exports.picked).insert(path);
+    exports.add_pick(path);
     Ok(Some(shown))
 }
 

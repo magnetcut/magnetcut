@@ -168,6 +168,86 @@
 	report.nativeExport = await attempt(() =>
 		window.__TAURI_INTERNALS__.invoke("native_export_capabilities"),
 	);
+	// And that it makes them, through the commands the editor uses, where it
+	// makes H.264: a drawing and a tone into a film, then that film, decoded,
+	// into another; and what the app reads of the second.
+	report.nativeExportRun = await attempt(async () => {
+		const invoke = window.__TAURI_INTERNALS__.invoke;
+		if (!report.nativeExport?.videoCodecs?.includes("avc")) {
+			return "no H.264 encoder here";
+		}
+		const [first, second] = await invoke("probe_export_paths");
+		const size = 64;
+		const frame = (textureId) => ({
+			width: size,
+			height: size,
+			clear: { color: [0, 0, 0, 1] },
+			items: [
+				{
+					type: "layer",
+					textureId,
+					transform: {
+						centerX: size / 2,
+						centerY: size / 2,
+						width: size,
+						height: size,
+						rotationDegrees: 0,
+						flipX: false,
+						flipY: false,
+					},
+					opacity: 1,
+					blendMode: "normal",
+					effectPassGroups: [],
+					mask: null,
+				},
+			],
+		});
+		const makeFilm = async ({ path, source }) => {
+			const session = await invoke("native_export_start", {
+				options: {
+					path,
+					format: "mp4",
+					width: size,
+					height: size,
+					outputWidth: size,
+					outputHeight: size,
+					fps: { numerator: 30, denominator: 1 },
+					videoCodec: "avc",
+					videoBitrate: 1000000,
+					audio: { channels: 2, sampleRate: 48000, bitrate: 128000 },
+				},
+			});
+			const headers = { session: String(session) };
+			if (!source) {
+				const grey = new Uint8Array(16).map((_, i) => (i % 4 === 3 ? 255 : 128));
+				await invoke("native_export_texture", grey, {
+					headers: { ...headers, "texture-id": "picture", width: "2", height: "2" },
+				});
+			}
+			const tone = new Float32Array(48000 * 2).map(
+				(_, i) => Math.sin((Math.floor(i / 2) * 440 * 2 * Math.PI) / 48000) / 2,
+			);
+			await invoke("native_export_audio", new Uint8Array(tone.buffer), {
+				headers: { ...headers, last: "true" },
+			});
+			for (let i = 0; i < 30; i++) {
+				await invoke("native_export_frame", {
+					session,
+					frame: frame(source ? "video" : "picture"),
+					videos: source ? [{ textureId: "video", path: source, time: i / 30 }] : [],
+					released: [],
+				});
+			}
+			await invoke("native_export_finish", { session });
+		};
+		const started = performance.now();
+		await makeFilm({ path: first });
+		await invoke("probe_grant", { path: first });
+		await makeFilm({ path: second, source: first });
+		await invoke("probe_grant", { path: second });
+		const [info] = await invoke("native_export_probe", { paths: [second] });
+		return { second: info, seconds: (performance.now() - started) / 1000 };
+	});
 
 	window.__TAURI_INTERNALS__.invoke("probe_report", {
 		report: JSON.stringify(report),
