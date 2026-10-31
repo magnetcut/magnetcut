@@ -13,6 +13,8 @@ mod perf;
 #[cfg(target_arch = "wasm32")]
 mod subtitles;
 #[cfg(target_arch = "wasm32")]
+mod tracking;
+#[cfg(target_arch = "wasm32")]
 mod transition_preview;
 
 #[cfg(target_arch = "wasm32")]
@@ -30,6 +32,8 @@ pub use perf::*;
 #[cfg(target_arch = "wasm32")]
 pub use subtitles::*;
 pub use time::*;
+#[cfg(target_arch = "wasm32")]
+pub use tracking::*;
 #[cfg(target_arch = "wasm32")]
 pub use transition_preview::*;
 pub use transitions::*;

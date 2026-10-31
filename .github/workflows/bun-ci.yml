@@ -81,7 +81,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
 
       - name: Run the Rust core's tests
-        run: cargo test -p audio -p time -p transitions -p compositor -p subtitles
+        run: cargo test -p audio -p time -p transitions -p compositor -p subtitles -p tracking
 
       # Nothing under a licence MagnetCut can't ship, and About's notices
       # current (apps/web/scripts/licenses.ts). The same on every system.

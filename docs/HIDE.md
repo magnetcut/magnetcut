@@ -59,3 +59,10 @@ moves.
   toggle in its Masks tab or by dragging it where it has keyframes; tested in code (a mask
   keyframed in two places moves between them; an adjustment layer's mask is a keyframe target),
   not yet tried in the app.
+- Phase 2. The tracker (`rust/crates/tracking`): a square with a pattern of its own, moving two
+  pixels a frame across noise and growing, followed for 30 frames within 0.1 px and its size
+  within a pixel; a square gone, lost rather than guessed. In the editor (`hide/track.ts`), the
+  Masks tab's Track: the timeline rendered without its Hide regions, at 640 px at most, from the
+  playhead to the region's end and back to its start, a keyframe of the mask's place and size
+  on every frame found, in one change; where it's lost, it says when. Followed through the
+  editor's WebAssembly in its tests; not yet tried in the app.

@@ -15,6 +15,7 @@ import { KeyframeToggle } from "@/components/editor/panels/properties/components
 import { useElementPlayhead } from "@/components/editor/panels/properties/hooks/use-element-playhead";
 import type { MediaTime } from "@/wasm";
 import type { EditorCore } from "@/core";
+import { TrackControls } from "@/hide/components/track-controls";
 import type { NumberParamDefinition, SelectParamDefinition } from "@/params";
 import {
 	buildDefaultMaskInstance,
@@ -343,6 +344,11 @@ export function MasksTab({ element, trackId }: MasksTabProps) {
 					/>
 				))
 			)}
+			{element.type === "effect" && hasMask ? (
+				<div className="px-3.5 py-3">
+					<TrackControls trackId={trackId} elementId={element.id} />
+				</div>
+			) : null}
 		</div>
 	);
 }

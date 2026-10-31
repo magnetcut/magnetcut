@@ -25,6 +25,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde-wasm-bindgen = "0.6.5"
 subtitles = { version = "0.1.0", path = "../crates/subtitles" }
 time = { version = "0.1.0", path = "../crates/time", features = ["wasm"] }
+tracking = { version = "0.1.0", path = "../crates/tracking" }
 transitions = { version = "0.1.0", path = "../crates/transitions", features = ["wasm"] }
 wasm-bindgen = "0.2.116"
 wasm-bindgen-futures = "0.4.66"
