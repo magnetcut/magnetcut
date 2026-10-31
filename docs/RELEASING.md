@@ -82,8 +82,11 @@ Settings or About), sandboxed, under its own bundle id so that its settings and 
 apart from the direct download's. It goes to App Store Connect as an installer package, and the
 App Store updates it. The sandbox (`apps/desktop/AppStore.entitlements`) lets it open and save
 the files the user picks, keep bookmarks to the media it reads where it is (to open it again
-after a relaunch), write to Downloads and make outgoing connections (fonts, transcription
-models).
+after a relaunch), read and write Downloads and Movies, make outgoing connections (fonts,
+transcription models), and listen on 127.0.0.1 for agent mode (docs/AUTOMATION.md). App Review
+asks why it listens: in the review notes, "Settings, Let agents use MagnetCut, off by default:
+AI agents the user adds there (Claude Code, Codex) edit and export through MCP on 127.0.0.1
+only, each with a token shown in Settings."
 
 ### Once
 
