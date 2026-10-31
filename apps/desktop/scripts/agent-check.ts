@@ -5,6 +5,7 @@
 // frames looked at, and the film exported, with its progress.
 // bun apps/desktop/scripts/agent-check.ts <film> <export.mp4>
 import { existsSync, statSync, writeFileSync } from "node:fs";
+import { deflateSync } from "node:zlib";
 
 const [film, output] = process.argv.slice(2);
 const token = process.env.MAGNETCUT_AGENT_TEST_TOKEN;
@@ -263,6 +264,55 @@ if (!/ 0:02\.[01] rev/.test(shorter.text.split("\n")[0])) {
 	throw new Error(`the silence wasn't taken out: ${shorter.text}`);
 }
 report({ step: "remove", detail: `${removed.text} / ${shorter.text.split("\n")[0]}` });
+// Shots: a black picture, then a white one, written here as PNGs; the one
+// cut found where they meet.
+function png({ grey }: { grey: number }): Buffer {
+	const [width, height] = [64, 36];
+	const crcTable = Array.from({ length: 256 }, (_, n) => {
+		let c = n;
+		for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+		return c >>> 0;
+	});
+	const crc = (bytes: Buffer) => {
+		let c = 0xffffffff;
+		for (const byte of bytes) c = crcTable[(c ^ byte) & 0xff] ^ (c >>> 8);
+		return (c ^ 0xffffffff) >>> 0;
+	};
+	const chunk = (type: string, data: Buffer) => {
+		const length = Buffer.alloc(4);
+		length.writeUInt32BE(data.length);
+		const body = Buffer.concat([Buffer.from(type), data]);
+		const check = Buffer.alloc(4);
+		check.writeUInt32BE(crc(body));
+		return Buffer.concat([length, body, check]);
+	};
+	const header = Buffer.alloc(13);
+	header.writeUInt32BE(width, 0);
+	header.writeUInt32BE(height, 4);
+	header.writeUInt8(8, 8); // bit depth
+	header.writeUInt8(2, 9); // RGB
+	const rows = Buffer.alloc((width * 3 + 1) * height, grey);
+	for (let y = 0; y < height; y++) rows[y * (width * 3 + 1)] = 0;
+	return Buffer.concat([
+		Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+		chunk("IHDR", header),
+		chunk("IDAT", deflateSync(rows)),
+		chunk("IEND", Buffer.alloc(0)),
+	]);
+}
+const black = output.replace(/\.mp4$/, "-black.png");
+const white = output.replace(/\.mp4$/, "-white.png");
+writeFileSync(black, png({ grey: 10 }));
+writeFileSync(white, png({ grey: 240 }));
+await tool({ name: "project", args: { action: "new", name: "Shots check" } });
+await tool({ name: "media", args: { action: "import", paths: [black, white], add: true } });
+const shots = await tool({ name: "find", args: { what: "shots" } });
+const cut = Number(/at (\d+\.\d+)/.exec(shots.text)?.[1]);
+if (!/^1 cuts/.test(shots.text) || Math.abs(cut - 5) > 0.1) {
+	throw new Error(`the cut isn't where the pictures meet: ${shots.text} / ${(await tool({ name: "summary" })).text}`);
+}
+report({ step: "shots", detail: shots.text });
+
 // The command line: MCP on standard input and output through the app's own
 // program, and one call.
 const program = process.env.MAGNETCUT_PROGRAM;
@@ -281,7 +331,7 @@ if (program) {
 	report({ step: "--mcp", detail: `tools/list relayed, ${relayed.length} bytes` });
 	const called = Bun.spawn([program, "call", "summary"], { env, stdout: "pipe" });
 	const printed = await new Response(called.stdout).text();
-	if ((await called.exited) !== 0 || !printed.startsWith('"Sound check"')) {
+	if ((await called.exited) !== 0 || !printed.startsWith('"Shots check"')) {
 		throw new Error(`call summary printed: ${printed}`);
 	}
 	report({ step: "call", detail: printed.split("\n")[0] });

@@ -1,4 +1,5 @@
 import { findHideRegions } from "@/hide/find";
+import { trackHideRegion } from "@/hide/track";
 import {
 	DETECTOR_SIZES,
 	isDetectorDownloaded,
@@ -15,7 +16,9 @@ import {
 	DEFAULT_TRANSCRIPTION_MODEL,
 	TRANSCRIPTION_MODELS,
 } from "@/transcription/models";
-import { TICKS_PER_SECOND } from "@/wasm";
+import { mediaTime, TICKS_PER_SECOND } from "@/wasm";
+import { resolveId } from "./ids";
+import { findShots } from "./shots";
 import { askUser, isCached } from "./consent";
 import {
 	findSilences,
@@ -254,12 +257,23 @@ export const listenTool: Tool = {
 export const findTool: Tool = {
 	name: "find",
 	description:
-		"Find in the picture: faces or plates (each found one a Hide region that follows it, blurred, pixelated or covered; over the selected clip, or the whole timeline), or the black bars around it (to crop on export).",
+		"Find in the picture: faces or plates (each found one a Hide region that follows it, blurred, pixelated or covered; over the selected clip, or the whole timeline), shots (where the picture cuts, over from-to), black bars (to crop on export), or track: a Hide region (id) followed through its frames from at.",
 	inputSchema: {
 		type: "object",
 		properties: {
-			what: { type: "string", enum: ["faces", "plates", "blackbars"] },
+			what: {
+				type: "string",
+				enum: ["faces", "plates", "shots", "blackbars", "track"],
+			},
 			look: { type: "string", enum: HIDE_LOOKS.map((look) => look.effectType) },
+			id: { type: "string", description: "For track: the Hide region" },
+			at: {
+				type: ["string", "number"],
+				description:
+					"For track: the frame it's right on (its start by default)",
+			},
+			from: { type: ["string", "number"] },
+			to: { type: ["string", "number"] },
 		},
 		required: ["what"],
 	},
@@ -282,8 +296,85 @@ export const findTool: Tool = {
 				],
 			};
 		}
+		if (args.what === "shots") {
+			const stretch = span({ args, editor });
+			const cuts = await findShots({
+				editor,
+				from: Math.round(stretch.from * TICKS_PER_SECOND),
+				to: Math.round(stretch.to * TICKS_PER_SECOND),
+				onProgress: (done) =>
+					progress({ progress: Math.round(done * 100), total: 100 }),
+				isCancelled: isStopped,
+			});
+			return {
+				content: [
+					{
+						type: "text",
+						text:
+							cuts.length === 0
+								? "one shot: no cuts"
+								: `${cuts.length} cuts, at ${cuts.map((cut) => seconds(cut / TICKS_PER_SECOND)).join(" ")}`,
+					},
+				],
+			};
+		}
+		if (args.what === "track") {
+			const tracks = editor.scenes.getActiveScene().tracks;
+			const wanted = typeof args.id === "string" ? args.id : "";
+			const ids = tracks.overlay.flatMap((track) =>
+				track.elements.map((element) => element.id),
+			);
+			const full = resolveId({ short: wanted, ids });
+			const track = tracks.overlay.find((candidate) =>
+				candidate.elements.some((element) => element.id === full),
+			);
+			const region = track?.elements.find((element) => element.id === full);
+			if (
+				!track ||
+				!region ||
+				region.type !== "effect" ||
+				!region.masks?.length
+			) {
+				throw new ToolError(`${wanted} isn't a Hide region: see summary`);
+			}
+			const project = editor.project.getActive();
+			const at =
+				args.at === undefined
+					? region.startTime
+					: parseTime({
+							value: args.at,
+							fps: frameRateToFloat(project.settings.fps),
+						});
+			if (at === null) throw new ToolError("at isn't a time");
+			editor.playback.seek({ time: mediaTime({ ticks: at }) });
+			const result = await trackHideRegion({
+				editor,
+				trackId: track.id,
+				elementId: region.id,
+				onProgress: ({ progress: done }) =>
+					progress({ progress: Math.round(done * 100), total: 100 }),
+				isCancelled: isStopped,
+			});
+			if (!result) throw new ToolError("It couldn't be tracked");
+			const lost = [
+				result.lostForward !== null
+					? `lost going forward at ${formatTime({ ticks: result.lostForward })}`
+					: "",
+				result.lostBack !== null
+					? `lost going back at ${formatTime({ ticks: result.lostBack })}`
+					: "",
+			].filter(Boolean);
+			return {
+				content: [
+					{
+						type: "text",
+						text: `tracked, ${result.frames} frames keyframed${lost.length ? `; ${lost.join(", ")}` : ", to its ends"}`,
+					},
+				],
+			};
+		}
 		if (args.what !== "faces" && args.what !== "plates") {
-			throw new ToolError("what is faces, plates or blackbars");
+			throw new ToolError("what is faces, plates, shots, blackbars or track");
 		}
 		const kind: DetectorKind = args.what;
 		if (
