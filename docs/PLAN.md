@@ -23,8 +23,9 @@ telemetry: everything stays on the computer. Not for iOS or Android.
   blog (Marble), the website pages (landing, sponsors, contributors, roadmap, brand, terms,
   privacy), the onboarding and the mobile gate. Next.js builds a static export for Tauri;
   `/editor/[id]` is `/editor?id=`. What's left that reaches the network, only when used:
-  Google Fonts (the font picker), Hugging Face (Whisper models, once, for transcription) and
-  Brandfetch (platform logos in the safe-area guides; to be bundled instead).
+  Google Fonts (the font picker), Hugging Face (Whisper models, and the face and plate
+  detection models, once each), jsDelivr (the runtime transformers.js runs Whisper with, once)
+  and Brandfetch (platform logos in the safe-area guides; to be bundled instead).
 - **Updates, as in MyDiskIsFull.** The direct download checks
   `github.com/magnetcut/magnetcut/releases/latest/download/latest.json` once a day (Tauri's
   updater plugin, the cross-platform counterpart of Sparkle). The feed is a hint: an update
@@ -111,15 +112,15 @@ telemetry: everything stays on the computer. Not for iOS or Android.
 
 ## Order
 
-Done: 1, 2, 3, 4, 7, 8, 10 (docs/SUBTITLES.md) and 11 (docs/HIDE.md). 12 but for trying
-it by hand with Claude Code and in the App Store build (docs/AUTOMATION.md). 5 but for publishing 0.1.0, a draft
-release on GitHub, which is the author's to do. 6 but for what's the author's in App Store
+Done: 1, 2, 3, 4, 5 (0.1.0 published on GitHub, linked from salamacchine.it), 7, 8, 10
+(docs/SUBTITLES.md) and 11 (docs/HIDE.md). 12 but for trying it by hand with Claude Code and
+in the App Store build (docs/AUTOMATION.md). 6 but for what's the author's in App Store
 Connect: build 0.1.0 is on version 0.1.0 with its listing; the screenshots, the privacy and age
 rating answers, the price and submitting it are left (docs/RELEASING.md). 9 but for a desktop of
 Windows and Linux: there it's checked on CI's machines, in the app too (docs/NATIVE.md).
-What's been done since 0.1.0 without the app open (the native export's panel, the subtitle
-editor, the native export on Windows and Linux) is tested in code but not yet tried in the app;
-hiding faces and plates was tried in the built app, through its panel.
+Some of 0.1.0 is tested in code but not yet tried in the app by hand: the native export's
+panel, the subtitle editor, the native export on Windows and Linux. Hiding faces and plates
+was tried in the built app, through its panel.
 
 1. Strip the server, accounts, analytics and website; static export; editor works in a browser.
 2. Rebrand: names, package scopes, storage keys, logo and icon.
