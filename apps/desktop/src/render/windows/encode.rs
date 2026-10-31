@@ -4,7 +4,7 @@
 // transforms), as `encode.rs` does with AVFoundation on macOS.
 
 use std::collections::VecDeque;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use windows::Win32::Media::MediaFoundation::{
     CODECAPI_AVEncCommonMeanBitRate, CODECAPI_AVEncCommonRateControlMode,
@@ -30,6 +30,7 @@ use super::settings::{
     Audio, AudioSettings, Capabilities, Container, KEY_FRAME_INTERVAL, SubtitleTrack, VideoCodec,
     VideoSettings,
 };
+use super::timed_text;
 
 // A sound sample's length, in seconds: short, so the sound and the pictures
 // interleave closely.
@@ -73,7 +74,8 @@ pub fn capabilities() -> Capabilities {
         video_codecs,
         constant_quality: constant_quality(),
         audio_copy: true,
-        subtitle_tracks: false,
+        // Added once the file's finished (`timed_text.rs`).
+        subtitle_tracks: true,
     }
 }
 
@@ -201,9 +203,12 @@ impl CopiedSound {
 
 pub struct Writer {
     writer: IMFSinkWriter,
+    path: PathBuf,
     video: u32,
     sound: Option<Sound>,
     copy: Option<CopiedSound>,
+    /// Added as timed text once Media Foundation has finished the file.
+    subtitles: Vec<SubtitleTrack>,
     size: (u32, u32),
     fps: (u32, u32),
     frames: i64,
@@ -222,8 +227,8 @@ impl Writer {
         Self::with_subtitles(path, container, video, audio, &[])
     }
 
-    /// Starts a file at `path`, replacing what's there. Subtitle tracks
-    /// aren't written here yet (`capabilities`).
+    /// Starts a file at `path`, replacing what's there, with subtitle tracks
+    /// as timed text, added once it's finished.
     pub fn with_subtitles(
         path: &Path,
         container: Container,
@@ -241,9 +246,6 @@ impl Writer {
             Some(Audio::Copy { location, end }) => (None, Some((location, end))),
             None => (None, None),
         };
-        if !subtitles.is_empty() {
-            return Err("Windows's own export doesn't write subtitle tracks yet".into());
-        }
         start()?;
         match std::fs::remove_file(path) {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
@@ -336,9 +338,11 @@ impl Writer {
         unsafe { writer.BeginWriting() }.map_err(text)?;
         Ok(Self {
             writer,
+            path: path.to_owned(),
             video: video_stream,
             sound,
             copy,
+            subtitles: subtitles.to_vec(),
             size,
             fps,
             frames: 0,
@@ -441,7 +445,8 @@ impl Writer {
             copy.write(&self.writer, i64::MAX)?;
         }
         unsafe { self.writer.Finalize() }
-            .map_err(|error| format!("Couldn't finish the file: {error}"))
+            .map_err(|error| format!("Couldn't finish the file: {error}"))?;
+        timed_text::add_tracks(&self.path, &self.subtitles, self.size)
     }
 
     /// Stops, leaving the file for the caller to delete: closed, so it can be.

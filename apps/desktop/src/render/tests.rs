@@ -1229,7 +1229,54 @@ fn stored_subtitles(path: &Path) -> Vec<(f64, f64, String)> {
     samples
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+/// A film's subtitle track as stored, as `timed_text.rs`, which added it
+/// after Media Foundation, reads it back.
+#[cfg(windows)]
+fn stored_subtitles(path: &Path) -> Vec<(f64, f64, String)> {
+    super::timed_text::read_tracks(path).remove(0)
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn adds_timed_text_that_avfoundation_reads() {
+    // A finished film, as Media Foundation leaves one, its index at the end;
+    // the tracks `timed_text.rs` adds read back by AVFoundation, and the
+    // picture still there.
+    let path = temporary("timed-text.mp4");
+    make_source(&path);
+    let line = |start, end, text: &str| super::settings::SubtitleCue {
+        start,
+        end,
+        text: text.into(),
+    };
+    let tracks = [
+        super::settings::SubtitleTrack {
+            cues: vec![line(0.2, 0.5, "Hello"), line(0.7, 0.9, "Café\nau lait")],
+        },
+        super::settings::SubtitleTrack {
+            cues: vec![line(0.1, 0.4, "Bonjour")],
+        },
+    ];
+    super::timed_text::add_tracks(&path, &tracks, (64, 64)).unwrap();
+    let samples = stored_subtitles(&path);
+    let lines: Vec<&str> = samples
+        .iter()
+        .map(|(_, _, text)| text.as_str())
+        .filter(|text| !text.is_empty())
+        .collect();
+    assert_eq!(lines, ["Hello", "Café\nau lait"], "{samples:?}");
+    let (start, end, _) = samples.iter().find(|(_, _, text)| text == "Hello").unwrap();
+    assert!(
+        (start - 0.2).abs() < 1e-3 && (end - 0.5).abs() < 1e-3,
+        "{samples:?}"
+    );
+    let ours = super::timed_text::read_tracks(&path);
+    assert_eq!(ours.len(), 2);
+    let mut reader = VideoReader::open(&path, 0.0).unwrap();
+    let (_, picture) = reader.frame_at(0.5).unwrap().unwrap();
+    assert_grey(middle(picture), grey(15));
+}
+
 #[test]
 fn writes_subtitle_tracks_as_timed_text() {
     let source = temporary("subtitled-source.mp4");

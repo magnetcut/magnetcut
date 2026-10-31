@@ -15,9 +15,10 @@ use gstreamer_video::{VideoFormat, VideoInfo};
 use super::frames::FrameBuffer;
 use super::pipeline::{by_name, clock_time, failure, first_element, launch, play};
 use super::settings::{
-    Audio, AudioSettings, Capabilities, Container, KEY_FRAME_INTERVAL, SubtitleCue, SubtitleTrack,
-    VideoCodec, VideoSettings,
+    Audio, AudioSettings, Capabilities, Container, KEY_FRAME_INTERVAL, SubtitleTrack, VideoCodec,
+    VideoSettings,
 };
+use super::timed_text;
 
 // A sound buffer's length, in seconds: short, so the sound and the pictures
 // interleave closely.
@@ -247,7 +248,7 @@ impl Writer {
         play(&writer.pipeline)?;
         for (index, track) in subtitles.iter().enumerate() {
             let source: AppSrc = by_name(&writer.pipeline, &format!("subtitles{index}"))?;
-            for (start, end, text) in subtitle_samples(&track.cues) {
+            for (start, end, text) in timed_text::samples(&track.cues) {
                 let mut buffer = gst::Buffer::from_mut_slice(text.into_bytes());
                 {
                     let buffer = buffer.get_mut().ok_or("a subtitle's buffer is in use")?;
@@ -412,28 +413,6 @@ fn copy_until(pipeline: &gst::Pipeline, end: gst::ClockTime) -> Result<(), Strin
         gst::PadProbeReturn::Remove
     });
     Ok(())
-}
-
-/// A track's samples, one after another from zero, as (start, end, text):
-/// each line, and an empty sample for each stretch with none, which clears
-/// the screen (as `subtitle.rs` writes them on a Mac).
-fn subtitle_samples(cues: &[SubtitleCue]) -> Vec<(f64, f64, String)> {
-    let mut cues: Vec<&SubtitleCue> = cues.iter().filter(|cue| cue.end > cue.start).collect();
-    cues.sort_by(|a, b| a.start.total_cmp(&b.start));
-    let mut samples = Vec::new();
-    let mut at = 0.0;
-    for cue in cues {
-        let start = cue.start.max(at);
-        if cue.end <= start {
-            continue;
-        }
-        if start > at {
-            samples.push((at, start, String::new()));
-        }
-        samples.push((start, cue.end, cue.text.clone()));
-        at = cue.end;
-    }
-    samples
 }
 
 /// The bitrate, a key frame every two seconds, and a quick preset, in each
