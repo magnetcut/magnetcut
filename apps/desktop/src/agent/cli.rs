@@ -8,6 +8,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -18,6 +19,36 @@ const DEFAULT_URL: &str = "http://127.0.0.1:47213/mcp";
 
 // How long the app may take to start and serve.
 const START_TIMEOUT: Duration = Duration::from_secs(90);
+
+// Whether this run started the app already.
+static STARTED: AtomicBool = AtomicBool::new(false);
+
+/// Starts the app, unless this run or another (within the time it may take
+/// to start) did already: a call made while it starts, or while agent mode
+/// is off, waits rather than opening another.
+fn start_app() -> Result<(), String> {
+    if STARTED.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
+    let marker = std::env::temp_dir().join("magnetcut-agent-starting");
+    let recent = std::fs::metadata(&marker)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|modified| modified.elapsed().ok())
+        .is_some_and(|age| age < START_TIMEOUT);
+    if recent {
+        return Ok(());
+    }
+    let _ = std::fs::write(&marker, b"");
+    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    Command::new(exe)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("Couldn't start MagnetCut: {error}"))?;
+    Ok(())
+}
 
 pub(super) struct Server {
     address: String,
@@ -55,13 +86,7 @@ impl Server {
         if let Ok(stream) = TcpStream::connect(&self.address) {
             return Ok(stream);
         }
-        let exe = std::env::current_exe().map_err(|error| error.to_string())?;
-        Command::new(exe)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|error| format!("Couldn't start MagnetCut: {error}"))?;
+        start_app()?;
         let started = Instant::now();
         while started.elapsed() < START_TIMEOUT {
             thread::sleep(Duration::from_millis(500));
