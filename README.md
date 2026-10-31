@@ -15,8 +15,9 @@ open source: no account, no ads, no telemetry.
 - Export that does HandBrake's job: MP4, MOV, MKV or WebM in H.264, HEVC, VP9 or AV1 (and
   ProRes on a Mac); quality as a level, a bitrate or a file size to fit in; size presets, crop
   with the black bars found for you, frame rate; deinterlace, denoise and sharpen; presets of
-  your own. A Simple mode asks in everyday words. On a Mac it decodes, draws and encodes on the
-  GPU, with the system's own encoders.
+  your own. A Simple mode asks in everyday words. It decodes, draws and encodes on the GPU with
+  the system's own decoders and encoders: everything above on a Mac, H.264 and HEVC in MP4 on
+  Windows and Linux.
 - A subtitle editor: SRT, WebVTT, ASS, SSA, SubViewer and MicroDVD, in any text encoding;
   synced to the speech in one click, or timed as you type while it plays; burned into the
   picture or embedded as a track on export.
@@ -27,7 +28,6 @@ Planned:
 
 - Signed releases for macOS, Windows and Linux, which update themselves, and the Mac App Store
   edition.
-- Export natively on the GPU on Windows and Linux too, as it does on a Mac.
 
 ## Privacy
 
