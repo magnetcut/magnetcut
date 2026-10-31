@@ -76,6 +76,9 @@ export type ExternalTextureDescriptor = {
 	source: CanvasImageSource;
 	width: number;
 	height: number;
+	/** Which picture `source` holds, where the same object holds others over
+	 * time (a video frame's time): uploaded again when it changes. */
+	version?: number;
 };
 
 /**

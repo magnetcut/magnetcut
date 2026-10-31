@@ -14,6 +14,14 @@ interface VideoSinkData {
 }
 
 /**
+ * How far past the time asked for a frame is looked up, in seconds. The
+ * timeline's frames start where a source's do, and the two times, rounded
+ * each its own way, can fall either side: a hair later, the frame that starts
+ * there, not the one before, whichever the decoder has ready.
+ */
+const FRAME_START_TOLERANCE = 1e-6;
+
+/**
  * A file's decoder, by the stream it serves: one per file, and more for clips
  * that show side by side (`streamKey`).
  */
@@ -58,7 +66,10 @@ export class VideoCache {
 			if (this.seekGenerations.get(key) !== generation) {
 				return sinkData.currentFrame ?? null;
 			}
-			return this.resolveFrame({ sinkData, time });
+			return this.resolveFrame({
+				sinkData,
+				time: time + FRAME_START_TOLERANCE,
+			});
 		});
 		this.frameChain.set(
 			key,

@@ -21,6 +21,8 @@ export type BackdropSource = {
 	source: CanvasImageSource;
 	width: number;
 	height: number;
+	/** Which picture `source` holds, for a video's frame: its time. */
+	version?: number;
 };
 
 export interface ResolvedBlurBackgroundNodeState {

@@ -47,6 +47,9 @@ export interface ResolvedVisualSourceNodeState extends ResolvedVisualNodeState {
 	sourceHeight: number;
 	/** Set instead of drawing `source`, for videos left to the exporter. */
 	videoReference?: VideoReference;
+	/** Which picture `source` holds, where the same object holds others over
+	 * time (a decoder's canvases, used in turn): the video frame's time. */
+	sourceVersion?: number;
 }
 
 export abstract class VisualNode<

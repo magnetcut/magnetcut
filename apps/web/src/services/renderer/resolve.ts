@@ -308,6 +308,7 @@ async function resolveVideoNode({
 		source: frame.canvas,
 		sourceWidth: frame.canvas.width,
 		sourceHeight: frame.canvas.height,
+		sourceVersion: frame.timestamp,
 	};
 }
 
@@ -518,6 +519,7 @@ async function resolveBackdropSource({
 			source: frame.canvas,
 			width: frame.canvas.width,
 			height: frame.canvas.height,
+			version: frame.timestamp,
 		};
 	}
 

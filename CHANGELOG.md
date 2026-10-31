@@ -74,6 +74,10 @@ All notable changes to this project are documented here. The format is based on
   are read the same way, a piece at a time.
 
 ### Fixed
+- A video could show a frame it had already left, in the preview and in an export made in the
+  editor: always so when a clip played three times faster, or an export took every third frame
+  (30 fps footage at 10 fps); now and then on a jump of three frames, or exactly where a frame
+  starts. Each frame is now the one at that time.
 - Exporting to MP4 on macOS stopped after a few frames and never finished. MP4 from the macOS
   app is now H.264 in its Baseline profile, the one the system's web view encodes properly.
 - A video dropped on the editor outside the assets panel and the timeline opened in the

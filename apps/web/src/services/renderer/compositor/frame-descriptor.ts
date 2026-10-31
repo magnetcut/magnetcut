@@ -161,10 +161,11 @@ async function collectNode({
 		const textureId = `${path}:blur-background`;
 		const { width, height } = renderer;
 		const { backdropSource, passes } = node.resolved;
-		// Backdrop pixels come from a decoded video/image frame whose identity
-		// already changes when it changes. Hashing the source reference is
-		// enough to let us skip redraws on frozen frames.
-		const contentHash = `blur:${identityKey(backdropSource.source)}:${backdropSource.width}x${backdropSource.height}:${width}x${height}`;
+		// Backdrop pixels come from a decoded video or image frame. A video's
+		// decoder uses its canvases in turn, so the same one holds another
+		// frame later: its time tells them apart, and the redraw is skipped
+		// only on a frozen frame.
+		const contentHash = `blur:${identityKey(backdropSource.source)}@${backdropSource.version ?? ""}:${backdropSource.width}x${backdropSource.height}:${width}x${height}`;
 		textures.set(textureId, {
 			kind: "rendered",
 			id: textureId,
@@ -348,6 +349,8 @@ async function collectVisualSourceNode({
 					source,
 					width: sourceWidth,
 					height: sourceHeight,
+					version:
+						node instanceof VideoNode ? node.resolved.sourceVersion : undefined,
 				},
 	);
 

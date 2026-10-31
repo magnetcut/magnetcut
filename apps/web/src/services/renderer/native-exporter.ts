@@ -197,7 +197,12 @@ class NativeSoundtrack {
 	}
 }
 
-type UploadedTexture = { key: unknown; width: number; height: number };
+type UploadedTexture = {
+	key: unknown;
+	version?: number;
+	width: number;
+	height: number;
+};
 
 /**
  * The editor's drawings for the native side: each drawn and sent when it
@@ -232,9 +237,11 @@ class NativeTextures {
 			}
 			const key =
 				texture.kind === "rendered" ? texture.contentHash : texture.source;
+			const version = texture.kind === "external" ? texture.version : undefined;
 			const previous = this.uploaded.get(id);
 			if (
 				previous?.key === key &&
+				previous.version === version &&
 				previous.width === width &&
 				previous.height === height
 			) {
@@ -242,7 +249,7 @@ class NativeTextures {
 			}
 			const pixels = this.draw({ texture });
 			await this.session.uploadTexture({ id, width, height, pixels });
-			this.uploaded.set(id, { key, width, height });
+			this.uploaded.set(id, { key, version, width, height });
 		}
 		return { videos, released };
 	}
