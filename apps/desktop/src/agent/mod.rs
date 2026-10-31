@@ -7,6 +7,7 @@
 pub mod cli;
 mod http;
 mod mcp;
+mod scope;
 mod tokens;
 
 use std::collections::HashMap;
@@ -18,9 +19,12 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 
 use crate::export::Exports;
 use crate::media::{DiskFileInfo, MediaFiles};
@@ -47,6 +51,7 @@ pub struct ToolCall {
 }
 
 struct Call {
+    agent: String,
     arguments: Value,
     /// Paths the call reached through a file the agent named: a project
     /// file's media.
@@ -124,6 +129,7 @@ impl Shared {
         lock(&self.calls).insert(
             number,
             Call {
+                agent: agent.to_owned(),
                 arguments: arguments.clone(),
                 allowed: Vec::new(),
                 updates,
@@ -164,6 +170,13 @@ impl Shared {
         lock(&self.calls).get(&number).is_some_and(|call| {
             mentions(&call.arguments, path) || call.allowed.iter().any(|one| one == path)
         })
+    }
+
+    /// The name of the agent making call `number`.
+    fn agent_of(&self, number: u64) -> String {
+        lock(&self.calls)
+            .get(&number)
+            .map_or_else(|| "An agent".to_owned(), |call| call.agent.clone())
     }
 
     /// Lets call `number` open `paths` too.
@@ -269,6 +282,7 @@ fn test_store() -> Option<PathBuf> {
             created: tokens::now(),
             last_used: None,
         }],
+        folders: Vec::new(),
     };
     store.save(&path).ok()?;
     Some(path)
@@ -312,6 +326,12 @@ impl Agents {
                     .map_err(|error| format!("Couldn't reach the editor: {error}"))
             }),
         );
+        // The folders granted, reachable again in the sandbox.
+        for folder in &lock(&agents.0.store).folders {
+            if let Some(bookmark) = folder.bookmark.as_ref().and_then(|b| BASE64.decode(b).ok()) {
+                scope::open(&bookmark);
+            }
+        }
         if lock(&agents.0.store).enabled
             && let Err(error) = agents.0.start()
         {
@@ -332,6 +352,11 @@ impl Agents {
             program: std::env::current_exe()
                 .ok()
                 .and_then(|path| path.to_str().map(str::to_owned)),
+            folders: store
+                .folders
+                .iter()
+                .map(|folder| folder.path.clone())
+                .collect(),
             agents: store
                 .agents
                 .iter()
@@ -373,6 +398,8 @@ pub struct Settings {
     sandboxed: bool,
     /// The app's own program, for the command line's `--mcp`.
     program: Option<String>,
+    /// Folders agents may use, in the App Store edition.
+    folders: Vec<String>,
     agents: Vec<AgentView>,
 }
 
@@ -474,15 +501,75 @@ fn agent_path(agents: &Agents, call: u64, path: &str) -> Result<PathBuf, String>
     Ok(location)
 }
 
+/// Whether the app can reach `location` as it stands: in the App Store
+/// edition, only inside what the sandbox allows.
+fn can_reach(location: &Path, write: bool) -> bool {
+    let target = if write {
+        location.parent().unwrap_or(location)
+    } else {
+        location
+    };
+    std::fs::metadata(target).is_ok()
+}
+
+/// A path the agent named, reachable: as it is, or, in the App Store edition
+/// where the sandbox keeps it out, as the user picks it in the window's open
+/// or save dialog, put at that path.
+async fn reach(
+    app: &AppHandle,
+    agents: &Agents,
+    call: u64,
+    location: PathBuf,
+    write: bool,
+) -> Result<PathBuf, String> {
+    if !agents.settings().sandboxed || can_reach(&location, write) {
+        return Ok(location);
+    }
+    let agent = agents.0.agent_of(call);
+    let mut dialog = app.dialog().file().set_title(format!(
+        "{agent} wants to {} this file",
+        if write { "save" } else { "open" }
+    ));
+    if let Some(folder) = location.parent() {
+        dialog = dialog.set_directory(folder);
+    }
+    if let Some(name) = location.file_name().and_then(|name| name.to_str()) {
+        dialog = dialog.set_file_name(name);
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        dialog = dialog.set_parent(&window);
+    }
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        if write {
+            dialog.blocking_save_file()
+        } else {
+            dialog.blocking_pick_file()
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    picked
+        .and_then(|file| file.into_path().ok())
+        .ok_or_else(|| format!("The user didn't let {agent} reach {}", location.display()))
+}
+
 /// Opens a media file an agent named for the editor to read, as if dropped.
 #[tauri::command]
-pub fn agent_open_media(
+pub async fn agent_open_media(
+    app: AppHandle,
     agents: State<'_, Agents>,
     media: State<'_, MediaFiles>,
     call: u64,
     path: String,
 ) -> Result<DiskFileInfo, String> {
-    let location = agent_path(&agents, call, &path)?;
+    let location = reach(
+        &app,
+        &agents,
+        call,
+        agent_path(&agents, call, &path)?,
+        false,
+    )
+    .await?;
     if !location.is_file() {
         return Err(unreachable(&location, agents.settings().sandboxed));
     }
@@ -493,26 +580,33 @@ pub fn agent_open_media(
 }
 
 /// Lets the editor export to a file an agent named, as if picked in the save
-/// dialog; never over one that's there unless the agent said so.
+/// dialog; never over one that's there unless the agent said so: the path
+/// it's written to.
 #[tauri::command]
-pub fn agent_export_to(
+pub async fn agent_export_to(
+    app: AppHandle,
     agents: State<'_, Agents>,
     exports: State<'_, Exports>,
     call: u64,
     path: String,
     replace: bool,
-) -> Result<(), String> {
-    let location = agent_path(&agents, call, &path)?;
-    if location.exists() && !replace {
+) -> Result<String, String> {
+    let named = agent_path(&agents, call, &path)?;
+    if named.exists() && !replace {
         return Err(format!(
             "{path} is there already: say `replace` to write over it"
         ));
     }
-    if !location.parent().is_some_and(Path::is_dir) {
+    if !named.parent().is_some_and(Path::is_dir) && !agents.settings().sandboxed {
         return Err(format!("{path}'s folder isn't there"));
     }
+    let location = reach(&app, &agents, call, named, true).await?;
+    let shown = location
+        .to_str()
+        .map(str::to_owned)
+        .ok_or("not a UTF-8 path")?;
     exports.add_pick(location);
-    Ok(())
+    Ok(shown)
 }
 
 /// The media paths in a project file: what opening it needs to read.
@@ -532,12 +626,20 @@ pub fn media_paths(text: &str) -> Vec<String> {
 /// A project file an agent named, read for the editor, which may then open
 /// the media in it.
 #[tauri::command]
-pub fn agent_read_project(
+pub async fn agent_read_project(
+    app: AppHandle,
     agents: State<'_, Agents>,
     call: u64,
     path: String,
 ) -> Result<String, String> {
-    let location = agent_path(&agents, call, &path)?;
+    let location = reach(
+        &app,
+        &agents,
+        call,
+        agent_path(&agents, call, &path)?,
+        false,
+    )
+    .await?;
     let text = std::fs::read_to_string(&location)
         .map_err(|_| unreachable(&location, agents.settings().sandboxed))?;
     agents.0.allow(call, media_paths(&text));
@@ -545,22 +647,69 @@ pub fn agent_read_project(
 }
 
 /// A project file an agent named, written from the editor; never over one
-/// that's there unless the agent said so.
+/// that's there unless the agent said so: the path it's written to.
 #[tauri::command]
-pub fn agent_write_project(
+pub async fn agent_write_project(
+    app: AppHandle,
     agents: State<'_, Agents>,
     call: u64,
     path: String,
     text: String,
     replace: bool,
-) -> Result<(), String> {
-    let location = agent_path(&agents, call, &path)?;
-    if location.exists() && !replace {
+) -> Result<String, String> {
+    let named = agent_path(&agents, call, &path)?;
+    if named.exists() && !replace {
         return Err(format!(
             "{path} is there already: say `replace` to write over it"
         ));
     }
-    std::fs::write(&location, text).map_err(|error| format!("Couldn't write {path}: {error}"))
+    let location = reach(&app, &agents, call, named, true).await?;
+    std::fs::write(&location, text).map_err(|error| format!("Couldn't write {path}: {error}"))?;
+    location
+        .to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "not a UTF-8 path".into())
+}
+
+/// Adds a folder agents may use, picked in the open dialog, kept with a
+/// bookmark: the App Store edition's way past its sandbox.
+#[tauri::command]
+pub async fn agent_add_folder(
+    app: AppHandle,
+    agents: State<'_, Agents>,
+) -> Result<Settings, String> {
+    let mut dialog = app.dialog().file().set_title("A folder agents may use");
+    if let Some(window) = app.get_webview_window("main") {
+        dialog = dialog.set_parent(&window);
+    }
+    let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_folder())
+        .await
+        .map_err(|error| error.to_string())?;
+    let Some(folder) = picked.and_then(|file| file.into_path().ok()) else {
+        return Ok(agents.settings());
+    };
+    let path = folder
+        .to_str()
+        .map(str::to_owned)
+        .ok_or("not a UTF-8 path")?;
+    let bookmark = scope::create(&folder).map(|bookmark| BASE64.encode(bookmark));
+    {
+        let mut store = lock(&agents.0.store);
+        store.folders.retain(|kept| kept.path != path);
+        store.folders.push(tokens::Folder { path, bookmark });
+        store.save(&agents.0.store_path)?;
+    }
+    Ok(agents.settings())
+}
+
+#[tauri::command]
+pub fn agent_remove_folder(agents: State<'_, Agents>, path: String) -> Result<Settings, String> {
+    {
+        let mut store = lock(&agents.0.store);
+        store.folders.retain(|kept| kept.path != path);
+        store.save(&agents.0.store_path)?;
+    }
+    Ok(agents.settings())
 }
 
 /// Why a file can't be reached: in the App Store edition, most likely the

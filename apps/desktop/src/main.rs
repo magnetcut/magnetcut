@@ -50,6 +50,8 @@ macro_rules! commands {
             agent::agent_export_to,
             agent::agent_read_project,
             agent::agent_write_project,
+            agent::agent_add_folder,
+            agent::agent_remove_folder,
             project_file::pick_project_file,
             project_file::save_project_file,
             $($more),*

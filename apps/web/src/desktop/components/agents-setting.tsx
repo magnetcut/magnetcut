@@ -24,6 +24,7 @@ interface AgentSettings {
 	url: string | null;
 	sandboxed: boolean;
 	program: string | null;
+	folders: string[];
 	agents: AgentView[];
 }
 
@@ -116,6 +117,52 @@ export function AgentsSetting() {
 							? `Serving on ${settings.url}`
 							: "Not serving: switch it off and on again"}
 					</p>
+					{settings.sandboxed && (
+						<div className="flex flex-col gap-2">
+							<div className="flex items-center justify-between gap-4">
+								<div className="flex flex-col gap-1">
+									<span className="text-sm">Folders agents may use</span>
+									<span className="text-muted-foreground text-xs">
+										Besides Movies and Downloads. For a file elsewhere, the
+										window asks you.
+									</span>
+								</div>
+								<Button
+									size="sm"
+									variant="outline"
+									onClick={() => {
+										invoke<AgentSettings>("agent_add_folder")
+											.then(setSettings)
+											.catch(fail);
+									}}
+								>
+									Add a folder
+								</Button>
+							</div>
+							{settings.folders.map((folder) => (
+								<div
+									key={folder}
+									className="flex items-center justify-between gap-4 text-xs"
+								>
+									<span className="truncate">{folder}</span>
+									<Button
+										size="sm"
+										variant="ghost"
+										className="h-6"
+										onClick={() => {
+											invoke<AgentSettings>("agent_remove_folder", {
+												path: folder,
+											})
+												.then(setSettings)
+												.catch(fail);
+										}}
+									>
+										Remove
+									</Button>
+								</div>
+							))}
+						</div>
+					)}
 					{settings.agents.map((agent) => (
 						<div
 							key={agent.id}

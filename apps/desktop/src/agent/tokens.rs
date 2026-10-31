@@ -31,6 +31,17 @@ pub struct Store {
     /// working; 0 until it's picked.
     pub port: u16,
     pub agents: Vec<Agent>,
+    /// In the App Store edition, folders agents may use, picked in Settings.
+    #[serde(default)]
+    pub folders: Vec<Folder>,
+}
+
+/// A folder agents may use: where it is, and its bookmark (base64).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Folder {
+    pub path: String,
+    pub bookmark: Option<String>,
 }
 
 pub fn now() -> u64 {

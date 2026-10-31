@@ -224,7 +224,7 @@ const project: Tool = {
 					project: current,
 					assets: editor.media.getAssets(),
 				});
-				await invoke("agent_write_project", {
+				const written = await invoke<string>("agent_write_project", {
 					call,
 					path,
 					text: file,
@@ -234,7 +234,7 @@ const project: Tool = {
 				});
 				return text(
 					[
-						`saved ${path}`,
+						`saved ${written}`,
 						...leftOut.map(
 							(name) =>
 								`left out ${name}: not a file on disk, so it can't be named`,
@@ -507,7 +507,9 @@ const exportTool: Tool = {
 		const path = string({ args, key: "path" });
 		if (!path) throw new ToolError("export needs a path");
 		const format = formatOf({ path });
-		await invoke("agent_export_to", {
+		// Where it's written: where the agent said, or, in the App Store
+		// edition, where the user picked.
+		const target = await invoke<string>("agent_export_to", {
 			call,
 			path,
 			replace: args.replace === true,
@@ -535,7 +537,7 @@ const exportTool: Tool = {
 			projectShortSide: Math.min(canvasSize.width, canvasSize.height),
 			projectFps: frameRateToFloat(current.settings.fps),
 		});
-		const options = { ...getChosenOptions({ choices }), path };
+		const options = { ...getChosenOptions({ choices }), path: target };
 		const stopWatching = editor.project.subscribe(() => {
 			const state = editor.project.getExportState();
 			if (state.isExporting) {
@@ -552,7 +554,7 @@ const exportTool: Tool = {
 				);
 			}
 			return text(
-				`exported ${result.path ?? path}: ${format}, ${choices.videoCodec}, ${formatTime({ ticks: editor.timeline.getTotalDuration() })}`,
+				`exported ${result.path ?? target}: ${format}, ${choices.videoCodec}, ${formatTime({ ticks: editor.timeline.getTotalDuration() })}`,
 			);
 		} finally {
 			stopWatching();
