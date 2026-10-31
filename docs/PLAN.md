@@ -142,7 +142,10 @@ was tried in the built app, through its panel.
     found by itself (docs/HIDE.md has the phases).
 12. Agents steering it: Claude Code, Codex or any MCP client reads, edits, looks at, listens to
     and exports a project in the open app, in few tokens (docs/AUTOMATION.md has the phases).
-13. Then: make it better.
+13. Then: make it better. First, as GitHub issues: audio (clip fades, solo, track meters,
+    loudness normalisation, voice-over; #1), edits (freeze frame, reverse, speed ramps, slip,
+    roll; #2), colour (chroma key, LUTs, curves, scopes; #3), proxies (#4) and OpenTimelineIO
+    (#5). Each gets a plan in docs/ for the author to read before it's built.
 
 ## Web view support
 
