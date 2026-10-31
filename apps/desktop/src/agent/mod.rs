@@ -47,6 +47,9 @@ pub struct ToolCall {
 
 struct Call {
     arguments: Value,
+    /// Paths the call reached through a file the agent named: a project
+    /// file's media.
+    allowed: Vec<String>,
     updates: Sender<Update>,
 }
 
@@ -118,6 +121,7 @@ impl Shared {
             number,
             Call {
                 arguments: arguments.clone(),
+                allowed: Vec::new(),
                 updates,
             },
         );
@@ -150,11 +154,19 @@ impl Shared {
         }
     }
 
-    /// Whether `path` is one the agent named in call `number`.
+    /// Whether `path` is one the agent named in call `number`, or reached
+    /// through a file it named.
     fn named(&self, number: u64, path: &str) -> bool {
-        lock(&self.calls)
-            .get(&number)
-            .is_some_and(|call| mentions(&call.arguments, path))
+        lock(&self.calls).get(&number).is_some_and(|call| {
+            mentions(&call.arguments, path) || call.allowed.iter().any(|one| one == path)
+        })
+    }
+
+    /// Lets call `number` open `paths` too.
+    fn allow(&self, number: u64, paths: Vec<String>) {
+        if let Some(call) = lock(&self.calls).get_mut(&number) {
+            call.allowed.extend(paths);
+        }
     }
 
     /// Serves, on the port kept (or another free one, then kept).
@@ -491,7 +503,22 @@ pub fn agent_export_to(
     Ok(())
 }
 
-/// A project file an agent named, read for the editor.
+/// The media paths in a project file: what opening it needs to read.
+fn media_paths(text: &str) -> Vec<String> {
+    let Ok(file) = serde_json::from_str::<Value>(text) else {
+        return Vec::new();
+    };
+    file.get("media")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|medium| medium.get("path").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// A project file an agent named, read for the editor, which may then open
+/// the media in it.
 #[tauri::command]
 pub fn agent_read_project(
     agents: State<'_, Agents>,
@@ -499,8 +526,10 @@ pub fn agent_read_project(
     path: String,
 ) -> Result<String, String> {
     let location = agent_path(&agents, call, &path)?;
-    std::fs::read_to_string(&location)
-        .map_err(|_| unreachable(&location, agents.settings().sandboxed))
+    let text = std::fs::read_to_string(&location)
+        .map_err(|_| unreachable(&location, agents.settings().sandboxed))?;
+    agents.0.allow(call, media_paths(&text));
+    Ok(text)
 }
 
 /// A project file an agent named, written from the editor; never over one

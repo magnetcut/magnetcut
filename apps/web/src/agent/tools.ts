@@ -17,6 +17,13 @@ import { frameRateToFloat } from "@/fps/utils";
 import { DiskFile } from "@/media/disk-file";
 import { processMediaAssets } from "@/media/processing";
 import { getEditorUrl } from "@/project/editor-url";
+import {
+	PROJECT_FILE_EXTENSION,
+	parseProjectFile,
+	toProjectFile,
+} from "@/project/file";
+import { storageService } from "@/services/storage/service";
+import { generateUUID } from "@/utils/id";
 import { DEFAULT_NEW_ELEMENT_DURATION } from "@/timeline/creation";
 import { buildElementFromMedia } from "@/timeline/element-utils";
 import { mediaTime, mediaTimeFromSeconds, TICKS_PER_SECOND } from "@/wasm";
@@ -171,20 +178,81 @@ const status: Tool = {
 	},
 };
 
+/** A .magnetcut file, made a project of its own (a new one, whatever its id
+ * was), its media opened from where they are: its id, and the media that
+ * couldn't be. */
+async function openProjectFile({
+	call,
+	path,
+}: {
+	call: number;
+	path: string;
+}): Promise<{ id: string; missing: string[] }> {
+	const contents = await invoke<string>("agent_read_project", {
+		call,
+		path,
+	}).catch((error: unknown) => {
+		throw new ToolError(String(error));
+	});
+	let opened: ReturnType<typeof parseProjectFile>;
+	try {
+		opened = parseProjectFile({ text: contents });
+	} catch (error) {
+		throw new ToolError(error instanceof Error ? error.message : String(error));
+	}
+	const id = generateUUID();
+	const now = new Date();
+	const project = {
+		...opened.project,
+		metadata: {
+			...opened.project.metadata,
+			id,
+			thumbnail: undefined,
+			createdAt: now,
+			updatedAt: now,
+		},
+	};
+	const missing: string[] = [];
+	for (const medium of opened.media) {
+		try {
+			const info = await invoke<ConstructorParameters<typeof DiskFile>[0]>(
+				"agent_open_media",
+				{ call, path: medium.path },
+			);
+			const [asset] = await processMediaAssets({ files: [new DiskFile(info)] });
+			if (!asset) throw new Error("not read");
+			// Under its id in the file, which the clips name.
+			await storageService.saveMediaAsset({
+				projectId: id,
+				mediaAsset: { ...asset, id: medium.id },
+			});
+		} catch (error) {
+			missing.push(`missing ${medium.name} (${medium.path}): ${String(error)}`);
+		}
+	}
+	await storageService.saveProject({ project });
+	return { id, missing };
+}
+
 const project: Tool = {
 	name: "project",
 	description:
-		"Projects: list them, open one by id, or make a new one (it opens). Answers with its summary.",
+		"Projects: list them, open one (by id, or a .magnetcut file by its whole path), make a new one, or save the open one as a .magnetcut file. Opening answers with the summary.",
 	inputSchema: {
 		type: "object",
 		properties: {
-			action: { type: "string", enum: ["list", "open", "new"] },
+			action: { type: "string", enum: ["list", "open", "new", "save"] },
 			id: { type: "string", description: "For open: its id from list" },
+			path: {
+				type: "string",
+				description: "For open or save: a .magnetcut file's whole path",
+			},
+			replace: { type: "boolean", description: "For save: write over a file" },
 			name: { type: "string", description: "For new" },
 		},
 		required: ["action"],
 	},
-	run: async ({ args, context: { editor, navigate } }) => {
+	run: async ({ args, context: { editor, navigate, call } }) => {
 		await editor.project.loadAllProjects();
 		const saved = editor.project.getSavedProjects();
 		const short = shortIds({ ids: saved.map((one) => one.id) });
@@ -208,7 +276,49 @@ const project: Tool = {
 				await editorReady({ editor, id });
 				return text(buildSummary(summaryInput({ editor })));
 			}
+			case "save": {
+				const current = needProject({ editor });
+				const path = string({ args, key: "path" });
+				if (!path?.endsWith(`.${PROJECT_FILE_EXTENSION}`)) {
+					throw new ToolError(
+						`save needs a path ending .${PROJECT_FILE_EXTENSION}`,
+					);
+				}
+				await editor.project.saveCurrentProject();
+				const { text: file, leftOut } = toProjectFile({
+					project: current,
+					assets: editor.media.getAssets(),
+				});
+				await invoke("agent_write_project", {
+					call,
+					path,
+					text: file,
+					replace: args.replace === true,
+				}).catch((error: unknown) => {
+					throw new ToolError(String(error));
+				});
+				return text(
+					[
+						`saved ${path}`,
+						...leftOut.map(
+							(name) =>
+								`left out ${name}: not a file on disk, so it can't be named`,
+						),
+					].join("\n"),
+				);
+			}
 			case "open": {
+				const path = string({ args, key: "path" });
+				if (path) {
+					const opened = await openProjectFile({ call, path });
+					navigate(getEditorUrl({ projectId: opened.id }));
+					await editorReady({ editor, id: opened.id });
+					return text(
+						[buildSummary(summaryInput({ editor })), ...opened.missing].join(
+							"\n",
+						),
+					);
+				}
 				const wanted = string({ args, key: "id" });
 				const id = wanted
 					? resolveId({ short: wanted, ids: saved.map((one) => one.id) })
@@ -219,7 +329,7 @@ const project: Tool = {
 				return text(buildSummary(summaryInput({ editor })));
 			}
 			default:
-				throw new ToolError("action is list, open or new");
+				throw new ToolError("action is list, open, new or save");
 		}
 	},
 };

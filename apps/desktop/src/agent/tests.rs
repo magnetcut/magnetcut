@@ -193,3 +193,22 @@ fn stops_serving_when_switched_off() {
             || post(port, Some(&token), "", &initialize()).0 == 0
     );
 }
+
+#[test]
+fn a_project_files_media_open_with_it() {
+    let (agents, _, _, calls) = serving();
+    let (number, _updates) = agents
+        .0
+        .start_call(
+            "Test agent",
+            "project",
+            json!({ "path": "/films/trip.magnetcut" }),
+        )
+        .unwrap();
+    calls.recv().unwrap();
+    assert!(!agents.0.named(number, "/films/beach.mp4"));
+    let text = r#"{ "magnetcut": 1, "project": {}, "media": [{ "id": "m1", "path": "/films/beach.mp4" }] }"#;
+    agents.0.allow(number, super::media_paths(text));
+    assert!(agents.0.named(number, "/films/beach.mp4"));
+    assert!(!agents.0.named(number, "/films/other.mp4"));
+}
