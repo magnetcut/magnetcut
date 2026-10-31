@@ -25,7 +25,12 @@ import {
 	getElementParam,
 } from "@/params/registry";
 import type { TimelineElement } from "@/timeline";
-import { isVisualElement } from "@/timeline/element-utils";
+import { isMaskableElement, isVisualElement } from "@/timeline/element-utils";
+import {
+	getMaskParamDefinition,
+	parseMaskParamPath,
+} from "@/masks/keyframes";
+import { withMaskParam } from "@/masks/param-update";
 
 export interface AnimationPathDescriptor {
 	channelLayout: ParamChannelLayout;
@@ -206,5 +211,65 @@ export function resolveAnimationTarget({
 		});
 	}
 
+	const maskParamTarget = parseMaskParamPath({ propertyPath: path });
+	if (maskParamTarget) {
+		return buildMaskParamDescriptor({
+			element,
+			maskId: maskParamTarget.maskId,
+			paramKey: maskParamTarget.paramKey,
+		});
+	}
+
 	return null;
+}
+
+function buildMaskParamDescriptor({
+	element,
+	maskId,
+	paramKey,
+}: {
+	element: TimelineElement;
+	maskId: string;
+	paramKey: string;
+}): AnimationPathDescriptor | null {
+	if (!isMaskableElement(element)) {
+		return null;
+	}
+	const mask = element.masks?.find((candidate) => candidate.id === maskId);
+	if (!mask) {
+		return null;
+	}
+	const param = getMaskParamDefinition({ mask, paramKey });
+	if (!param) {
+		return null;
+	}
+	// Its values that keyframes can hold: numbers, strings and flags (not a
+	// freeform mask's points).
+	const baseParams: ParamValues = Object.fromEntries(
+		Object.entries(mask.params).flatMap(([key, value]) =>
+			typeof value === "number" ||
+			typeof value === "string" ||
+			typeof value === "boolean"
+				? [[key, value]]
+				: [],
+		),
+	);
+	return buildParamDescriptor({
+		param,
+		baseParams,
+		setParams: (params) => ({
+			...element,
+			masks: element.masks?.map((candidate) =>
+				candidate.id !== maskId
+					? candidate
+					: Object.entries(params).reduce(
+							(updated, [key, value]) =>
+								typeof value === "object"
+									? updated
+									: withMaskParam({ mask: updated, key, value }),
+							candidate,
+						),
+			),
+		}),
+	});
 }

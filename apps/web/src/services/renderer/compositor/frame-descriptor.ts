@@ -140,7 +140,7 @@ async function collectNode({
 		}
 		// A Hide region: its mask over the whole canvas.
 		const { mask } = buildMaskArtifacts({
-			masks: node.params.masks,
+			masks: node.resolved.masks ?? node.params.masks,
 			renderer,
 			path,
 			transform: fullCanvasTransform(renderer),
@@ -358,7 +358,7 @@ async function collectVisualSourceNode({
 		sourceHeight,
 	});
 	const { mask, strokeLayer } = buildMaskArtifacts({
-		masks: node.params.masks,
+		masks: node.resolved.masks ?? node.params.masks,
 		renderer,
 		path,
 		transform,

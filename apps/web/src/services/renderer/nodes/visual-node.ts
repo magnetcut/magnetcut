@@ -29,6 +29,8 @@ export interface ResolvedVisualNodeState {
 	transform: Transform;
 	opacity: number;
 	effectPasses: EffectPass[][];
+	/** As they are now: keyframed masks move. */
+	masks?: Mask[];
 }
 
 /** A video's frame, by file and time, for an exporter that decodes it itself. */

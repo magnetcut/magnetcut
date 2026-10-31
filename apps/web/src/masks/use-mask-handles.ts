@@ -17,6 +17,13 @@ import type { SelectedMaskPointSelection } from "@/selection/editor-selection";
 import type { Mask, MaskHandleId, MaskInteractionResult } from "@/masks/types";
 import type { MaskableElement } from "@/timeline";
 import { isMaskableElement } from "@/timeline/element-utils";
+import { getElementLocalTime } from "@/animation";
+import {
+	hasMaskKeyframes,
+	resolveMaskAtTime,
+	upsertMaskKeyframes,
+} from "@/masks/keyframes";
+import { mediaTime } from "@/wasm";
 import { registerCanceller } from "@/editor/cancel-interaction";
 
 interface DragState {
@@ -152,10 +159,21 @@ export function useMaskHandles({
 					)
 						? selectedMaskPointSelection?.maskId
 						: masks[0].id;
-					const mask =
+					const baseMask =
 						masks.find((candidate) => candidate.id === activeMaskId) ??
 						masks[0];
-					return { ...entry, element, mask };
+					// Where it is now: a keyframed mask moves.
+					const localTime = getElementLocalTime({
+						timelineTime: currentTime,
+						elementStartTime: element.startTime,
+						elementDuration: element.duration,
+					});
+					const mask = resolveMaskAtTime({
+						mask: baseMask,
+						animations: element.animations,
+						localTime,
+					});
+					return { ...entry, element, mask, baseMask, localTime };
 				})()
 			: null;
 
@@ -571,6 +589,39 @@ export function useMaskHandles({
 					}) ?? { params: proposedParams, activeLines: [] as SnapLine[] });
 
 			onSnapLinesChange?.(activeLines);
+
+			// A keyframed mask is moved by a keyframe where the playhead is.
+			if (
+				hasMaskKeyframes({
+					mask: selectedWithMask.baseMask,
+					animations: selectedWithMask.element.animations,
+				})
+			) {
+				const start = new Map(Object.entries(drag.startParams));
+				const changed: Record<string, number> = {};
+				for (const [key, value] of Object.entries(nextParams)) {
+					if (typeof value === "number" && value !== start.get(key)) {
+						changed[key] = value;
+					}
+				}
+				editor.timeline.previewElements({
+					updates: [
+						{
+							trackId: drag.trackId,
+							elementId: drag.elementId,
+							updates: {
+								animations: upsertMaskKeyframes({
+									animations: selectedWithMask.element.animations,
+									mask: selectedWithMask.baseMask,
+									params: changed,
+									time: mediaTime({ ticks: selectedWithMask.localTime }),
+								}),
+							},
+						},
+					],
+				});
+				return;
+			}
 
 			const updatedMask = withUpdatedMaskParams({
 				mask: selectedWithMask.mask,

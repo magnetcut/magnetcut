@@ -2,6 +2,19 @@
 
 import type { MaskableElement } from "@/timeline";
 import type { Mask, MaskType, TextMask } from "@/masks/types";
+import { withMaskParam } from "@/masks/param-update";
+import {
+	MASK_GEOMETRY_KEYS,
+	buildMaskParamPath,
+	hasMaskKeyframes,
+	resolveMaskAtTime,
+	upsertMaskKeyframes,
+} from "@/masks/keyframes";
+import { getKeyframeAtTime } from "@/animation";
+import { KeyframeToggle } from "@/components/editor/panels/properties/components/keyframe-toggle";
+import { useElementPlayhead } from "@/components/editor/panels/properties/hooks/use-element-playhead";
+import type { MediaTime } from "@/wasm";
+import type { EditorCore } from "@/core";
 import type { NumberParamDefinition, SelectParamDefinition } from "@/params";
 import {
 	buildDefaultMaskInstance,
@@ -79,6 +92,8 @@ type MaskItemProps = {
 	mask: Mask;
 	previewParam: (key: string) => (value: number | string | boolean) => void;
 	onCommit: () => void;
+	/** The keyframe of its place and size at the playhead. */
+	keyframe: { isActive: boolean; isDisabled: boolean; onToggle: () => void };
 };
 
 type EmptyViewProps = {
@@ -93,37 +108,6 @@ type RegisteredMaskDefinition = ReturnType<typeof getMaskDefinition>;
 
 function isTextMask(mask: Mask): mask is TextMask {
 	return mask.type === "text";
-}
-
-function withPreviewedMaskParam({
-	mask,
-	key,
-	value,
-}: {
-	mask: Mask;
-	key: string;
-	value: number | string | boolean;
-}): Mask {
-	switch (mask.type) {
-		case "split":
-			return { ...mask, params: { ...mask.params, [key]: value } };
-		case "cinematic-bars":
-			return { ...mask, params: { ...mask.params, [key]: value } };
-		case "rectangle":
-			return { ...mask, params: { ...mask.params, [key]: value } };
-		case "ellipse":
-			return { ...mask, params: { ...mask.params, [key]: value } };
-		case "heart":
-			return { ...mask, params: { ...mask.params, [key]: value } };
-		case "diamond":
-			return { ...mask, params: { ...mask.params, [key]: value } };
-		case "star":
-			return { ...mask, params: { ...mask.params, [key]: value } };
-		case "text":
-			return { ...mask, params: { ...mask.params, [key]: value } };
-		case "freeform":
-			return { ...mask, params: { ...mask.params, [key]: value } };
-	}
 }
 
 export function MasksTab({ element, trackId }: MasksTabProps) {
@@ -146,6 +130,18 @@ export function MasksTab({ element, trackId }: MasksTabProps) {
 	const masks = element.masks ?? [];
 	const renderMasks = renderElement.masks ?? masks;
 	const hasMask = masks.length > 0;
+	// The masks as they are at the playhead: keyframed ones move.
+	const { localTime, isPlayheadWithinElementRange } = useElementPlayhead({
+		startTime: element.startTime,
+		duration: element.duration,
+	});
+	const shownMasks = renderMasks.map((mask) =>
+		resolveMaskAtTime({
+			mask,
+			animations: renderElement.animations,
+			localTime,
+		}),
+	);
 	const { onPointerLeave, onOpenChange, markCommitted } = useMenuPreview();
 	const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 	const elementBounds = useMemo(() => {
@@ -238,14 +234,35 @@ export function MasksTab({ element, trackId }: MasksTabProps) {
 	const previewMaskParam =
 		({ index, key }: { index: number; key: string }) =>
 		(value: number | string | boolean) => {
-			if (!renderMasks[index]) {
+			const baseMask = renderMasks[index];
+			if (!baseMask) {
+				return;
+			}
+
+			// A keyframed mask is changed by a keyframe at the playhead.
+			if (
+				typeof value === "number" &&
+				isPlayheadWithinElementRange &&
+				hasMaskKeyframes({
+					mask: baseMask,
+					animations: renderElement.animations,
+				})
+			) {
+				previewUpdates({
+					animations: upsertMaskKeyframes({
+						animations: renderElement.animations,
+						mask: baseMask,
+						params: { [key]: value },
+						time: localTime,
+					}),
+				});
 				return;
 			}
 
 			const updatedMasks = renderMasks.map((existingMask, maskIndex) =>
 				maskIndex !== index
 					? existingMask
-					: withPreviewedMaskParam({ mask: existingMask, key, value }),
+					: withMaskParam({ mask: existingMask, key, value }),
 			);
 
 			previewUpdates({ masks: updatedMasks });
@@ -310,16 +327,88 @@ export function MasksTab({ element, trackId }: MasksTabProps) {
 						key={mask.id}
 						trackId={trackId}
 						elementId={element.id}
-						mask={renderMasks[index] ?? mask}
+						mask={shownMasks[index] ?? mask}
 						previewParam={(paramKey) =>
 							previewMaskParam({ index, key: paramKey })
 						}
 						onCommit={commit}
+						keyframe={geometryKeyframe({
+							editor,
+							trackId,
+							element: renderElement,
+							mask: shownMasks[index] ?? mask,
+							localTime,
+							isPlayheadWithinElementRange,
+						})}
 					/>
 				))
 			)}
 		</div>
 	);
+}
+
+/** The keyframe of a mask's place and size at the playhead: on, or added
+ * from where it is now (to follow what moves, as a Hide region does). */
+function geometryKeyframe({
+	editor,
+	trackId,
+	element,
+	mask,
+	localTime,
+	isPlayheadWithinElementRange,
+}: {
+	editor: EditorCore;
+	trackId: string;
+	element: MaskableElement;
+	mask: Mask;
+	localTime: MediaTime;
+	isPlayheadWithinElementRange: boolean;
+}) {
+	const keys = MASK_GEOMETRY_KEYS.flatMap((paramKey) => {
+		const value = new Map(Object.entries(mask.params)).get(paramKey);
+		return typeof value === "number"
+			? [
+					{
+						propertyPath: buildMaskParamPath({ maskId: mask.id, paramKey }),
+						value,
+					},
+				]
+			: [];
+	});
+	const atTime = keys.flatMap(({ propertyPath }) => {
+		const keyframe = getKeyframeAtTime({
+			animations: element.animations,
+			propertyPath,
+			time: localTime,
+		});
+		return keyframe ? [{ propertyPath, keyframeId: keyframe.id }] : [];
+	});
+	return {
+		isActive: atTime.length > 0,
+		isDisabled: !isPlayheadWithinElementRange || keys.length === 0,
+		onToggle: () => {
+			if (atTime.length > 0) {
+				editor.timeline.removeKeyframes({
+					keyframes: atTime.map(({ propertyPath, keyframeId }) => ({
+						trackId,
+						elementId: element.id,
+						propertyPath,
+						keyframeId,
+					})),
+				});
+				return;
+			}
+			editor.timeline.upsertKeyframes({
+				keyframes: keys.map(({ propertyPath, value }) => ({
+					trackId,
+					elementId: element.id,
+					propertyPath,
+					time: localTime,
+					value,
+				})),
+			});
+		},
+	};
 }
 
 function MaskItem({
@@ -328,6 +417,7 @@ function MaskItem({
 	mask,
 	previewParam,
 	onCommit,
+	keyframe,
 }: MaskItemProps) {
 	const editor = useEditor();
 	const definition = getMaskDefinition(mask.type);
@@ -337,6 +427,12 @@ function MaskItem({
 			<SectionHeader
 				trailing={
 					<div className="flex items-center gap-1">
+						<KeyframeToggle
+							isActive={keyframe.isActive}
+							isDisabled={keyframe.isDisabled}
+							title="Keyframe the mask's place and size here"
+							onToggle={keyframe.onToggle}
+						/>
 						<Button
 							variant="ghost"
 							size="icon"

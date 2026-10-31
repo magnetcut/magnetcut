@@ -66,6 +66,7 @@ function buildElementNode({
 			timeOffset: element.startTime,
 			duration: element.duration,
 			masks: element.masks,
+			animations: element.animations,
 		});
 	}
 

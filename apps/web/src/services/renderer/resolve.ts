@@ -1,3 +1,4 @@
+import { resolveMaskAtTime } from "@/masks/keyframes";
 import { mediaTimeToSeconds, roundMediaTime } from "@/wasm";
 import { getElementLocalTime } from "@/animation";
 import { resolveEffectParamsAtTime } from "@/animation/effect-param-channel";
@@ -217,6 +218,9 @@ function resolveVisualState({
 		localTime,
 		transform,
 		opacity,
+		masks: params.masks?.map((mask) =>
+			resolveMaskAtTime({ mask, animations: params.animations, localTime }),
+		),
 		effectPasses: resolveEffectPassGroups({
 			effects: params.effects,
 			animations: params.animations,
@@ -568,7 +572,15 @@ function resolveEffectLayerNode({
 		return null;
 	}
 
+	const localTime = getElementLocalTime({
+		timelineTime: time,
+		elementStartTime: node.params.timeOffset,
+		elementDuration: node.params.duration,
+	});
 	return {
 		passes,
+		masks: node.params.masks?.map((mask) =>
+			resolveMaskAtTime({ mask, animations: node.params.animations, localTime }),
+		),
 	};
 }

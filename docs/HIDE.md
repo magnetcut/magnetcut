@@ -50,3 +50,12 @@ moves.
 ## Risks
 - A frame the region misses shows the face: tracking and detection help, they don't promise.
   The panel says to check the result, and both exports hide exactly what the preview shows.
+
+## Done
+- Phase 1. A scene effect with a mask in the compositor: checked on the GPU, a cover over half
+  the picture leaving the other half as it was, and pixelation in blocks of one colour. Scene
+  effects are now read as the editor sends them: before, their fields weren't camelCased, and
+  every adjustment layer was refused. The Hide section adds a region, its mask keyframed by the
+  toggle in its Masks tab or by dragging it where it has keyframes; tested in code (a mask
+  keyframed in two places moves between them; an adjustment layer's mask is a keyframe target),
+  not yet tried in the app.
