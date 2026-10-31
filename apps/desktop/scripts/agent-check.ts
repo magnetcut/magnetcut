@@ -258,7 +258,8 @@ const removed = await tool({
 	args: { operations: [{ op: "remove", ranges: [[Number(found[1]), Number(found[2])]] }] },
 });
 const shorter = await tool({ name: "summary" });
-if (!/ 0:02\.0 rev/.test(shorter.text.split("\n")[0])) {
+// The silence is found to a 50 ms window: 2 s left, give or take one.
+if (!/ 0:02\.[01] rev/.test(shorter.text.split("\n")[0])) {
 	throw new Error(`the silence wasn't taken out: ${shorter.text}`);
 }
 report({ step: "remove", detail: `${removed.text} / ${shorter.text.split("\n")[0]}` });
