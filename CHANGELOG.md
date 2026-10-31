@@ -16,7 +16,9 @@ All notable changes to this project are documented here. The format is based on
   of Undo, hear it (the words with their times, the silences, the loudness in LUFS), find faces,
   plates and black bars, and export, never
   over a file unless it says so; a strip at the top of the window shows when one is at work,
-  with Stop.
+  with Stop. For agents that speak MCP only on standard input and output, `magnetcut --mcp`
+  relays to the app; `magnetcut call <tool>` makes one call from a shell; `--hidden` starts the
+  app with no window.
 - Projects as files: File, Open Project… and Save Project As… keep a project as a `.magnetcut`
   file, with its media where they are, to open again here or elsewhere.
 - Each export says MagnetCut made it, with the version, in the field its container keeps for

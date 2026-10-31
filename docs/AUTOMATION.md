@@ -234,3 +234,16 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
   (to a window), -20.3 LUFS, and the silence removed, 3.0 s becoming 2.1; no black bars on the
   fixture. Not on CI: transcribing and finding faces, which download a model only the user may
   allow. Left of phase 3: shot changes, Track as a tool, and the trial by hand with Claude Code.
+- Phase 4. `magnetcut --mcp`: MCP on standard input and output, each message relayed to the
+  app's server with the token in MAGNETCUT_TOKEN (MAGNETCUT_URL, the address, defaults to port
+  47213, which the server takes first when it's free), its progress passed on as it comes, the
+  app started if it isn't running; Settings gives the entry to paste, with the app's own path.
+  `magnetcut call <tool> ['<json>']`: one call, its text printed, its exit status whether it
+  worked. `--hidden`: the app without its window. Tested in code (the relay's reply and its
+  progress; a wrong token refused) and on CI on all three systems, the whole check run against
+  the app hidden (frames looked at and the film exported with no window showing), then tools
+  listed through `--mcp` and the summary printed by `call`.
+
+What's left of step 12: in the App Store edition, folders granted in Settings and the dialog
+for a path outside them; shot changes and Track as tools; and Claude Code trying it by hand,
+the tokens it took written here.
