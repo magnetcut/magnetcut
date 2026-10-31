@@ -107,11 +107,11 @@ telemetry: everything stays on the computer. Not for iOS or Android.
 
 ## Order
 
-Done: 1, 2, 3, 4, 5 (0.1.0 is a draft release on GitHub, for the author to publish), 6 (build
-0.1.0 is in App Store Connect, on version 0.1.0 with its listing; the screenshots, the privacy
-and age rating answers, the price and submitting it are the author's, docs/RELEASING.md), 7 and
-8. 9 (docs/NATIVE.md; on Windows and Linux checked in the app on CI's machines, not yet
-on a desktop of either). 10 (docs/SUBTITLES.md).
+Done: 1, 2, 3, 4, 7, 8 and 10 (docs/SUBTITLES.md). 5 but for publishing 0.1.0, a draft
+release on GitHub, which is the author's to do. 6 but for what's the author's in App Store
+Connect: build 0.1.0 is on version 0.1.0 with its listing; the screenshots, the privacy and age
+rating answers, the price and submitting it are left (docs/RELEASING.md). 9 but for a desktop of
+Windows and Linux: there it's checked on CI's machines, in the app too (docs/NATIVE.md).
 What's been done since 0.1.0 without the app open (the native export's panel, the subtitle
 editor, the native export on Windows and Linux) is tested in code but not yet tried in the app.
 
