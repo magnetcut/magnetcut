@@ -9,8 +9,8 @@ use crate::frame::EffectUniformValueDescriptor;
 use crate::transition::padded_wgsl;
 use crate::{
     BlendMode, CanvasClearDescriptor, Compositor, EffectPassDescriptor, FrameDescriptor,
-    FrameItemDescriptor, LayerDescriptor, QuadTransformDescriptor, TransitionDescriptor,
-    TransitionParamValue,
+    FrameItemDescriptor, LayerDescriptor, LayerMaskDescriptor, QuadTransformDescriptor,
+    TransitionDescriptor, TransitionParamValue,
 };
 
 const SIZE: u32 = 64;
@@ -481,6 +481,7 @@ fn sharpening_steepens_an_edge_over_the_frame() {
             FrameItemDescriptor::Layer(layer("soft")),
             FrameItemDescriptor::SceneEffect {
                 effect_pass_groups: vec![pass("sharpen", &[("u_amount", 1.0)])],
+                mask: None,
             },
         ],
     );
@@ -598,4 +599,96 @@ fn a_vignette_darkens_the_corners_only() {
         at(SIZE / 2, SIZE / 2)
     );
     assert!(at(0, 0) < 100, "corner {}", at(0, 0));
+}
+
+/// A mask over the left half of the picture.
+fn upload_left_half_mask(context: &GpuContext, compositor: &mut Compositor, id: &str) {
+    let texture = context.create_render_texture(SIZE, SIZE, "test-mask");
+    let data: Vec<u8> = (0..SIZE)
+        .flat_map(|_| 0..SIZE)
+        .flat_map(|x| {
+            let alpha = if x < SIZE / 2 { 255 } else { 0 };
+            texel(context, [255, 255, 255, alpha])
+        })
+        .collect();
+    context.queue().write_texture(
+        texture.as_image_copy(),
+        &data,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4 * SIZE),
+            rows_per_image: Some(SIZE),
+        },
+        texture.size(),
+    );
+    compositor.upsert_texture(id.to_owned(), texture);
+}
+
+#[test]
+fn a_masked_scene_effect_changes_only_inside() {
+    // A Hide region: black over the left half, the red picture right of it.
+    let Some((context, mut compositor)) = gpu() else {
+        return;
+    };
+    upload_left_half_mask(&context, &mut compositor, "half");
+    let cover = EffectPassDescriptor {
+        shader: "fill".to_owned(),
+        uniforms: HashMap::from([(
+            "u_color".to_owned(),
+            EffectUniformValueDescriptor::Vector(vec![0.0, 0.0, 0.0, 1.0]),
+        )]),
+    };
+    let pixels = render_items(
+        &context,
+        &mut compositor,
+        vec![
+            FrameItemDescriptor::Layer(layer("red")),
+            FrameItemDescriptor::SceneEffect {
+                effect_pass_groups: vec![vec![cover]],
+                mask: Some(LayerMaskDescriptor {
+                    texture_id: "half".to_owned(),
+                    feather: 0.0,
+                    inverted: false,
+                }),
+            },
+        ],
+    );
+    let at = |x: u32| pixels[(SIZE / 2 * SIZE + x) as usize];
+    assert_near(at(SIZE / 4), [0, 0, 0, 255], "inside the region");
+    assert_near(at(SIZE * 3 / 4), RED, "outside it");
+}
+
+#[test]
+fn pixelating_makes_blocks_of_one_colour() {
+    let Some((context, mut compositor)) = gpu() else {
+        return;
+    };
+    upload_grey(&context, &mut compositor, "ramp", |x, y| {
+        ((x * 3 + y * 2) % 256) as u8
+    });
+    let pixels = render_items(
+        &context,
+        &mut compositor,
+        vec![
+            FrameItemDescriptor::Layer(layer("ramp")),
+            FrameItemDescriptor::SceneEffect {
+                effect_pass_groups: vec![pass("pixelate", &[("u_size", 8.0)])],
+                mask: None,
+            },
+        ],
+    );
+    let block = |bx: u32, by: u32| -> Vec<u8> {
+        (0..8)
+            .flat_map(|y| (0..8).map(move |x| (bx * 8 + x, by * 8 + y)))
+            .map(|(x, y)| grey_at(&pixels, x, y))
+            .collect()
+    };
+    for (bx, by) in [(0, 0), (3, 2), (7, 7)] {
+        let levels = block(bx, by);
+        assert!(
+            levels.iter().all(|&level| level == levels[0]),
+            "block {bx},{by}: {levels:?}"
+        );
+    }
+    assert_ne!(block(0, 0)[0], block(1, 0)[0], "neighbouring blocks differ");
 }

@@ -234,6 +234,27 @@ fn reads_b_frames_at_their_times() {
     }
 }
 
+#[test]
+fn reads_a_scene_effect_as_the_editor_sends_it() {
+    let frame: compositor::FrameDescriptor = serde_json::from_value(serde_json::json!({
+        "width": 64,
+        "height": 64,
+        "clear": { "color": [0, 0, 0, 1] },
+        "items": [{
+            "type": "sceneEffect",
+            "effectPassGroups": [[{ "shader": "sharpen", "uniforms": { "u_amount": 1 } }]]
+        }]
+    }))
+    .unwrap();
+    let compositor::FrameItemDescriptor::SceneEffect {
+        effect_pass_groups, ..
+    } = &frame.items[0]
+    else {
+        panic!("not a scene effect");
+    };
+    assert_eq!(effect_pass_groups.len(), 1);
+}
+
 /// A layer showing the texture `id` over the whole of a `size` canvas.
 fn frame_showing(id: &str, size: u32) -> compositor::FrameDescriptor {
     frame_sized(id, size, size)

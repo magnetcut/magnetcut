@@ -9,7 +9,7 @@ use crate::{
     BlendMode,
     frame::{
         EffectPassDescriptor, EffectUniformValueDescriptor, FrameDescriptor, FrameItemDescriptor,
-        LayerDescriptor, TransitionDescriptor,
+        LayerDescriptor, LayerMaskDescriptor, TransitionDescriptor,
     },
     texture_pool::TexturePool,
     texture_store::TextureStore,
@@ -375,8 +375,11 @@ impl Compositor {
                         frame.height,
                     )?;
                 }
-                FrameItemDescriptor::SceneEffect { effect_pass_groups } => {
-                    scene = self.apply_effect_groups(
+                FrameItemDescriptor::SceneEffect {
+                    effect_pass_groups,
+                    mask,
+                } => {
+                    let affected = self.apply_effect_groups(
                         context,
                         encoder,
                         &scene,
@@ -384,6 +387,38 @@ impl Compositor {
                         frame.height,
                         effect_pass_groups,
                     )?;
+                    scene = match mask {
+                        None => affected,
+                        // Only within the mask: what the effect made of the
+                        // scene, cut by it, over the scene as it was.
+                        Some(mask) => {
+                            let mask_texture = self.mask_texture(
+                                context,
+                                encoder,
+                                mask,
+                                frame.width,
+                                frame.height,
+                            )?;
+                            let inside = self.apply_mask(
+                                context,
+                                encoder,
+                                &affected,
+                                &mask_texture,
+                                mask.inverted,
+                                frame.width,
+                                frame.height,
+                            );
+                            self.blend_texture(
+                                context,
+                                encoder,
+                                &scene,
+                                &inside,
+                                BlendMode::Normal,
+                                frame.width,
+                                frame.height,
+                            )?
+                        }
+                    };
                 }
                 FrameItemDescriptor::Transition(transition) => {
                     let texture = self.render_transition(context, encoder, frame, transition)?;
@@ -518,32 +553,8 @@ impl Compositor {
         }
 
         if let Some(mask) = &layer.mask {
-            let mask_source = self.textures.get(&mask.texture_id).ok_or_else(|| {
-                CompositorError::MissingTexture {
-                    texture_id: mask.texture_id.clone(),
-                }
-            })?;
-            let mask_source_texture = mask_source.texture().clone();
-            let mask_texture = if mask.feather > 0.0 {
-                self.masks.apply_mask_feather_with_encoder(
-                    context,
-                    encoder,
-                    ApplyMaskFeatherOptions {
-                        mask: &mask_source_texture,
-                        width: frame.width,
-                        height: frame.height,
-                        feather: mask.feather,
-                    },
-                )
-            } else {
-                self.copy_texture(
-                    context,
-                    encoder,
-                    &mask_source_texture,
-                    frame.width,
-                    frame.height,
-                )
-            };
+            let mask_texture =
+                self.mask_texture(context, encoder, mask, frame.width, frame.height)?;
             current = self.apply_mask(
                 context,
                 encoder,
@@ -556,6 +567,39 @@ impl Compositor {
         }
 
         Ok(current)
+    }
+
+    /// A mask's texture, feathered as it says.
+    fn mask_texture(
+        &mut self,
+        context: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        mask: &LayerMaskDescriptor,
+        width: u32,
+        height: u32,
+    ) -> Result<wgpu::Texture, CompositorError> {
+        let source = self
+            .textures
+            .get(&mask.texture_id)
+            .ok_or_else(|| CompositorError::MissingTexture {
+                texture_id: mask.texture_id.clone(),
+            })?
+            .texture()
+            .clone();
+        Ok(if mask.feather > 0.0 {
+            self.masks.apply_mask_feather_with_encoder(
+                context,
+                encoder,
+                ApplyMaskFeatherOptions {
+                    mask: &source,
+                    width,
+                    height,
+                    feather: mask.feather,
+                },
+            )
+        } else {
+            self.copy_texture(context, encoder, &source, width, height)
+        })
     }
 
     fn apply_effect_groups(

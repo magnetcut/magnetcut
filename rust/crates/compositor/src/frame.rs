@@ -20,13 +20,23 @@ pub struct CanvasClearDescriptor {
 }
 
 // A frame has a handful of items: boxing transitions would only add allocations.
+// The fields camelCase too, as the editor sends them: without, a scene effect
+// was refused ("missing field `effect_pass_groups`").
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum FrameItemDescriptor {
     Layer(LayerDescriptor),
+    /// Effects on everything drawn so far: an adjustment layer. With a mask,
+    /// only within it (a Hide region, docs/HIDE.md).
     SceneEffect {
         effect_pass_groups: Vec<Vec<EffectPassDescriptor>>,
+        #[serde(default)]
+        mask: Option<LayerMaskDescriptor>,
     },
     Transition(TransitionDescriptor),
 }

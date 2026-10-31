@@ -21,6 +21,10 @@ const COLOR_ADJUST_SHADER_ID: &str = "color-adjust";
 const COLOR_ADJUST_SHADER_SOURCE: &str = include_str!("shaders/color_adjust.wgsl");
 const VIGNETTE_SHADER_ID: &str = "vignette";
 const VIGNETTE_SHADER_SOURCE: &str = include_str!("shaders/vignette.wgsl");
+const PIXELATE_SHADER_ID: &str = "pixelate";
+const PIXELATE_SHADER_SOURCE: &str = include_str!("shaders/pixelate.wgsl");
+const FILL_SHADER_ID: &str = "fill";
+const FILL_SHADER_SOURCE: &str = include_str!("shaders/fill.wgsl");
 
 pub struct ApplyEffectsOptions<'a> {
     pub source: &'a wgpu::Texture,
@@ -153,6 +157,8 @@ impl EffectPipeline {
             (SHARPEN_SHADER_ID, SHARPEN_SHADER_SOURCE),
             (COLOR_ADJUST_SHADER_ID, COLOR_ADJUST_SHADER_SOURCE),
             (VIGNETTE_SHADER_ID, VIGNETTE_SHADER_SOURCE),
+            (PIXELATE_SHADER_ID, PIXELATE_SHADER_SOURCE),
+            (FILL_SHADER_ID, FILL_SHADER_SOURCE),
         ]
         .into_iter()
         .map(|(id, source)| (id.to_string(), create_pipeline(id, source)))
@@ -357,6 +363,16 @@ fn pack_effect_uniforms(
             [0.0, 0.0],
             [read_number_uniform(pass, "u_amount")?, 0.0, 0.0, 0.0],
         ),
+        PIXELATE_SHADER_ID => (
+            &["u_size"],
+            [0.0, 0.0],
+            [read_number_uniform(pass, "u_size")?, 0.0, 0.0, 0.0],
+        ),
+        FILL_SHADER_ID => (
+            &["u_color"],
+            [0.0, 0.0],
+            read_vec4_uniform(pass, "u_color")?,
+        ),
         _ => (
             &["u_sigma", "u_step", "u_direction"],
             read_vec2_uniform(pass, "u_direction")?,
@@ -397,6 +413,23 @@ fn read_number_uniform(pass: &EffectPass, uniform: &str) -> Result<f32, EffectsE
     match value {
         UniformValue::Number(value) => Ok(*value),
         UniformValue::Vector(_) => Err(EffectsError::InvalidNumberUniform {
+            shader: pass.shader.clone(),
+            uniform: uniform.to_string(),
+        }),
+    }
+}
+
+fn read_vec4_uniform(pass: &EffectPass, uniform: &str) -> Result<[f32; 4], EffectsError> {
+    match pass.uniforms.get(uniform) {
+        Some(UniformValue::Vector(values)) if values.len() == 4 => {
+            Ok([values[0], values[1], values[2], values[3]])
+        }
+        Some(_) => Err(EffectsError::InvalidVectorUniform {
+            shader: pass.shader.clone(),
+            uniform: uniform.to_string(),
+            expected_length: 4,
+        }),
+        None => Err(EffectsError::MissingUniform {
             shader: pass.shader.clone(),
             uniform: uniform.to_string(),
         }),
