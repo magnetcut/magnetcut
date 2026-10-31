@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
+	crop,
 	decodeYolo,
 	decodeYuNet,
 	fromLetterbox,
 	letterbox,
+	matchDetections,
+	merge,
 	suppress,
+	tiles,
 } from "../detect";
 
 describe("letterbox", () => {
@@ -90,5 +94,80 @@ describe("suppress", () => {
 			threshold: 0.3,
 		});
 		expect(kept.map(({ score }) => score)).toEqual([0.9, 0.7]);
+	});
+});
+
+describe("matchDetections", () => {
+	const box = (x: number) => ({ x, y: 0, width: 10, height: 10, score: 1 });
+
+	test("pairs neighbours by the best overlaps, not by the order found", () => {
+		// Two faces side by side, a little apart; found in the other order,
+		// each moved towards the other's side. Taken one by one, the first
+		// find would go to the wrong one.
+		const { pairs, unmatched } = matchDetections({
+			known: [box(0), box(8)],
+			found: [box(4), box(1)],
+			threshold: 0.3,
+		});
+		expect(pairs.sort()).toEqual([
+			[0, 1],
+			[1, 0],
+		]);
+		expect(unmatched).toEqual([]);
+	});
+
+	test("leaves a find that overlaps nothing for a new region", () => {
+		const { pairs, unmatched } = matchDetections({
+			known: [box(0)],
+			found: [box(1), box(50)],
+			threshold: 0.3,
+		});
+		expect(pairs).toEqual([[0, 0]]);
+		expect(unmatched).toEqual([1]);
+	});
+});
+
+describe("tiles", () => {
+	test("covers a wide frame with squares of its height, edge to edge", () => {
+		expect(tiles({ width: 1280, height: 720, size: 640 })).toEqual([
+			{ x: 0, y: 0, side: 720 },
+			{ x: 560, y: 0, side: 720 },
+		]);
+	});
+
+	test("cuts a big square frame in four", () => {
+		const parts = tiles({ width: 1280, height: 1280, size: 640 });
+		expect(parts).toHaveLength(4);
+		expect(parts.every((part) => part.side === 800)).toBe(true);
+		expect(parts.at(-1)).toEqual({ x: 480, y: 480, side: 800 });
+	});
+
+	test("leaves a frame about the model's size whole", () => {
+		expect(tiles({ width: 640, height: 360, size: 640 })).toEqual([]);
+	});
+});
+
+describe("crop", () => {
+	test("takes a square out of a frame, row by row", () => {
+		// A 4×3 frame, each pixel's red its index.
+		const rgba = new Uint8ClampedArray(4 * 3 * 4);
+		for (let i = 0; i < 12; i++) rgba[i * 4] = i;
+		const square = crop({ rgba, width: 4, x: 1, y: 1, side: 2 });
+		expect([square[0], square[4], square[8], square[12]]).toEqual([
+			5, 6, 9, 10,
+		]);
+	});
+});
+
+describe("merge", () => {
+	test("keeps one of a face found twice, and drops a part of one", () => {
+		const face = { x: 100, y: 100, width: 40, height: 50, score: 0.9 };
+		const again = { x: 102, y: 101, width: 40, height: 50, score: 0.8 };
+		// Cut by a square's edge: its left half.
+		const part = { x: 100, y: 100, width: 18, height: 50, score: 0.7 };
+		const other = { x: 300, y: 100, width: 40, height: 50, score: 0.75 };
+		expect(
+			merge({ detections: [part, again, other, face], threshold: 0.3 }),
+		).toEqual([face, other]);
 	});
 });

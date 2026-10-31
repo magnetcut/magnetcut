@@ -113,8 +113,8 @@ Connect: build 0.1.0 is on version 0.1.0 with its listing; the screenshots, the 
 rating answers, the price and submitting it are left (docs/RELEASING.md). 9 but for a desktop of
 Windows and Linux: there it's checked on CI's machines, in the app too (docs/NATIVE.md).
 What's been done since 0.1.0 without the app open (the native export's panel, the subtitle
-editor, the native export on Windows and Linux, hiding faces and plates) is tested in code but
-not yet tried in the app.
+editor, the native export on Windows and Linux) is tested in code but not yet tried in the app;
+hiding faces and plates was tried end to end in the built app, its panel not yet clicked.
 
 1. Strip the server, accounts, analytics and website; static export; editor works in a browser.
 2. Rebrand: names, package scopes, storage keys, logo and icon.

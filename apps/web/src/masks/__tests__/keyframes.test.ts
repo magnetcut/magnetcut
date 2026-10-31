@@ -69,6 +69,20 @@ describe("mask keyframes", () => {
 		);
 	});
 
+	test("a keyframe keeps a place finer than a percent of the picture", () => {
+		const mask = region();
+		const animations = upsertMaskKeyframes({
+			animations: undefined,
+			mask,
+			params: { centerX: 0.1234 },
+			time: ZERO_MEDIA_TIME,
+		});
+		const resolved = resolveMaskAtTime({ mask, animations, localTime: 0 });
+		const centerX =
+			"centerX" in resolved.params ? resolved.params.centerX : NaN;
+		expect(centerX).toBeCloseTo(0.1234, 4);
+	});
+
 	test("an adjustment layer's mask is a target the timeline's commands take", () => {
 		const mask = region();
 		const element: EffectElement = {

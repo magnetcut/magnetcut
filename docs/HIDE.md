@@ -70,10 +70,20 @@ moves.
   whole timeline: YuNet for faces (OpenCV's, MIT, 233 KB) and a YOLOv11n fine-tuned on plates
   (AGPL-3.0, 10.5 MB), each downloaded once from Hugging Face at a pinned revision, checked by
   its SHA-256 and kept in the web view's cache, run by ONNX Runtime Web (the copy the app ships;
-  WebGPU, or WebAssembly where there's none) in its own worker. Every tenth frame is searched; a
-  find is matched to the region it overlaps, which it moves back onto what it found, or starts
-  one; between searches the tracker follows each region, and three searches without it end it.
-  Each one followed for five frames or more becomes a Hide region, a little bigger than what was
-  found, keyframed on every frame. In the built app, in Chrome: 47 faces in a group photo, in
-  44 ms once the model is loaded; the decoding of both models' outputs tested in code. Not yet
-  tried on a film in the app.
+  WebGPU, or WebAssembly where there's none) in its own worker. Frames up to 1280 px wide, every
+  other one searched, in the whole frame and, where it's much bigger than the model's 640 px
+  square, in squares of it too, so a face in a crowd keeps its pixels; the finds of a frame are
+  matched to the regions as a whole, the best overlaps first, so neighbours aren't swapped. A
+  find no region had starts one; between searches, and where the model misses one, the tracker
+  follows it; half a second unseen ends it. Each one found three times or more becomes a Hide
+  region, a little bigger than what was found, keyframed on every frame (to a tenth of a pixel:
+  mask keyframes kept a percent of the picture before), from five frames before it's first seen
+  to five after it's last. Tried end to end in the built app, in Chrome, through the editor's
+  own renderer (the code the button calls; not the button): a 4 s pan across the 1927 Solvay
+  portrait, 24 to 27 faces in view, became 29 Hide regions in 20 s, and every face the model
+  sees in the frames at every fifth of a second was hidden (514 of 514), the picture away from
+  them unchanged. Faces of 15 px and less, at the back of a crowd, the model doesn't see: those
+  stay to be covered by hand. Finding this out found two faults in the renderer, both mended:
+  on a frame's very start the frame before could show, depending on what the decoder had ready;
+  and the decoder's canvases, used in turn, made the compositor skip uploading a frame when the
+  same canvas came back three frames later, so the picture stood still.

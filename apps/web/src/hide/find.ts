@@ -4,7 +4,7 @@ import { frameRateToFloat } from "@/fps/utils";
 import { upsertMaskKeyframes } from "@/masks/keyframes";
 import { buildEffectElement } from "@/timeline/element-utils";
 import { mediaTime, TICKS_PER_SECOND } from "@/wasm";
-import { intersectionOverUnion, type Detection } from "./detect";
+import { matchDetections, type Detection } from "./detect";
 import { detect, type DetectorKind } from "./models";
 import {
 	HIDE_SHAPE_NAMES,
@@ -19,18 +19,23 @@ import {
 } from "./track";
 
 // Faces or plates found in a clip, each followed through it as a Hide region
-// of its own (docs/HIDE.md, phase 3): the model run every few frames, the
-// tracker in between, its finds joined across frames by how much they
-// overlap.
+// of its own (docs/HIDE.md, phase 3): the model run every other frame, its
+// finds joined across frames by how much they overlap, the tracker following
+// in between and wherever the model misses one.
 
-// Frames between two detections: the tracker follows in between.
-const DETECT_EVERY = 10;
+// Frames between two detections.
+const DETECT_EVERY = 2;
 
-// Detections in a row that may miss a face or a plate before it's ended.
-const MISSES = 3;
+// Frames a face or a plate may go unseen, neither found nor followed, before
+// it's ended: turned away, or behind something, for a moment.
+const LOST_FRAMES = 15;
 
-// A face or a plate followed for fewer frames is taken for a false find.
-const MIN_FRAMES = 5;
+// Frames a region stays before it's first seen and after it's last: better
+// too long than a face showing.
+const HOLD_FRAMES = 5;
+
+// A face or a plate found fewer times is taken for a false find.
+const MIN_FINDS = 3;
 
 // Enough overlap to be the same one.
 const SAME = 0.3;
@@ -45,8 +50,11 @@ const PADDING: Record<DetectorKind, number> = { faces: 1.35, plates: 1.15 };
 interface Track {
 	tracker: RegionTracker | null;
 	positions: Map<number, TrackRegion>;
-	misses: number;
 	region: TrackRegion;
+	/** The frame it was last seen on. */
+	lastSeen: number;
+	/** How many times the model found it. */
+	finds: number;
 }
 
 function toRegion({
@@ -141,7 +149,6 @@ export async function findHideRegions({
 	}
 
 	const tracks: Track[] = [];
-	const live = () => tracks.filter((track) => track.tracker !== null);
 	const stop = ({ track }: { track: Track }) => {
 		track.tracker?.free();
 		track.tracker = null;
@@ -150,62 +157,67 @@ export async function findHideRegions({
 		for (const [index, time] of times.entries()) {
 			if (isCancelled?.()) break;
 			const frame = await frames.render({ time });
-			// Each one followed on: lost, it waits for the next detection.
-			for (const track of live()) {
-				const result = track.tracker?.track(
+			const current = tracks.filter(
+				(track) => index - track.lastSeen <= LOST_FRAMES,
+			);
+			const seen = new Set<Track>();
+			if (index % DETECT_EVERY === 0) {
+				const found = (await detect({ kind, frame })).map((detection) =>
+					toRegion({ detection, padding: PADDING[kind] }),
+				);
+				const { pairs, unmatched } = matchDetections({
+					known: current.map((track) => toBox({ region: track.region })),
+					found: found.map((region) => toBox({ region })),
+					threshold: SAME,
+				});
+				// Found again: the tracker starts over from there.
+				for (const [trackIndex, findIndex] of pairs) {
+					const track = current[trackIndex];
+					const region = found[findIndex];
+					track.tracker?.free();
+					track.tracker = startTracker({ frame, region });
+					track.region = region;
+					track.finds += 1;
+					seen.add(track);
+				}
+				for (const findIndex of unmatched) {
+					const region = found[findIndex];
+					const track: Track = {
+						tracker: startTracker({ frame, region }),
+						positions: new Map(),
+						region,
+						lastSeen: index,
+						finds: 1,
+					};
+					tracks.push(track);
+					seen.add(track);
+				}
+			}
+			// Between detections, and where the model missed one: followed.
+			for (const track of current) {
+				if (seen.has(track) || !track.tracker) continue;
+				const result = track.tracker.track(
 					bytes({ frame }),
 					frame.width,
 					frame.height,
 				);
-				if (result && result.length >= 5 && result[4] >= MIN_CONFIDENCE) {
+				if (result.length >= 5 && result[4] >= MIN_CONFIDENCE) {
 					track.region = {
 						centerX: result[0],
 						centerY: result[1],
 						width: result[2],
 						height: result[3],
 					};
-					track.positions.set(time, track.region);
+					seen.add(track);
 				}
 			}
-			if (index % DETECT_EVERY === 0) {
-				const found = (await detect({ kind, frame })).map((detection) =>
-					toRegion({ detection, padding: PADDING[kind] }),
-				);
-				const matched = new Set<Track>();
-				for (const region of found) {
-					const best = live()
-						.filter((track) => !matched.has(track))
-						.map((track) => ({
-							track,
-							overlap: intersectionOverUnion({
-								a: toBox({ region: track.region }),
-								b: toBox({ region }),
-							}),
-						}))
-						.sort((a, b) => b.overlap - a.overlap)[0];
-					if (best && best.overlap >= SAME) {
-						// Found again: the tracker starts over from where it is.
-						best.track.tracker?.free();
-						best.track.tracker = startTracker({ frame, region });
-						best.track.region = region;
-						best.track.positions.set(time, region);
-						best.track.misses = 0;
-						matched.add(best.track);
-					} else {
-						const track: Track = {
-							tracker: startTracker({ frame, region }),
-							positions: new Map([[time, region]]),
-							misses: 0,
-							region,
-						};
-						tracks.push(track);
-						matched.add(track);
-					}
-				}
-				for (const track of live()) {
-					if (matched.has(track)) continue;
-					track.misses += 1;
-					if (track.misses >= MISSES) stop({ track });
+			for (const track of seen) {
+				track.lastSeen = index;
+				track.positions.set(time, track.region);
+			}
+			for (const track of current) {
+				if (!seen.has(track) && index - track.lastSeen >= LOST_FRAMES) {
+					stop({ track });
 				}
 			}
 			onProgress?.({ progress: (index + 1) / times.length });
@@ -219,9 +231,17 @@ export async function findHideRegions({
 	let added = 0;
 	for (const track of tracks) {
 		const keyed = [...track.positions.entries()].sort(([a], [b]) => a - b);
-		if (keyed.length < MIN_FRAMES) continue;
-		const first = keyed[0][0];
-		const last = keyed[keyed.length - 1][0];
+		if (track.finds < MIN_FINDS || keyed.length === 0) continue;
+		// A little before it's first seen and after it's last.
+		const first = Math.round(
+			Math.max(start, keyed[0][0] - HOLD_FRAMES * frameTicks),
+		);
+		const last = Math.round(
+			Math.min(
+				end - frameTicks,
+				keyed[keyed.length - 1][0] + HOLD_FRAMES * frameTicks,
+			),
+		);
 		const mask = buildHideRegionMask({ shape, canvasSize });
 		const effect = buildEffectElement({
 			effectType: look.effectType,

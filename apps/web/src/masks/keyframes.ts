@@ -85,7 +85,9 @@ export function getMaskParamDefinition({
 		...param,
 		min: param.min / multiplier,
 		max: param.max === undefined ? undefined : param.max / multiplier,
-		step: param.step / multiplier,
+		// A hundredth of the step shown: a tracked region's place to a fraction
+		// of a pixel, not to a percent of the picture.
+		step: param.step / multiplier / 100,
 		displayMultiplier: undefined,
 	};
 }

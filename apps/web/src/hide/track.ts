@@ -32,9 +32,9 @@ export interface TrackRegion {
 // lower; this stops before a doubtful frame is keyframed.
 const MIN_CONFIDENCE = 0.5;
 
-// The frames tracked are this wide at most: enough to follow a face, quick
-// to render and match.
-const TRACK_SIZE = 640;
+// The frames tracked and searched are this wide at most: enough to follow a
+// face in a crowd, quick to render (the tracker's work doesn't grow with it).
+const TRACK_SIZE = 1280;
 
 /** A box mask's place and size, as a region of a frame `size`. */
 export function maskToRegion({

@@ -80,12 +80,17 @@ export function fromLetterbox({
 	};
 }
 
-function overlap({ a, b }: { a: Detection; b: Detection }): number {
+/** The area two boxes share. */
+function sharedArea({ a, b }: { a: Detection; b: Detection }): number {
 	const left = Math.max(a.x, b.x);
 	const top = Math.max(a.y, b.y);
 	const right = Math.min(a.x + a.width, b.x + b.width);
 	const bottom = Math.min(a.y + a.height, b.y + b.height);
-	const shared = Math.max(0, right - left) * Math.max(0, bottom - top);
+	return Math.max(0, right - left) * Math.max(0, bottom - top);
+}
+
+function overlap({ a, b }: { a: Detection; b: Detection }): number {
+	const shared = sharedArea({ a, b });
 	const union = a.width * a.height + b.width * b.height - shared;
 	return union > 0 ? shared / union : 0;
 }
@@ -107,6 +112,88 @@ export function suppress({
 		}
 	}
 	return kept;
+}
+
+// A box this much inside a surer one is a part of what that one found: a
+// face cut by a square's edge.
+const INSIDE = 0.6;
+
+/**
+ * Finds from a frame and from squares of it, as one: the surest of each
+ * group overlapping by more than `threshold`, and none mostly inside a surer
+ * one.
+ */
+export function merge({
+	detections,
+	threshold,
+}: {
+	detections: Detection[];
+	threshold: number;
+}): Detection[] {
+	const kept: Detection[] = [];
+	for (const detection of [...detections].sort((a, b) => b.score - a.score)) {
+		const area = detection.width * detection.height;
+		if (
+			kept.every(
+				(other) =>
+					overlap({ a: detection, b: other }) <= threshold &&
+					sharedArea({ a: detection, b: other }) <= INSIDE * area,
+			)
+		) {
+			kept.push(detection);
+		}
+	}
+	return kept;
+}
+
+/**
+ * Squares of a frame for the model to look at closer, when the frame is a
+ * quarter bigger than the model's `size` or more: the shorter side's, or a
+ * quarter more than the model's if that's smaller, spread evenly from edge to
+ * edge, overlapping. None for a frame about the model's size.
+ */
+export function tiles({
+	width,
+	height,
+	size,
+}: {
+	width: number;
+	height: number;
+	size: number;
+}): Array<{ x: number; y: number; side: number }> {
+	if (Math.max(width, height) < size * 1.25) return [];
+	const side = Math.min(width, height, Math.round(size * 1.25));
+	const along = (length: number) => {
+		const count = Math.ceil(length / side);
+		return Array.from({ length: count }, (_, i) =>
+			count === 1 ? 0 : Math.round((i * (length - side)) / (count - 1)),
+		);
+	};
+	return along(height).flatMap((y) =>
+		along(width).map((x) => ({ x, y, side })),
+	);
+}
+
+/** The square of `side` at (`x`, `y`) of an RGBA frame `width` wide. */
+export function crop({
+	rgba,
+	width,
+	x,
+	y,
+	side,
+}: {
+	rgba: Uint8ClampedArray;
+	width: number;
+	x: number;
+	y: number;
+	side: number;
+}): Uint8ClampedArray {
+	const square = new Uint8ClampedArray(side * side * 4);
+	for (let row = 0; row < side; row++) {
+		const from = ((y + row) * width + x) * 4;
+		square.set(rgba.subarray(from, from + side * 4), row * side * 4);
+	}
+	return square;
 }
 
 /** Boxes overlapping, as a share of both: for tracks found again. */
@@ -192,4 +279,39 @@ export function decodeYolo({
 		});
 	}
 	return suppress({ detections: found, threshold: 0.45 });
+}
+
+/**
+ * Each box found matched to the known one it overlaps most, the best
+ * overlaps first, so that neighbours in a crowd aren't swapped: pairs of
+ * (known, found) indices, and the found ones no known box had.
+ */
+export function matchDetections({
+	known,
+	found,
+	threshold,
+}: {
+	known: Detection[];
+	found: Detection[];
+	threshold: number;
+}): { pairs: Array<[number, number]>; unmatched: number[] } {
+	const overlaps: Array<{ known: number; found: number; overlap: number }> = [];
+	for (const [k, a] of known.entries()) {
+		for (const [f, b] of found.entries()) {
+			const overlap = intersectionOverUnion({ a, b });
+			if (overlap >= threshold) overlaps.push({ known: k, found: f, overlap });
+		}
+	}
+	overlaps.sort((a, b) => b.overlap - a.overlap);
+	const usedKnown = new Set<number>();
+	const usedFound = new Set<number>();
+	const pairs: Array<[number, number]> = [];
+	for (const { known: k, found: f } of overlaps) {
+		if (usedKnown.has(k) || usedFound.has(f)) continue;
+		usedKnown.add(k);
+		usedFound.add(f);
+		pairs.push([k, f]);
+	}
+	const unmatched = found.map((_, f) => f).filter((f) => !usedFound.has(f));
+	return { pairs, unmatched };
 }

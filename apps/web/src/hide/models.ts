@@ -1,17 +1,20 @@
 import * as ort from "onnxruntime-web";
 import {
+	crop,
 	decodeYolo,
 	decodeYuNet,
 	fromLetterbox,
 	letterbox,
+	merge,
+	tiles,
 	type Detection,
 } from "./detect";
 import type { TrackFrame } from "./track";
 
 // The detection models (docs/HIDE.md, phase 3): downloaded once from Hugging
 // Face, at a fixed revision, checked against their SHA-256 and kept in the
-// browser's cache; run on the computer by ONNX Runtime, whose WebAssembly
-// comes from jsDelivr as Whisper's does (README, Privacy). Nothing is sent.
+// browser's cache; run on the computer by ONNX Runtime, the copy the app
+// ships. Nothing is sent.
 
 const DETECTORS = {
 	faces: {
@@ -21,6 +24,8 @@ const DETECTORS = {
 		input: "input",
 		order: "bgr255",
 		threshold: 0.6,
+		// Finds overlapping more are the same face.
+		overlap: 0.3,
 	},
 	plates: {
 		// A YOLOv11 tuned for plates (AGPL-3.0).
@@ -29,6 +34,7 @@ const DETECTORS = {
 		input: "images",
 		order: "rgb1",
 		threshold: 0.35,
+		overlap: 0.45,
 	},
 } as const;
 
@@ -94,8 +100,41 @@ function session({
 	return created;
 }
 
-/** The faces or plates on a frame, in its pixels. */
+/** The faces or plates on a frame, in its pixels: looked for in the whole
+ * frame and, where it's much bigger than the model's square, in squares of
+ * it too, where small ones keep their pixels. */
 export async function detect({
+	kind,
+	frame,
+}: {
+	kind: DetectorKind;
+	frame: TrackFrame;
+}): Promise<Detection[]> {
+	const found = await look({ kind, frame });
+	const parts = tiles({
+		width: frame.width,
+		height: frame.height,
+		size: MODEL_SIZE,
+	});
+	if (parts.length === 0) return found;
+	for (const { x, y, side } of parts) {
+		const inPart = await look({
+			kind,
+			frame: {
+				rgba: crop({ rgba: frame.rgba, width: frame.width, x, y, side }),
+				width: side,
+				height: side,
+			},
+		});
+		for (const detection of inPart) {
+			found.push({ ...detection, x: detection.x + x, y: detection.y + y });
+		}
+	}
+	return merge({ detections: found, threshold: DETECTORS[kind].overlap });
+}
+
+/** The faces or plates the model finds in a frame, in its pixels. */
+async function look({
 	kind,
 	frame,
 }: {
