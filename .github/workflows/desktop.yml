@@ -101,7 +101,7 @@ jobs:
             # Ubuntu's symbols, fetched as gdb needs them; then what every
             # thread was doing, the tests' own among them.
             DEBUGINFOD_URLS=https://debuginfod.ubuntu.com gdb -batch \
-              -ex "set debuginfod enabled on" -ex "bt 40" -ex "thread apply all bt 30" \
+              -iex "set debuginfod enabled on" -ex "bt 40" -ex "thread apply all bt 30" \
               "$tests" "$core"
           fi
           exit 1
