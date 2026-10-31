@@ -220,3 +220,17 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
   systems: a dry run that left the summary as it was; a cut, a cross-dissolve at it and a title,
   answered with just those three changes; the same batch on the old rev refused; one undo
   putting all of it back; the film exported with the edits redone.
+- Phase 3, most of it. `listen`: the transcript in lines and the words numbered, each with its
+  start and end in seconds (Whisper, as the Captions panel runs it), silences (50 ms windows
+  under -45 dBFS, half a second or more by default), and loudness as BS.1770 measures it
+  (integrated LUFS, Brecht De Man's K-weighting, which gives the spec's coefficients at 48 kHz:
+  a 997 Hz tone at -20 dBFS in both channels measures -20.00) and the sample peak. `find`:
+  faces and plates (Find faces and Find plates, each a Hide region) and black bars. A model not
+  downloaded yet is asked for in the window, Download or Not now, never fetched on the agent's
+  word. `edit` gains `remove`: stretches taken out of every track and closed up, a clip across
+  an edge shortened with its media where it was, one across a whole stretch split in two, a
+  transition whose clips no longer meet dropped; tested in code. On CI on all three systems, a
+  WAV the check writes (a tone, a second of silence, the tone): the silence found at 1.05-2.00
+  (to a window), -20.3 LUFS, and the silence removed, 3.0 s becoming 2.1; no black bars on the
+  fixture. Not on CI: transcribing and finding faces, which download a model only the user may
+  allow. Left of phase 3: shot changes, Track as a tool, and the trial by hand with Claude Code.

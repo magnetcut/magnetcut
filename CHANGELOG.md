@@ -12,7 +12,9 @@ All notable changes to this project are documented here. The format is based on
   by name: it gets its own token, shown once in the line to paste into Claude Code or Codex, and
   revoked there. It's served on this computer only. An agent can make and open projects, import
   files by their paths, read the project in a few lines, look at frames, edit it (cut, trim,
-  move, delete, titles, transitions), each batch of edits one step of Undo, and export, never
+  move, delete, titles, transitions, stretches of time taken out), each batch of edits one step
+  of Undo, hear it (the words with their times, the silences, the loudness in LUFS), find faces,
+  plates and black bars, and export, never
   over a file unless it says so; a strip at the top of the window shows when one is at work,
   with Stop.
 - Projects as files: File, Open Project… and Save Project As… keep a project as a `.magnetcut`
