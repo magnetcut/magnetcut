@@ -270,8 +270,12 @@ and give it constant quality and the encoders the web views lack.
   and a content security policy (none today: it would have to allow the fonts and models the
   editor fetches).
 - Native code for Windows and Linux written without the machines to try it on.
-- On Linux the tests once ended in a segmentation fault, run side by side; one at a time they
-  passed, and side by side again since. CI runs them under gdb should it happen again.
+- GStreamer's FFmpeg decoders (gst-libav 1.24, Ubuntu 24.04's) crash when a flush, for a seek
+  or to stop, meets the frames they hand over at the end of a file (`no_output` in
+  gstavviddec.c drops one through a null input frame). The Linux tests crashed so, about one run
+  in three, as a reader was closed while its decoder drained a short film. Within 3 s of its
+  end, a source is now read to its end before it's flushed (`END_MARGIN` in
+  `render/linux/decode.rs`). Should the tests crash on CI again, gdb reads the core afterwards.
 - Speed measured in the app is unreliable while its window is hidden: a release build ran
   slower than a debug one behind other windows. WebKit throttles a hidden page, and App Nap a
   hidden app; the activity above answers App Nap, and `backgroundThrottling` in the window's

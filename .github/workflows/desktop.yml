@@ -79,27 +79,20 @@ jobs:
         if: runner.os != 'Linux'
         run: cargo test -p magnetcut
 
-      # Side by side they sometimes end in a segmentation fault, one at a time
-      # and under gdb never: should one crash, its core shows where, in gdb
-      # afterwards.
+      # Should one crash, its core shows where, read by gdb afterwards with
+      # Ubuntu's symbols (as found gst-libav's crash at a file's end:
+      # docs/NATIVE.md, Risks).
       - name: Tests
         if: runner.os == 'Linux'
         run: |
           ulimit -c unlimited
           sudo sysctl -w kernel.core_pattern="$PWD/core.%p"
-          tests=$(cargo test -p magnetcut --no-run --message-format=json \
-            | jq -r 'select(.profile.test == true and .executable != null) | .executable' | tail -1)
-          # Five times, to catch it (about one run in three crashes), in
-          # FFmpeg's GStreamer elements as an event goes down a pipeline.
-          for attempt in 1 2 3 4 5; do
-            cargo test -p magnetcut || break
-            [ "$attempt" = 5 ] && exit 0
-          done
-          core=$(ls core.* 2>/dev/null | head -1)
+          cargo test -p magnetcut && exit 0
+          core=$(ls core.* 2>/dev/null | head -1 || true)
           if [ -n "$core" ]; then
+            tests=$(cargo test -p magnetcut --no-run --message-format=json \
+              | jq -r 'select(.profile.test == true and .executable != null) | .executable' | tail -1)
             sudo apt-get install -y gdb
-            # Ubuntu's symbols, fetched as gdb needs them; then what every
-            # thread was doing, the tests' own among them.
             DEBUGINFOD_URLS=https://debuginfod.ubuntu.com gdb -batch \
               -iex "set debuginfod enabled on" -ex "bt 40" -ex "thread apply all bt 30" \
               "$tests" "$core"
