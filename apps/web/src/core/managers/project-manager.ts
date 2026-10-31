@@ -42,6 +42,9 @@ export class ProjectManager {
 	private savedProjects: TProjectMetadata[] = [];
 	private isLoading = true;
 	private isInitialized = false;
+	/** The project whose load has finished, media and fonts in: what an agent
+	 * waits for after opening one (src/agent). */
+	private loadedProjectId: string | null = null;
 	private invalidProjectIds = new Set<string>();
 	private storageMigrationPromise: Promise<void> | null = null;
 	private listeners = new Set<() => void>();
@@ -131,6 +134,7 @@ export class ProjectManager {
 			this.notify();
 		}
 
+		this.loadedProjectId = null;
 		this.editor.save.pause();
 		await this.ensureStorageMigrations();
 		this.editor.media.clearAllAssets();
@@ -165,6 +169,8 @@ export class ProjectManager {
 					),
 				],
 			});
+
+			this.loadedProjectId = id;
 
 			if (!project.metadata.thumbnail) {
 				try {
@@ -627,6 +633,10 @@ export class ProjectManager {
 
 	getIsLoading(): boolean {
 		return this.isLoading;
+	}
+
+	getLoadedProjectId(): string | null {
+		return this.loadedProjectId;
 	}
 
 	getIsInitialized(): boolean {

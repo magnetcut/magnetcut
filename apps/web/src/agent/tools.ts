@@ -121,7 +121,8 @@ function summaryInput({ editor }: { editor: EditorCore }): SummaryInput {
 	};
 }
 
-/** Waits until the editor shows project `id`, its media loaded. */
+/** Waits until the editor shows project `id`, loaded: its scenes, media and
+ * fonts in. */
 async function editorReady({
 	editor,
 	id,
@@ -132,9 +133,8 @@ async function editorReady({
 	for (let waited = 0; waited < 60_000; waited += 100) {
 		if (
 			location.pathname === "/editor" &&
-			editor.project.getActiveOrNull()?.metadata.id === id &&
-			!editor.project.getIsLoading() &&
-			!editor.media.isLoadingMedia()
+			editor.project.getLoadedProjectId() === id &&
+			editor.scenes.getActiveSceneOrNull() !== null
 		) {
 			return;
 		}
