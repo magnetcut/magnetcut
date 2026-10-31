@@ -27,6 +27,7 @@ import { look, MAX_SHEET } from "./look";
 import { buildSummary, describe, type SummaryInput } from "./summary";
 import { formatTime, parseTime } from "./time";
 import { editTool, undoTool } from "./edit";
+import { findTool, listenTool } from "./listen";
 import {
 	revisionOf,
 	ToolError,
@@ -569,5 +570,7 @@ export const TOOLS: Tool[] = [
 	editTool,
 	undoTool,
 	lookTool,
+	listenTool,
+	findTool,
 	exportTool,
 ];

@@ -4,7 +4,7 @@
 // made, a film imported onto its timeline, the summary read, a sheet of
 // frames looked at, and the film exported, with its progress.
 // bun apps/desktop/scripts/agent-check.ts <film> <export.mp4>
-import { existsSync, statSync } from "node:fs";
+import { existsSync, statSync, writeFileSync } from "node:fs";
 
 const [film, output] = process.argv.slice(2);
 const token = process.env.MAGNETCUT_AGENT_TEST_TOKEN;
@@ -112,7 +112,7 @@ report({ step: "initialize", detail: JSON.stringify(init.reply?.result?.serverIn
 
 const listed = await rpc({ method: "tools/list" });
 const names = ((listed.reply?.result?.tools ?? []) as Array<{ name: string }>).map((t) => t.name);
-for (const wanted of ["status", "project", "media", "summary", "describe", "edit", "undo", "look", "export"]) {
+for (const wanted of ["status", "project", "media", "summary", "describe", "edit", "undo", "look", "listen", "find", "export"]) {
 	if (!names.includes(wanted)) throw new Error(`no ${wanted} tool: ${names.join(", ")}`);
 }
 const toolsSize = JSON.stringify(listed.reply?.result?.tools).length;
@@ -207,4 +207,59 @@ if (
 	throw new Error(`the project file didn't open as it was: ${reopened.text} / saved: ${saved.text}`);
 }
 report({ step: "project file", detail: `saved and opened again: ${reopened.text}` });
+const bars = await tool({ name: "find", args: { what: "blackbars" } });
+report({ step: "black bars", detail: bars.text });
+
+// Listening: a tone, a second of silence, the tone again, written here as a
+// WAV: the silence found where it is, the tone at -20 LUFS, and the silence
+// taken out with `remove`.
+const wav = output.replace(/\.mp4$/, "-tone.wav");
+{
+	const rate = 48_000;
+	const seconds = 3;
+	const frames = rate * seconds;
+	const data = Buffer.alloc(frames * 4);
+	for (let i = 0; i < frames; i++) {
+		const t = i / rate;
+		const value = t >= 1 && t < 2 ? 0 : 0.1 * Math.sin(2 * Math.PI * 1000 * t);
+		const sample = Math.round(value * 32767);
+		data.writeInt16LE(sample, i * 4);
+		data.writeInt16LE(sample, i * 4 + 2);
+	}
+	const header = Buffer.alloc(44);
+	header.write("RIFF", 0);
+	header.writeUInt32LE(36 + data.length, 4);
+	header.write("WAVEfmt ", 8);
+	header.writeUInt32LE(16, 16);
+	header.writeUInt16LE(1, 20);
+	header.writeUInt16LE(2, 22);
+	header.writeUInt32LE(rate, 24);
+	header.writeUInt32LE(rate * 4, 28);
+	header.writeUInt16LE(4, 32);
+	header.writeUInt16LE(16, 34);
+	header.write("data", 36);
+	header.writeUInt32LE(data.length, 40);
+	writeFileSync(wav, Buffer.concat([header, data]));
+}
+await tool({ name: "project", args: { action: "new", name: "Sound check" } });
+await tool({ name: "media", args: { action: "import", paths: [wav], add: true } });
+const silences = await tool({ name: "listen", args: { what: "silences" } });
+const found = /(\d+\.\d+)-(\d+\.\d+)/.exec(silences.text);
+if (!found || Math.abs(Number(found[1]) - 1) > 0.1 || Math.abs(Number(found[2]) - 2) > 0.1) {
+	throw new Error(`the silence isn't where it is: ${silences.text}`);
+}
+report({ step: "silences", detail: silences.text });
+const loudness = await tool({ name: "listen", args: { what: "loudness" } });
+const lufs = Number(/(-?\d+\.\d) LUFS/.exec(loudness.text)?.[1]);
+if (!(Math.abs(lufs + 20) < 1)) throw new Error(`the tone isn't -20 LUFS: ${loudness.text}`);
+report({ step: "loudness", detail: loudness.text });
+const removed = await tool({
+	name: "edit",
+	args: { operations: [{ op: "remove", ranges: [[Number(found[1]), Number(found[2])]] }] },
+});
+const shorter = await tool({ name: "summary" });
+if (!/ 0:02\.0 rev/.test(shorter.text.split("\n")[0])) {
+	throw new Error(`the silence wasn't taken out: ${shorter.text}`);
+}
+report({ step: "remove", detail: `${removed.text} / ${shorter.text.split("\n")[0]}` });
 console.log("AGENT done");

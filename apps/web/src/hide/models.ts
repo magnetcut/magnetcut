@@ -45,6 +45,23 @@ const DETECTORS = {
 
 export type DetectorKind = keyof typeof DETECTORS;
 
+/** Each model's download, as an agent's question says it. */
+export const DETECTOR_SIZES: Record<DetectorKind, string> = {
+	faces: "233 KB",
+	plates: "10.5 MB",
+};
+
+/** Whether a model is downloaded already. */
+export async function isDetectorDownloaded({
+	kind,
+}: {
+	kind: DetectorKind;
+}): Promise<boolean> {
+	if (typeof caches === "undefined") return false;
+	const cache = await caches.open(CACHE_NAME);
+	return (await cache.match(DETECTORS[kind].url)) !== undefined;
+}
+
 // The square the models see a frame in.
 const MODEL_SIZE = 640;
 

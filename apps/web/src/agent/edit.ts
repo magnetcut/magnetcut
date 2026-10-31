@@ -10,6 +10,7 @@ import {
 import { DEFAULT_TRANSITION_TYPE } from "@/transitions/catalog";
 import { mediaTime, mediaTimeFromSeconds } from "@/wasm";
 import { resolveId } from "./ids";
+import { mergeRanges, removeRanges, type Range } from "./ranges";
 import { allIds, diffTracks, namedTracks } from "./summary";
 import { parseTime } from "./time";
 import { revisionOf, ToolError, type Tool } from "./tools-base";
@@ -98,6 +99,27 @@ function trackEnd({ track }: { track: TimelineTrack }): number {
 		0,
 		...track.elements.map((one) => one.startTime + one.duration),
 	);
+}
+
+/** The ranges an operation names: `ranges` [[from, to], …], or `from` and `to`. */
+function rangesOf({
+	scope,
+	operation,
+}: {
+	scope: Scope;
+	operation: Operation;
+}): Range[] {
+	const pairs: unknown[][] = Array.isArray(operation.ranges)
+		? operation.ranges.filter((pair): pair is unknown[] => Array.isArray(pair))
+		: [[operation.from, operation.to]];
+	const ranges = pairs.map(([from, to]) => ({
+		from: time({ scope, value: from, key: "from" }),
+		to: time({ scope, value: to, key: "to" }),
+	}));
+	if (ranges.some((range) => range.to <= range.from)) {
+		throw new ToolError("each range's to is after its from");
+	}
+	return mergeRanges({ ranges });
 }
 
 const OPERATIONS: Record<
@@ -271,6 +293,13 @@ const OPERATIONS: Record<
 			command.setRippleEnabled({ enabled: ripple });
 		}
 	},
+	remove: ({ scope, operation }) => {
+		const ranges = rangesOf({ scope, operation });
+		if (ranges.length === 0) throw new ToolError("remove needs ranges");
+		scope.editor.timeline.updateTracks(
+			removeRanges({ tracks: tracksOf({ editor: scope.editor }), ranges }),
+		);
+	},
 	transition: ({ scope, operation }) => {
 		const found = element({ scope, id: operation.from });
 		if (found.track.type !== "video") {
@@ -316,6 +345,7 @@ export const editTool: Tool = {
 		"trim {id, start?, end?}: where a clip starts and ends on the timeline",
 		"move {id, to, track?}",
 		"delete {ids, close?}: close leaves no gap",
+		"remove {ranges: [[from, to], …]}: those stretches out of every track, closed up (as listen gave them: cut words or silences)",
 		"transition {from, type?, duration?}: into the clip that starts where from ends (type cross-dissolve by default)",
 	].join("\n"),
 	inputSchema: {
