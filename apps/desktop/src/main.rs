@@ -122,6 +122,12 @@ fn is_own_page(url: &tauri::Url) -> bool {
 }
 
 fn main() {
+    // The command line's agent modes, `--mcp` and `call` (src/agent/cli.rs):
+    // no window.
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(code) = agent::cli::run(&args) {
+        std::process::exit(code);
+    }
     // Links with target="_blank" open in the browser.
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -148,6 +154,12 @@ fn main() {
         app.manage(export::Exports::default());
         app.manage(render::NativeExports::default());
         app.manage(agent::Agents::load(app.handle()));
+        // For agents on their own: the app without its window.
+        if std::env::args().any(|arg| arg == "--hidden")
+            && let Some(window) = app.get_webview_window("main")
+        {
+            window.hide()?;
+        }
         // Before the first page loads: the window exists, and with_webview
         // runs at once on the main thread, which serves the page.
         #[cfg(target_os = "linux")]

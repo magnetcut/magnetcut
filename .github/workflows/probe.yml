@@ -98,9 +98,10 @@ jobs:
           if (-not $app.WaitForExit(120000)) { $app.Kill() }
           Get-Content probe.txt, probe-errors.txt
 
-      # Agent mode end to end: the app with a test token, and a script as the
-      # MCP client (apps/desktop/scripts/agent-check.ts) making a project,
-      # importing a film, reading, looking and exporting.
+      # Agent mode end to end: the app with a test token, hidden, and a script
+      # as the MCP client (apps/desktop/scripts/agent-check.ts) making a
+      # project, importing a film, reading, editing, looking, listening and
+      # exporting, then the command line's --mcp and call.
       - name: Agent check (Linux and macOS)
         if: runner.os != 'Windows'
         shell: bash
@@ -108,8 +109,10 @@ jobs:
           MAGNETCUT_AGENT_TEST_TOKEN: mc_agent-check
           MAGNETCUT_AGENT_TEST_PORT: "47999"
         run: |
-          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a ./target/debug/magnetcut & else ./target/debug/magnetcut & fi
+          # Hidden, as for agents on their own: the web view still has to work.
+          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a ./target/debug/magnetcut --hidden & else ./target/debug/magnetcut --hidden & fi
           app=$!
+          export MAGNETCUT_PROGRAM="$PWD/target/debug/magnetcut"
           bun apps/desktop/scripts/agent-check.ts "$PWD/apps/desktop/fixtures/b-frames.mp4" "$RUNNER_TEMP/agent-check.mp4" | tee agent.txt || true
           kill $app || true
 
@@ -120,7 +123,8 @@ jobs:
           MAGNETCUT_AGENT_TEST_TOKEN: mc_agent-check
           MAGNETCUT_AGENT_TEST_PORT: "47999"
         run: |
-          $app = Start-Process -FilePath target\debug\magnetcut.exe -PassThru
+          $app = Start-Process -FilePath target\debug\magnetcut.exe -ArgumentList "--hidden" -PassThru
+          $env:MAGNETCUT_PROGRAM = "$PWD\target\debug\magnetcut.exe"
           bun apps/desktop/scripts/agent-check.ts "$PWD\apps\desktop\fixtures\b-frames.mp4" "$env:RUNNER_TEMP\agent-check.mp4" | Tee-Object agent.txt
           Stop-Process -Id $app.Id -ErrorAction SilentlyContinue
 

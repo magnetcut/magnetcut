@@ -23,6 +23,7 @@ interface AgentSettings {
 	running: boolean;
 	url: string | null;
 	sandboxed: boolean;
+	program: string | null;
 	agents: AgentView[];
 }
 
@@ -32,7 +33,31 @@ interface Added {
 	settings: AgentSettings;
 }
 
-function pasteLines({ url, token }: { url: string; token: string }) {
+function pasteLines({
+	url,
+	token,
+	program,
+}: {
+	url: string;
+	token: string;
+	program: string | null;
+}) {
+	const others = program
+		? [
+				{
+					label: "Other agents (MCP on standard input and output)",
+					line: JSON.stringify(
+						{
+							command: program,
+							args: ["--mcp"],
+							env: { MAGNETCUT_URL: url, MAGNETCUT_TOKEN: token },
+						},
+						null,
+						2,
+					),
+				},
+			]
+		: [];
 	return [
 		{
 			label: "Claude Code",
@@ -42,6 +67,7 @@ function pasteLines({ url, token }: { url: string; token: string }) {
 			label: "Codex",
 			line: `export MAGNETCUT_TOKEN=${token}\ncodex mcp add magnetcut --url ${url} --bearer-token-env-var MAGNETCUT_TOKEN`,
 		},
+		...others,
 	];
 }
 
@@ -127,30 +153,32 @@ export function AgentsSetting() {
 								{added.name}&apos;s token, shown this once. Paste the line for
 								your agent:
 							</p>
-							{pasteLines({ url: settings.url, token: added.token }).map(
-								({ label, line }) => (
-									<div key={label} className="flex flex-col gap-1">
-										<div className="flex items-center justify-between">
-											<span className="font-medium">{label}</span>
-											<Button
-												size="sm"
-												variant="ghost"
-												className="h-6"
-												onClick={() => {
-													void navigator.clipboard
-														.writeText(line)
-														.then(() => toast.success("Copied"));
-												}}
-											>
-												Copy
-											</Button>
-										</div>
-										<code className="bg-muted rounded p-2 break-all whitespace-pre-wrap">
-											{line}
-										</code>
+							{pasteLines({
+								url: settings.url,
+								token: added.token,
+								program: settings.program,
+							}).map(({ label, line }) => (
+								<div key={label} className="flex flex-col gap-1">
+									<div className="flex items-center justify-between">
+										<span className="font-medium">{label}</span>
+										<Button
+											size="sm"
+											variant="ghost"
+											className="h-6"
+											onClick={() => {
+												void navigator.clipboard
+													.writeText(line)
+													.then(() => toast.success("Copied"));
+											}}
+										>
+											Copy
+										</Button>
 									</div>
-								),
-							)}
+									<code className="bg-muted rounded p-2 break-all whitespace-pre-wrap">
+										{line}
+									</code>
+								</div>
+							))}
 							<Button size="sm" onClick={() => setAdded(null)}>
 								Done
 							</Button>

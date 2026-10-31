@@ -212,3 +212,45 @@ fn a_project_files_media_open_with_it() {
     assert!(agents.0.named(number, "/films/beach.mp4"));
     assert!(!agents.0.named(number, "/films/other.mp4"));
 }
+
+#[test]
+fn the_command_lines_relay_takes_the_reply_and_its_progress() {
+    let (agents, token, port, calls) = serving();
+    let shared = std::sync::Arc::clone(&agents.0);
+    let editor = thread::spawn(move || {
+        let call = calls.recv().unwrap();
+        shared.update(
+            call.call,
+            Update::Progress {
+                progress: 1.0,
+                total: Some(2.0),
+                message: None,
+            },
+        );
+        shared.update(
+            call.call,
+            Update::Done(json!({ "content": [{ "type": "text", "text": "summary" }] })),
+        );
+    });
+    let address = format!("127.0.0.1:{port}");
+    let server = super::cli::Server::new(&address, "/mcp", &token);
+    let mut messages = Vec::new();
+    server
+        .post(
+            &json!({ "jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {
+                "name": "summary", "_meta": { "progressToken": 1 } } })
+            .to_string(),
+            |message| messages.push(message),
+        )
+        .unwrap();
+    editor.join().unwrap();
+    assert_eq!(messages.len(), 2, "{messages:?}");
+    assert_eq!(messages[0]["method"], "notifications/progress");
+    assert_eq!(messages[1]["result"]["content"][0]["text"], "summary");
+    let wrong = super::cli::Server::new(&address, "/mcp", "mc_wrong");
+    let refused = wrong.post(
+        &json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" }).to_string(),
+        |_| {},
+    );
+    assert!(refused.unwrap_err().contains("token"));
+}

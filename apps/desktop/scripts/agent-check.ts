@@ -263,4 +263,27 @@ if (!/ 0:02\.[01] rev/.test(shorter.text.split("\n")[0])) {
 	throw new Error(`the silence wasn't taken out: ${shorter.text}`);
 }
 report({ step: "remove", detail: `${removed.text} / ${shorter.text.split("\n")[0]}` });
+// The command line: MCP on standard input and output through the app's own
+// program, and one call.
+const program = process.env.MAGNETCUT_PROGRAM;
+if (program) {
+	const env = {
+		...process.env,
+		MAGNETCUT_URL: url,
+		MAGNETCUT_TOKEN: token,
+	};
+	const relay = Bun.spawn([program, "--mcp"], { env, stdin: "pipe", stdout: "pipe" });
+	relay.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })}\n`);
+	relay.stdin.end();
+	const relayed = await new Response(relay.stdout).text();
+	await relay.exited;
+	if (!relayed.includes('"summary"')) throw new Error(`--mcp relayed: ${relayed.slice(0, 300)}`);
+	report({ step: "--mcp", detail: `tools/list relayed, ${relayed.length} bytes` });
+	const called = Bun.spawn([program, "call", "summary"], { env, stdout: "pipe" });
+	const printed = await new Response(called.stdout).text();
+	if ((await called.exited) !== 0 || !printed.startsWith('"Sound check"')) {
+		throw new Error(`call summary printed: ${printed}`);
+	}
+	report({ step: "call", detail: printed.split("\n")[0] });
+}
 console.log("AGENT done");

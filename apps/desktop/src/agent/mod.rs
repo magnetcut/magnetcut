@@ -4,6 +4,7 @@
 // (`agent_reply`). A path an agent names is opened for the editor only if
 // it's in that agent's call.
 
+pub mod cli;
 mod http;
 mod mcp;
 mod tokens;
@@ -76,6 +77,9 @@ pub struct Shared {
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
+
+// The port served on first, if it's free: the command line's default.
+const DEFAULT_PORT: u16 = 47213;
 
 // How often an agent's last use is written down.
 const LAST_USED_EVERY: u64 = 60;
@@ -176,7 +180,10 @@ impl Shared {
             return Ok(running.port);
         }
         let kept = lock(&self.store).port;
-        let listener = TcpListener::bind(("127.0.0.1", kept))
+        // The port the command line's MAGNETCUT_URL takes by default, unless
+        // another was kept.
+        let wanted = if kept == 0 { DEFAULT_PORT } else { kept };
+        let listener = TcpListener::bind(("127.0.0.1", wanted))
             .or_else(|_| TcpListener::bind(("127.0.0.1", 0)))
             .map_err(|error| format!("Couldn't serve agents: {error}"))?;
         let port = listener
@@ -322,6 +329,9 @@ impl Agents {
             running: port.is_some(),
             url: port.map(|port| format!("http://127.0.0.1:{port}/mcp")),
             sandboxed: !cfg!(feature = "updater"),
+            program: std::env::current_exe()
+                .ok()
+                .and_then(|path| path.to_str().map(str::to_owned)),
             agents: store
                 .agents
                 .iter()
@@ -361,6 +371,8 @@ pub struct Settings {
     url: Option<String>,
     /// The App Store edition: files only as its sandbox allows.
     sandboxed: bool,
+    /// The app's own program, for the command line's `--mcp`.
+    program: Option<String>,
     agents: Vec<AgentView>,
 }
 
