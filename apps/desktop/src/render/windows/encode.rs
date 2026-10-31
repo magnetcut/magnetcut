@@ -9,11 +9,13 @@ use std::path::Path;
 use windows::Win32::Media::MediaFoundation::{
     CODECAPI_AVEncCommonMeanBitRate, CODECAPI_AVEncCommonRateControlMode,
     CODECAPI_AVEncMPVDefaultBPictureCount, CODECAPI_AVEncMPVGOPSize, IMFAttributes, IMFByteStream,
-    IMFMediaBuffer, IMFMediaType, IMFSinkWriter, MF_MT_DEFAULT_STRIDE, MF_MT_MPEG2_PROFILE,
-    MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_TRANSCODE_CONTAINERTYPE, MFAudioFormat_AAC,
-    MFAudioFormat_PCM, MFCreateSinkWriterFromURL, MFMediaType_Video, MFNominalRange_0_255,
-    MFNominalRange_16_235, MFT_CATEGORY_VIDEO_ENCODER, MFTranscodeContainerType_MPEG4,
-    MFVideoFormat_H264, MFVideoFormat_HEVC, MFVideoFormat_RGB32,
+    IMFMediaBuffer, IMFMediaType, IMFSample, IMFSinkWriter, IMFSourceReader, MF_MT_DEFAULT_STRIDE,
+    MF_MT_MPEG2_PROFILE, MF_MT_SUBTYPE, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
+    MF_SOURCE_READER_ALL_STREAMS, MF_SOURCE_READER_FIRST_AUDIO_STREAM,
+    MF_SOURCE_READERF_ENDOFSTREAM, MF_TRANSCODE_CONTAINERTYPE, MFAudioFormat_AAC,
+    MFAudioFormat_PCM, MFCreateSinkWriterFromURL, MFCreateSourceReaderFromURL, MFMediaType_Video,
+    MFNominalRange_0_255, MFNominalRange_16_235, MFT_CATEGORY_VIDEO_ENCODER,
+    MFTranscodeContainerType_MPEG4, MFVideoFormat_H264, MFVideoFormat_HEVC, MFVideoFormat_RGB32,
     eAVEncCommonRateControlMode_UnconstrainedVBR, eAVEncH264VProfile_High,
     eAVEncH265VProfile_Main_420_8,
 };
@@ -70,7 +72,7 @@ pub fn capabilities() -> Capabilities {
         formats: vec![Container::Mp4],
         video_codecs,
         constant_quality: constant_quality(),
-        audio_copy: false,
+        audio_copy: true,
         subtitle_tracks: false,
     }
 }
@@ -120,10 +122,88 @@ struct Sound {
     is_complete: bool,
 }
 
+/// A file's sound, read as it's stored and passed into the film as it is.
+struct CopiedSound {
+    reader: IMFSourceReader,
+    stream: u32,
+    /// Where the timeline stops hearing it, in hundreds of nanoseconds.
+    end: i64,
+    /// Where the next sample to write starts.
+    at: i64,
+    is_done: bool,
+}
+
+impl CopiedSound {
+    /// The first sound of the file at `location`, AAC as it's stored, in a
+    /// stream of the writer's that takes it as it is.
+    fn open(writer: &IMFSinkWriter, location: &Path, end: f64) -> Result<Self, String> {
+        let url = wide(location)?;
+        let reader = unsafe { MFCreateSourceReaderFromURL(PCWSTR(url.as_ptr()), None) }
+            .map_err(|error| format!("Couldn't read the sound to copy: {error}"))?;
+        let sound = MF_SOURCE_READER_FIRST_AUDIO_STREAM.0 as u32;
+        unsafe {
+            reader
+                .SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS.0 as u32, false)
+                .map_err(text)?;
+            reader.SetStreamSelection(sound, true).map_err(text)?;
+        }
+        let stored = unsafe { reader.GetNativeMediaType(sound, 0) }.map_err(text)?;
+        if unsafe { stored.GetGUID(&MF_MT_SUBTYPE) }.map_err(text)? != MFAudioFormat_AAC {
+            return Err("Windows's own export copies only AAC sound".into());
+        }
+        unsafe { reader.SetCurrentMediaType(sound, None, &stored) }.map_err(text)?;
+        // The same type in as out: no encoder between them.
+        let stream = unsafe { writer.AddStream(&stored) }.map_err(text)?;
+        unsafe { writer.SetInputMediaType(stream, &stored, None::<&IMFAttributes>) }
+            .map_err(|error| format!("This computer can't copy the sound: {error}"))?;
+        Ok(Self {
+            reader,
+            stream,
+            end: (end * TICKS_PER_SECOND as f64) as i64,
+            at: 0,
+            is_done: false,
+        })
+    }
+
+    /// Passes the stored samples into the film up to `until` (in hundreds of
+    /// nanoseconds), or where the timeline stops hearing them.
+    fn write(&mut self, writer: &IMFSinkWriter, until: i64) -> Result<(), String> {
+        let sound = MF_SOURCE_READER_FIRST_AUDIO_STREAM.0 as u32;
+        while !self.is_done && self.at < until {
+            let mut flags = 0u32;
+            let mut time = 0i64;
+            let mut sample: Option<IMFSample> = None;
+            unsafe {
+                self.reader.ReadSample(
+                    sound,
+                    0,
+                    None,
+                    Some(&mut flags),
+                    Some(&mut time),
+                    Some(&mut sample),
+                )
+            }
+            .map_err(text)?;
+            if flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32 != 0 || time >= self.end {
+                self.is_done = true;
+                break;
+            }
+            let Some(sample) = sample else {
+                continue;
+            };
+            unsafe { writer.WriteSample(self.stream, &sample) }
+                .map_err(|error| format!("Couldn't copy the sound: {error}"))?;
+            self.at = time;
+        }
+        Ok(())
+    }
+}
+
 pub struct Writer {
     writer: IMFSinkWriter,
     video: u32,
     sound: Option<Sound>,
+    copy: Option<CopiedSound>,
     size: (u32, u32),
     fps: (u32, u32),
     frames: i64,
@@ -142,8 +222,8 @@ impl Writer {
         Self::with_subtitles(path, container, video, audio, &[])
     }
 
-    /// Starts a file at `path`, replacing what's there. Subtitle tracks and
-    /// copied sound aren't written here yet (`capabilities`).
+    /// Starts a file at `path`, replacing what's there. Subtitle tracks
+    /// aren't written here yet (`capabilities`).
     pub fn with_subtitles(
         path: &Path,
         container: Container,
@@ -156,12 +236,10 @@ impl Writer {
         }
         let subtype = subtype(video.codec)
             .ok_or_else(|| format!("Windows's own export doesn't encode {:?}", video.codec))?;
-        let audio = match audio {
-            Some(Audio::Mix(settings)) => Some(settings),
-            Some(Audio::Copy { .. }) => {
-                return Err("Windows's own export doesn't copy sound yet".into());
-            }
-            None => None,
+        let (audio, copy) = match audio {
+            Some(Audio::Mix(settings)) => (Some(settings), None),
+            Some(Audio::Copy { location, end }) => (None, Some((location, end))),
+            None => (None, None),
         };
         if !subtitles.is_empty() {
             return Err("Windows's own export doesn't write subtitle tracks yet".into());
@@ -252,11 +330,15 @@ impl Writer {
             }
             None => None,
         };
+        let copy = copy
+            .map(|(location, end)| CopiedSound::open(&writer, &location, end))
+            .transpose()?;
         unsafe { writer.BeginWriting() }.map_err(text)?;
         Ok(Self {
             writer,
             video: video_stream,
             sound,
+            copy,
             size,
             fps,
             frames: 0,
@@ -286,7 +368,12 @@ impl Writer {
         unsafe { self.writer.WriteSample(self.video, &frame) }
             .map_err(|error| format!("Couldn't encode a frame: {error}"))?;
         self.frames += 1;
-        self.write_sound(next as f64 / TICKS_PER_SECOND as f64 + AUDIO_AHEAD)
+        self.write_sound(next as f64 / TICKS_PER_SECOND as f64 + AUDIO_AHEAD)?;
+        let ahead = (AUDIO_AHEAD * TICKS_PER_SECOND as f64) as i64;
+        if let Some(copy) = &mut self.copy {
+            copy.write(&self.writer, next + ahead)?;
+        }
+        Ok(())
     }
 
     /// Adds the mix's next samples: float, interleaved; and whether they're
@@ -350,6 +437,9 @@ impl Writer {
             sound.is_complete = true;
         }
         self.write_sound(f64::INFINITY)?;
+        if let Some(copy) = &mut self.copy {
+            copy.write(&self.writer, i64::MAX)?;
+        }
         unsafe { self.writer.Finalize() }
             .map_err(|error| format!("Couldn't finish the file: {error}"))
     }

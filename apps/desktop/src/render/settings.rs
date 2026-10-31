@@ -59,8 +59,7 @@ pub enum Audio {
     /// AAC, from the mix the editor sends.
     Mix(AudioSettings),
     /// A file's sound as it's stored, up to `end` seconds: the source's
-    /// when the timeline plays it uncut. On a Mac and on Linux, so far.
-    #[cfg_attr(windows, allow(dead_code))]
+    /// when the timeline plays it uncut.
     Copy { location: PathBuf, end: f64 },
 }
 

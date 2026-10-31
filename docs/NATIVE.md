@@ -196,7 +196,8 @@ and give it constant quality and the encoders the web views lack.
 - Windows (`render/windows/`): Media Foundation through the `windows` crate (MIT/Apache). The
   source reader decodes and its video processing turns each picture into BGRA; the sink writer
   makes H.264 or HEVC where the system has an encoder (Microsoft's own, or NVENC, AMF and
-  Quick Sync, which are Media Foundation transforms), with AAC, in MP4. BT.709 is said on
+  Quick Sync, which are Media Foundation transforms), with AAC, in MP4; or a source's AAC
+  sound as it's stored, read by a second source reader and passed through, its type in as out. BT.709 is said on
   every media type: RGB left unsaid is taken as sRGB's curve and converted, which darkened a
   mid grey by 5 levels. The index stays at the end of the file: put first
   (`MF_MPEG4SINK_MOOV_BEFORE_MDAT`), files finished at the same time were refused. A power
@@ -216,8 +217,8 @@ and give it constant quality and the encoders the web views lack.
 - The portrait fixture (`apps/desktop/fixtures/turned.mp4`, made by ffmpeg) turns the same way
   on all three: AVFoundation's transform, Media Foundation's `MF_MT_VIDEO_ROTATION` and
   GStreamer's `rotate-90` all mean a quarter turn clockwise.
-- Not yet on Windows: copied sound and subtitle tracks (the web view's export makes those,
-  WebVTT in MP4). Not yet on Windows and Linux: constant quality, ProRes and AV1, HDR's tone
+- Not yet on Windows: subtitle tracks (the web view's export makes those, WebVTT in MP4):
+  Media Foundation's MP4 sink writes no timed text. Not yet on Windows and Linux: constant quality, ProRes and AV1, HDR's tone
   mapping, and decoding into the GPU's memory (D3D11, VA-API) without the copy out.
 - Checked on CI and, for GStreamer, on a Mac against Homebrew's: no Windows or Linux machine
   here, so not in the app on those systems. The Windows runner has Microsoft's H.264 and AAC

@@ -546,7 +546,59 @@ fn stored_sound(path: &Path, end: f64) -> (Vec<usize>, f64) {
     (sizes, last)
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+/// A file's sound as it's stored, up to `end` seconds: its packets' sizes,
+/// and how long they last, as Media Foundation's source reader reads them.
+#[cfg(windows)]
+fn stored_sound(path: &Path, end: f64) -> (Vec<usize>, f64) {
+    use super::media_foundation::{TICKS_PER_SECOND, start, wide};
+    use windows::Win32::Media::MediaFoundation::{
+        IMFSample, MF_SOURCE_READER_ALL_STREAMS, MF_SOURCE_READER_FIRST_AUDIO_STREAM,
+        MF_SOURCE_READERF_ENDOFSTREAM, MFCreateSourceReaderFromURL,
+    };
+    use windows::core::PCWSTR;
+
+    start().unwrap();
+    let url = wide(path).unwrap();
+    let reader = unsafe { MFCreateSourceReaderFromURL(PCWSTR(url.as_ptr()), None) }.unwrap();
+    let sound = MF_SOURCE_READER_FIRST_AUDIO_STREAM.0 as u32;
+    unsafe {
+        reader
+            .SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS.0 as u32, false)
+            .unwrap();
+        reader.SetStreamSelection(sound, true).unwrap();
+        let stored = reader.GetNativeMediaType(sound, 0).unwrap();
+        reader.SetCurrentMediaType(sound, None, &stored).unwrap();
+    }
+    let ticks = TICKS_PER_SECOND as f64;
+    let (mut sizes, mut last) = (Vec::new(), 0.0);
+    loop {
+        let mut flags = 0u32;
+        let mut time = 0i64;
+        let mut sample: Option<IMFSample> = None;
+        unsafe {
+            reader.ReadSample(
+                sound,
+                0,
+                None,
+                Some(&mut flags),
+                Some(&mut time),
+                Some(&mut sample),
+            )
+        }
+        .unwrap();
+        if flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32 != 0 || time as f64 / ticks >= end {
+            break;
+        }
+        let Some(sample) = sample else {
+            continue;
+        };
+        sizes.push(unsafe { sample.GetTotalLength() }.unwrap() as usize);
+        let duration = unsafe { sample.GetSampleDuration() }.unwrap_or(0);
+        last = (time + duration) as f64 / ticks;
+    }
+    (sizes, last)
+}
+
 #[test]
 fn copies_a_files_sound_as_it_is() {
     // Two seconds of film and sound, the first second exported with its sound copied.

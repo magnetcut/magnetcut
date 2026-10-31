@@ -10,9 +10,9 @@ All notable changes to this project are documented here. The format is based on
 - On Windows and Linux, Export makes MP4 films in H.264 or HEVC with the computer's own
   decoders and encoders (Media Foundation; GStreamer), drawing each frame on the GPU as it does
   on a Mac, instead of in the editor, wherever the sources are files on disk. On Windows and
-  Linux, as on a Mac, the computer doesn't go to sleep while it exports. On Linux, subtitle
-  tracks go in as timed text, which players show, and a clip's sound is copied as it is when the
-  timeline plays it uncut, as on a Mac.
+  Linux, as on a Mac, the computer doesn't go to sleep while it exports. On Windows and
+  Linux, as on a Mac, a clip's sound is copied as it is when the timeline plays it uncut; on
+  Linux, subtitle tracks go in as timed text, which players show.
 - Export has a Simple mode, open by default, that asks in everyday words where the film will
   be watched (any player, old TVs too; YouTube, TikTok and Instagram; the smallest file; a master
   file to keep or edit), how big the file may be, how sharp and smooth, and the sound, and picks
