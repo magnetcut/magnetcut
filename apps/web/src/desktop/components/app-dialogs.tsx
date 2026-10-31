@@ -3,6 +3,7 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect } from "react";
+import { AgentBridge } from "@/agent/bridge";
 import { useAppDialogsStore } from "../app-dialogs-store";
 import { checkForUpdatesIfDue, checkForUpdatesNow } from "../updates";
 import { AboutDialog } from "./about-dialog";
@@ -14,7 +15,7 @@ const FIRST_CHECK_DELAY_MS = 10_000;
 /** An app left open for days still checks daily: it looks every hour. */
 const CHECK_DUE_INTERVAL_MS = 60 * 60 * 1000;
 
-/** About, Settings and updates: on every page, once, in the root layout. */
+/** About, Settings, updates and agents: on every page, once, in the root layout. */
 export function AppDialogs() {
 	const openDialog = useAppDialogsStore((state) => state.openDialog);
 	const setOpenDialog = useAppDialogsStore((state) => state.setOpenDialog);
@@ -36,6 +37,7 @@ export function AppDialogs() {
 				}
 			/>
 			<UpdateDialog />
+			<AgentBridge />
 		</>
 	);
 }

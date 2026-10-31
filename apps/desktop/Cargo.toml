@@ -32,8 +32,12 @@ tauri-plugin-opener = "2"
 # The open and save dialogs, from Rust: the editor gets the files picked,
 # never a path of its own choosing (src/media.rs).
 tauri-plugin-dialog = "2"
-# The bookmarks of the media files the editor reads where they are.
+# The bookmarks of the media files the editor reads where they are; agents'
+# tokens (src/agent/).
 base64 = "0.22"
+# Agents' tokens: made at random, kept only as their SHA-256 (src/agent/).
+getrandom = "0.3"
+sha2 = "0.10"
 # The native export (src/render/): the system decodes the sources and encodes
 # the film, and the editor's own compositor (rust/crates) draws each frame
 # between them on the GPU, so no frame crosses into the web view.

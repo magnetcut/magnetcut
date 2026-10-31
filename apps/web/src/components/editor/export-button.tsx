@@ -22,7 +22,6 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { canEncodeVideo } from "mediabunny";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/utils/ui";
@@ -63,6 +62,7 @@ import {
 	revealExportFile,
 } from "@/export/disk-target";
 import { canReadDiskFiles } from "@/media/disk-file";
+import { findEncodableCodecs } from "@/export/encodable";
 import {
 	AUDIO_BITRATES,
 	AUDIO_CODEC_NAMES,
@@ -83,7 +83,6 @@ import {
 	NO_CROP,
 	type ExportCrop,
 	type ExportVideoCodec,
-	type WebVideoCodec,
 } from "@/export/settings";
 import {
 	getNativeCapabilities,
@@ -239,27 +238,8 @@ function useEncodableCodecs({
 	);
 	useEffect(() => {
 		let isCurrent = true;
-		const codecs: WebVideoCodec[] = ["avc", "hevc", "vp9", "av1"];
-		void Promise.all([
-			Promise.all(
-				codecs.map((codec) =>
-					canEncodeVideo(codec, { width, height }).catch(() => false),
-				),
-			),
-			getNativeCapabilities(),
-		]).then(([results, native]) => {
-			if (!isCurrent) return;
-			const found = new Set<ExportVideoCodec>(
-				codecs.filter((_, index) => results[index]),
-			);
-			for (const codec of native?.videoCodecs ?? []) {
-				const fits =
-					isNativeOnlyCodec(codec) ||
-					(native?.formats.includes(format) &&
-						(codec !== "av1" || format === "mp4"));
-				if (fits) found.add(codec);
-			}
-			setEncodable(found);
+		void findEncodableCodecs({ width, height, format }).then((found) => {
+			if (isCurrent) setEncodable(found);
 		});
 		return () => {
 			isCurrent = false;

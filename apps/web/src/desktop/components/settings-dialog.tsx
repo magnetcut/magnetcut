@@ -14,6 +14,7 @@ import { useAppDialogsStore } from "../app-dialogs-store";
 import { useAppInfo } from "../app-info";
 import { useSettingsStore } from "../settings-store";
 import { checkForUpdatesNow } from "../updates";
+import { AgentsSetting } from "./agents-setting";
 
 const THEMES = [
 	{ value: "system", label: "System" },
@@ -39,6 +40,7 @@ export function SettingsDialog({
 				<DialogBody className="gap-6">
 					<AppearanceSetting />
 					{info?.updates && <UpdatesSetting />}
+					<AgentsSetting />
 				</DialogBody>
 			</DialogContent>
 		</Dialog>

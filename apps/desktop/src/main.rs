@@ -4,6 +4,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod activity;
+mod agent;
 mod export;
 mod media;
 mod menu;
@@ -37,6 +38,17 @@ macro_rules! commands {
             render::native_export_audio,
             render::native_export_finish,
             render::native_export_cancel,
+            agent::agent_settings,
+            agent::agent_set_enabled,
+            agent::agent_add,
+            agent::agent_revoke,
+            agent::agent_register_tools,
+            agent::agent_reply,
+            agent::agent_progress,
+            agent::agent_open_media,
+            agent::agent_export_to,
+            agent::agent_read_project,
+            agent::agent_write_project,
             $($more),*
         ]
     };
@@ -132,6 +144,7 @@ fn main() {
         app.manage(media::MediaFiles::load(app.handle()));
         app.manage(export::Exports::default());
         app.manage(render::NativeExports::default());
+        app.manage(agent::Agents::load(app.handle()));
         // Before the first page loads: the window exists, and with_webview
         // runs at once on the main thread, which serves the page.
         #[cfg(target_os = "linux")]

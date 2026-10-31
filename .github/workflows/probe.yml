@@ -98,6 +98,32 @@ jobs:
           if (-not $app.WaitForExit(120000)) { $app.Kill() }
           Get-Content probe.txt, probe-errors.txt
 
+      # Agent mode end to end: the app with a test token, and a script as the
+      # MCP client (apps/desktop/scripts/agent-check.ts) making a project,
+      # importing a film, reading, looking and exporting.
+      - name: Agent check (Linux and macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          MAGNETCUT_AGENT_TEST_TOKEN: mc_agent-check
+          MAGNETCUT_AGENT_TEST_PORT: "47999"
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a ./target/debug/magnetcut & else ./target/debug/magnetcut & fi
+          app=$!
+          bun apps/desktop/scripts/agent-check.ts "$PWD/apps/desktop/fixtures/b-frames.mp4" "$RUNNER_TEMP/agent-check.mp4" | tee agent.txt || true
+          kill $app || true
+
+      - name: Agent check (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          MAGNETCUT_AGENT_TEST_TOKEN: mc_agent-check
+          MAGNETCUT_AGENT_TEST_PORT: "47999"
+        run: |
+          $app = Start-Process -FilePath target\debug\magnetcut.exe -PassThru
+          bun apps/desktop/scripts/agent-check.ts "$PWD\apps\desktop\fixtures\b-frames.mp4" "$env:RUNNER_TEMP\agent-check.mp4" | Tee-Object agent.txt
+          Stop-Process -Id $app.Id -ErrorAction SilentlyContinue
+
       - name: Report
         shell: bash
         run: |
@@ -123,8 +149,15 @@ jobs:
               echo '```'
               echo "</details>"
             fi
+            if [ -f agent.txt ]; then
+              echo "#### Agent mode"
+              echo '```'
+              grep '^AGENT ' agent.txt || echo "no answer"
+              echo '```'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
           grep -q '^MAGNETCUT_PROBE ' probe.txt
+          grep -q '^AGENT done' agent.txt
 
       # Clippy where it builds: the desktop app has code for each system. Last,
       # so that a lint doesn't keep the report from being written.
