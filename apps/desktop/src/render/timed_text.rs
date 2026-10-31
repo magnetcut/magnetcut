@@ -1,15 +1,16 @@
-// Subtitle tracks added to a finished MP4, as timed text (3GPP tx3g, the
-// "mov_text" players show), for a writer that can't write them: Media
-// Foundation's MP4 sink. The film's index (moov) is read; the lines go in a
-// new mdat in its place, where it's at the end as that writer puts it, and
-// the index follows them with a track for each. Elsewhere, the old index is
-// left as free space. Nothing else moves, so the other tracks' offsets hold.
+// What Media Foundation's MP4 sink can't write, added to the finished file:
+// subtitle tracks, as timed text (3GPP tx3g, the "mov_text" players show),
+// and the program that wrote it. The film's index (moov) is read; the lines
+// go in a new mdat in its place, where it's at the end as that writer puts
+// it, and the index follows them with a track for each. Elsewhere, the old
+// index is left as free space. Nothing else moves, so the other tracks'
+// offsets hold.
 
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
-use super::settings::{SubtitleCue, SubtitleTrack};
+use super::settings::{SubtitleCue, SubtitleTrack, WRITING_APP};
 
 // The subtitle tracks' time scale: milliseconds.
 const TIMESCALE: u32 = 1000;
@@ -235,12 +236,66 @@ fn track(
     boxed(b"trak", &[tkhd, mdia].concat())
 }
 
-/// Adds the subtitle tracks to the MP4 at `path`, for a picture of `size`.
-pub fn add_tracks(path: &Path, tracks: &[SubtitleTrack], size: (u32, u32)) -> Result<(), String> {
-    if tracks.is_empty() {
-        return Ok(());
+/// The film's user data, `old` (its boxes), with the program that wrote the
+/// film in iTunes' metadata, where ffprobe and MediaInfo look for it: the
+/// encoding tool (©too). What's there stays, a name there already too.
+fn user_data(old: &[u8]) -> Result<Vec<u8>, String> {
+    let mut others = Vec::new();
+    let mut meta: &[u8] = &[];
+    for (kind, start, end) in children(old)? {
+        if &kind == b"meta" && meta.is_empty() {
+            // After its version and flags.
+            meta = old.get(start + 12..end).unwrap_or_default();
+        } else {
+            others.extend(&old[start..end]);
+        }
     }
-    let failed = |error: std::io::Error| format!("Couldn't add the subtitles: {error}");
+    let (mut handler, mut items, mut rest) = (None, Vec::new(), Vec::new());
+    for (kind, start, end) in children(meta)? {
+        match &kind {
+            b"hdlr" if handler.is_none() => handler = Some(&meta[start..end]),
+            b"ilst" if items.is_empty() => items = meta[start + 8..end].to_vec(),
+            _ => rest.extend(&meta[start..end]),
+        }
+    }
+    // Metadata of another kind than iTunes': left as it is.
+    if handler.is_some_and(|hdlr| hdlr.get(16..20) != Some(b"mdir")) {
+        return Ok(boxed(b"udta", old));
+    }
+    if !children(&items)?
+        .iter()
+        .any(|(kind, _, _)| kind == b"\xa9too")
+    {
+        // UTF-8 (type 1), in no locale.
+        let mut value = 1u32.to_be_bytes().to_vec();
+        value.extend(0u32.to_be_bytes());
+        value.extend(WRITING_APP.as_bytes());
+        items.extend(boxed(b"\xa9too", &boxed(b"data", &value)));
+    }
+    // iTunes' handler: no predefined value, the type and its maker, two
+    // reserved words and an empty name.
+    let hdlr = handler.map_or_else(
+        || {
+            let mut handler = vec![0u8; 4];
+            handler.extend(b"mdirappl");
+            handler.extend([0u8; 9]);
+            full_box(b"hdlr", 0, 0, &handler)
+        },
+        <[u8]>::to_vec,
+    );
+    let meta = full_box(
+        b"meta",
+        0,
+        0,
+        &[hdlr, rest, boxed(b"ilst", &items)].concat(),
+    );
+    Ok(boxed(b"udta", &[others, meta].concat()))
+}
+
+/// Finishes the MP4 at `path`: its subtitle tracks, for a picture of
+/// `size`, and the program that wrote it.
+pub fn finish(path: &Path, tracks: &[SubtitleTrack], size: (u32, u32)) -> Result<(), String> {
+    let failed = |error: std::io::Error| format!("Couldn't finish the file: {error}");
     let mut file = OpenOptions::new()
         .read(true)
         .write(true)
@@ -306,7 +361,11 @@ pub fn add_tracks(path: &Path, tracks: &[SubtitleTrack], size: (u32, u32)) -> Re
         .flatten()
         .flat_map(|(_, _, text)| sample_data(text))
         .collect();
-    let mdat = boxed(b"mdat", &data);
+    let mdat = if data.is_empty() {
+        Vec::new()
+    } else {
+        boxed(b"mdat", &data)
+    };
     let mut offset = write_at + 8;
     let mut traks = Vec::new();
     for (index, samples) in all.iter().enumerate() {
@@ -320,10 +379,16 @@ pub fn add_tracks(path: &Path, tracks: &[SubtitleTrack], size: (u32, u32)) -> Re
     let next_id = first_id + tracks.len() as u32;
     mvhd[next_id_at..next_id_at + 4].copy_from_slice(&next_id.to_be_bytes());
     let mut rest = Vec::new();
-    rest.extend(&contents[..mvhd_start]);
-    rest.extend(&mvhd);
-    rest.extend(&contents[mvhd_end..]);
+    let mut old_user_data: &[u8] = &[];
+    for &(kind, start, end) in &boxes {
+        match &kind {
+            b"mvhd" => rest.extend(&mvhd),
+            b"udta" => old_user_data = &contents[start + 8..end],
+            _ => rest.extend(&contents[start..end]),
+        }
+    }
     rest.extend(traks);
+    rest.extend(user_data(old_user_data)?);
     let new_index = boxed(b"moov", &rest);
 
     if is_last {

@@ -40,7 +40,8 @@ mod settings;
 mod subtitle;
 #[cfg(test)]
 mod tests;
-// Adds subtitle tracks to a finished MP4 on Windows; its samples, Linux's too.
+// Finishes an MP4 on Windows (subtitle tracks, the program that wrote it);
+// its samples, Linux's too.
 #[cfg(any(windows, target_os = "linux", test))]
 #[cfg_attr(not(windows), allow(dead_code))]
 mod timed_text;

@@ -15,6 +15,13 @@ export function getAppInfo(): Promise<AppInfo | null> {
 	return appInfo;
 }
 
+/** The program writing an exported file, as the file's metadata says it: MagnetCut and, in the
+ * desktop app, its version. */
+export async function getWritingApp(): Promise<string> {
+	const info = await getAppInfo();
+	return info ? `MagnetCut ${info.version}` : "MagnetCut";
+}
+
 export function useAppInfo(): AppInfo | null {
 	const [info, setInfo] = useState<AppInfo | null>(null);
 	useEffect(() => {

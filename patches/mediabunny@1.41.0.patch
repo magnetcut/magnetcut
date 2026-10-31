@@ -1,0 +1,43 @@
+diff --git a/dist/modules/src/matroska/matroska-muxer.js b/dist/modules/src/matroska/matroska-muxer.js
+index c5f55c1ff9e3de4e0b990191cc0f28bf4a9ec0e3..23dc80a85cf2e0a21019fd5081d8cf13ef78edfd 100644
+--- a/dist/modules/src/matroska/matroska-muxer.js
++++ b/dist/modules/src/matroska/matroska-muxer.js
+@@ -157,7 +157,7 @@ export class MatroskaMuxer extends Muxer {
+         const segmentInfo = { id: EBMLId.Info, data: [
+                 { id: EBMLId.TimestampScale, data: 1e6 },
+                 { id: EBMLId.MuxingApp, data: APP_NAME },
+-                { id: EBMLId.WritingApp, data: APP_NAME },
++                { id: EBMLId.WritingApp, data: this.format._options.writingApp ?? APP_NAME },
+                 !this.format._options.appendOnly ? segmentDuration : null,
+             ] };
+         this.segmentInfo = segmentInfo;
+diff --git a/dist/modules/src/output-format.d.ts b/dist/modules/src/output-format.d.ts
+index db86d17e5202248a424ad8ea96ebae0fadf05068..26f057a068777164fa446e0b8a0e50b7ac234b80 100644
+--- a/dist/modules/src/output-format.d.ts
++++ b/dist/modules/src/output-format.d.ts
+@@ -195,6 +195,11 @@ export type MkvOutputFormatOptions = {
+      * when the current cluster is longer than this value. Defaults to 1 second.
+      */
+     minimumClusterDuration?: number;
++    /**
++     * The program writing the file, in its WritingApp field; Mediabunny, the MuxingApp, by default. (MagnetCut's
++     * patch.)
++     */
++    writingApp?: string;
+     /**
+      * Will be called once the EBML header of the output file has been written.
+      *
+diff --git a/dist/modules/src/output-format.js b/dist/modules/src/output-format.js
+index 63b6385791badebfaec3543f3c36cb5728c9071d..2af28542c54317cf15c8c1acec4e33dc8e47353e 100644
+--- a/dist/modules/src/output-format.js
++++ b/dist/modules/src/output-format.js
+@@ -201,6 +201,9 @@ export class MkvOutputFormat extends OutputFormat {
+             && (!Number.isFinite(options.minimumClusterDuration) || options.minimumClusterDuration < 0)) {
+             throw new TypeError('options.minimumClusterDuration, when provided, must be a non-negative number.');
+         }
++        if (options.writingApp !== undefined && typeof options.writingApp !== 'string') {
++            throw new TypeError('options.writingApp, when provided, must be a string.');
++        }
+         if (options.onEbmlHeader !== undefined && typeof options.onEbmlHeader !== 'function') {
+             throw new TypeError('options.onEbmlHeader, when provided, must be a function.');
+         }

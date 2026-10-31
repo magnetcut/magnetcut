@@ -14,14 +14,16 @@ use objc2::rc::Retained;
 use objc2_av_foundation::{
     AVAssetReader, AVAssetReaderStatus, AVAssetReaderTrackOutput, AVAssetWriter,
     AVAssetWriterInput, AVAssetWriterInputPixelBufferAdaptor, AVAssetWriterStatus, AVFileTypeMPEG4,
-    AVFileTypeQuickTimeMovie, AVMediaTypeAudio, AVMediaTypeVideo, AVVideoAverageBitRateKey,
-    AVVideoCodecKey, AVVideoCodecTypeAppleProRes422, AVVideoCodecTypeAppleProRes422HQ,
-    AVVideoCodecTypeH264, AVVideoCodecTypeHEVC, AVVideoColorPrimaries_ITU_R_709_2,
-    AVVideoColorPrimariesKey, AVVideoColorPropertiesKey, AVVideoCompressionPropertiesKey,
-    AVVideoExpectedSourceFrameRateKey, AVVideoHeightKey, AVVideoMaxKeyFrameIntervalDurationKey,
-    AVVideoProfileLevelH264HighAutoLevel, AVVideoProfileLevelKey, AVVideoQualityKey,
-    AVVideoTransferFunction_ITU_R_709_2, AVVideoTransferFunctionKey, AVVideoWidthKey,
-    AVVideoYCbCrMatrix_ITU_R_709_2, AVVideoYCbCrMatrixKey,
+    AVFileTypeQuickTimeMovie, AVMediaTypeAudio, AVMediaTypeVideo,
+    AVMetadataIdentifierQuickTimeUserDataSoftware, AVMetadataIdentifieriTunesMetadataEncodingTool,
+    AVMutableMetadataItem, AVVideoAverageBitRateKey, AVVideoCodecKey,
+    AVVideoCodecTypeAppleProRes422, AVVideoCodecTypeAppleProRes422HQ, AVVideoCodecTypeH264,
+    AVVideoCodecTypeHEVC, AVVideoColorPrimaries_ITU_R_709_2, AVVideoColorPrimariesKey,
+    AVVideoColorPropertiesKey, AVVideoCompressionPropertiesKey, AVVideoExpectedSourceFrameRateKey,
+    AVVideoHeightKey, AVVideoMaxKeyFrameIntervalDurationKey, AVVideoProfileLevelH264HighAutoLevel,
+    AVVideoProfileLevelKey, AVVideoQualityKey, AVVideoTransferFunction_ITU_R_709_2,
+    AVVideoTransferFunctionKey, AVVideoWidthKey, AVVideoYCbCrMatrix_ITU_R_709_2,
+    AVVideoYCbCrMatrixKey,
 };
 use objc2_avf_audio::{AVEncoderBitRateKey, AVFormatIDKey, AVNumberOfChannelsKey, AVSampleRateKey};
 use objc2_core_audio_types::{
@@ -40,7 +42,7 @@ use objc2_core_video::{
     kCVPixelBufferPixelFormatTypeKey, kCVPixelBufferWidthKey, kCVPixelFormatType_32BGRA,
     kCVReturnSuccess,
 };
-use objc2_foundation::{NSDictionary, NSNumber, NSString};
+use objc2_foundation::{NSArray, NSDictionary, NSNumber, NSString};
 
 use super::av::{
     any, av, bridged, cf_dictionary, describe, dictionary, file_url, fraction, seconds,
@@ -49,7 +51,7 @@ use super::av1::Av1Encoder;
 use super::decode;
 use super::settings::{
     Audio, AudioSettings, Capabilities, Container, FrameRate, KEY_FRAME_INTERVAL, SubtitleTrack,
-    VideoCodec, VideoSettings,
+    VideoCodec, VideoSettings, WRITING_APP,
 };
 use super::subtitle::SubtitleInput;
 
@@ -275,6 +277,19 @@ impl Writer {
             .iter()
             .map(|track| SubtitleInput::new(&writer, track, (video.width, video.height)))
             .collect::<Result<Vec<_>, _>>()?;
+
+        // The program that wrote the film, where ffprobe and MediaInfo look
+        // for it: MP4's encoding tool (©too), QuickTime's software (©swr).
+        let identifier = match container {
+            Container::Mp4 => av!(AVMetadataIdentifieriTunesMetadataEncodingTool),
+            Container::Mov => av!(AVMetadataIdentifierQuickTimeUserDataSoftware),
+        };
+        let item = unsafe { AVMutableMetadataItem::new() };
+        unsafe {
+            item.setIdentifier(Some(identifier));
+            item.setValue(Some(any(&NSString::from_str(WRITING_APP))));
+            writer.setMetadata(&NSArray::from_retained_slice(&[Retained::into_super(item)]));
+        }
 
         if !unsafe { writer.startWriting() } {
             return Err(describe(

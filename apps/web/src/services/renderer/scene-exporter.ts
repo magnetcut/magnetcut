@@ -18,7 +18,8 @@ import { frameRateToFloat } from "@/fps/utils";
 import type { RootNode } from "./nodes/root-node";
 import type { ExportFormat } from "@/export";
 import type { ExportFile } from "@/export/disk-target";
-import { createOutputFormat } from "@/export/output-format";
+import { createOutputFormat, getWritingAppTags } from "@/export/output-format";
+import { getWritingApp } from "@/desktop/app-info";
 import type { FilterPasses } from "@/export/filters";
 import type { AudioPassthrough } from "@/export/passthrough";
 import {
@@ -265,9 +266,11 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		);
 		const frameCount = Math.floor(rootNode.duration / ticksPerFrame);
 
+		const writingApp = await getWritingApp();
 		const outputFormat = createOutputFormat({
 			format: this.format,
 			isStreamed: !!this.file,
+			writingApp,
 		});
 
 		const target = this.file
@@ -277,6 +280,9 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 				})
 			: new BufferTarget();
 		const output = new Output({ format: outputFormat, target });
+		output.setMetadataTags(
+			getWritingAppTags({ format: this.format, writingApp }),
+		);
 
 		// The composited frame, or a copy cropped and scaled to the size encoded.
 		const composited = this.renderer.getOutputCanvas();

@@ -472,7 +472,7 @@ impl Writer {
         }
         unsafe { self.writer.Finalize() }
             .map_err(|error| format!("Couldn't finish the file: {error}"))?;
-        timed_text::add_tracks(&self.path, &self.subtitles, self.size)
+        timed_text::finish(&self.path, &self.subtitles, self.size)
     }
 
     /// Stops, leaving the file for the caller to delete: closed, so it can be.

@@ -7,6 +7,9 @@ All notable changes to this project are documented here. The format is based on
 ## Unreleased
 
 ### Added
+- Each export says MagnetCut made it, with the version, in the field its container keeps for
+  the program that wrote it: MP4's encoding tool, QuickTime's software, Matroska's and WebM's
+  writing application and encoder tag. ffprobe and MediaInfo show it.
 - Hide faces and plates: a region of the picture blurred, pixelated or covered in a colour, from
   the Adjustment tab's Hide section. Move and size it in the preview; Track follows what's in it
   through the shot, and Find faces and Find plates look for them on their own, with a small model

@@ -16,7 +16,7 @@ use super::frames::FrameBuffer;
 use super::pipeline::{by_name, clock_time, failure, first_element, launch, play};
 use super::settings::{
     Audio, AudioSettings, Capabilities, Container, KEY_FRAME_INTERVAL, SubtitleTrack, VideoCodec,
-    VideoSettings,
+    VideoSettings, WRITING_APP,
 };
 use super::timed_text;
 
@@ -197,6 +197,12 @@ impl Writer {
         let pipeline = launch(&description)?;
         let sink = pipeline.by_name("sink").ok_or("no sink")?;
         sink.set_property("location", path.to_str().ok_or("not a UTF-8 path")?);
+        // The program that wrote the film: MP4's encoding tool (©too).
+        let mux = pipeline.by_name("mux").ok_or("no muxer")?;
+        let tags = mux
+            .dynamic_cast_ref::<gst::TagSetter>()
+            .ok_or("the muxer takes no tags")?;
+        tags.add_tag::<gst::tags::Encoder>(&WRITING_APP, gst::TagMergeMode::Replace);
         configure_encoder(&pipeline, encoder, video, fps)?;
 
         let video_source: AppSrc = by_name(&pipeline, "video")?;

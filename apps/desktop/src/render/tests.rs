@@ -381,6 +381,65 @@ fn draws_a_source_into_a_film_cut_and_scaled() {
     assert!((time - 29.0 / 30.0).abs() < 1e-3, "{time}");
 }
 
+/// What a film says wrote it, for the whole film rather than one of its
+/// tracks: MP4's encoding tool (©too), QuickTime's software (©swr).
+fn written_by(path: &Path) -> Vec<String> {
+    let file = std::fs::read(path).unwrap();
+    let number = |at: usize, width: usize| {
+        file[at..at + width]
+            .iter()
+            .fold(0usize, |value, &byte| (value << 8) | usize::from(byte))
+    };
+    let mut found = Vec::new();
+    for at in 4..file.len().saturating_sub(8) {
+        match &file[at..at + 4] {
+            b"\xa9too" if file.get(at + 8..at + 12) == Some(b"data") && at + 20 <= file.len() => {
+                let end = (at + 4 + number(at + 4, 4)).min(file.len());
+                found.push(String::from_utf8_lossy(&file[at + 20..end]).into_owned());
+            }
+            b"\xa9swr" => {
+                let end = (at + 8 + number(at + 4, 2)).min(file.len());
+                found.push(String::from_utf8_lossy(&file[at + 8..end]).into_owned());
+            }
+            _ => {}
+        }
+    }
+    found
+}
+
+#[test]
+fn says_what_wrote_the_film() {
+    let video = VideoSettings {
+        codec: VideoCodec::Avc,
+        width: 64,
+        height: 64,
+        bitrate: 1_000_000,
+        quality: None,
+        fps: FPS,
+    };
+    // MP4 and, on a Mac, QuickTime.
+    for container in super::encode::capabilities().formats {
+        let path = temporary(&format!("written.{container:?}"));
+        let mut writer = Writer::new(&path, container, &video, None).unwrap();
+        for i in 0..10 {
+            add_drawn(&mut writer, (64, 64), |pixels, _| {
+                for pixel in pixels.as_chunks_mut::<4>().0 {
+                    *pixel = [grey(i), grey(i), grey(i), 255];
+                }
+            })
+            .unwrap();
+        }
+        writer.finish().unwrap();
+        let found = written_by(&path);
+        assert!(
+            found
+                .iter()
+                .any(|name| name == super::settings::WRITING_APP),
+            "{container:?}: {found:?}"
+        );
+    }
+}
+
 #[test]
 fn a_cancelled_export_leaves_no_file() {
     let path = temporary("cancelled.mp4");
@@ -1282,7 +1341,7 @@ fn adds_timed_text_that_avfoundation_reads() {
             cues: vec![line(0.1, 0.4, "Bonjour")],
         },
     ];
-    super::timed_text::add_tracks(&path, &tracks, (64, 64)).unwrap();
+    super::timed_text::finish(&path, &tracks, (64, 64)).unwrap();
     let samples = stored_subtitles(&path);
     let lines: Vec<&str> = samples
         .iter()

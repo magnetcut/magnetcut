@@ -100,6 +100,9 @@ pub struct Capabilities {
     pub subtitle_tracks: bool,
 }
 
+// The program that wrote the film, as each file's metadata says it.
+pub const WRITING_APP: &str = concat!("MagnetCut ", env!("CARGO_PKG_VERSION"));
+
 // The longest a key frame is from the last, in seconds: a seek within the
 // file decodes no more than this.
 pub const KEY_FRAME_INTERVAL: f64 = 2.0;
