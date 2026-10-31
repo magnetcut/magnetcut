@@ -24,6 +24,14 @@ const SEEK_AHEAD: f64 = 2.0;
 // last frame, which starts before the end by its own duration.
 const LAST_SEEK: f64 = 1.0;
 
+// FFmpeg's decoders in GStreamer (gst-libav 1.24, Ubuntu 24.04's) crash when
+// a flush meets the end of a file: there they hand over the frames they held
+// back, and one with nowhere to go, as the pipeline flushes for a seek or to
+// stop, is dropped through the input frame there isn't (`no_output` in
+// gstavviddec.c). So within this long of its end, a source is read to its
+// end before it's flushed: the frames held back are well within it.
+const END_MARGIN: f64 = 3.0;
+
 // The file's first pictures, decoded by whatever the system has for them,
 // as BGRA; a few decoded ahead, no more.
 const DESCRIPTION: &str = "filesrc name=source ! decodebin ! videoconvert ! \
@@ -51,6 +59,8 @@ struct Source {
     rotation: u32,
     /// In seconds.
     duration: f64,
+    /// When the last frame read shows: none till one's read.
+    last: Option<f64>,
 }
 
 impl Source {
@@ -66,6 +76,7 @@ impl Source {
             size: (0, 0),
             rotation: 0,
             duration: 0.0,
+            last: None,
         };
         // Paused, it decodes the first picture: what it is, and its size.
         set_state(&source.pipeline, gst::State::Paused)?;
@@ -86,15 +97,34 @@ impl Source {
 
     /// Reading on from the key frame before `time`: the frames before it
     /// come first.
-    fn seek(&self, time: f64) -> Result<(), String> {
+    fn seek(&mut self, time: f64) -> Result<(), String> {
+        self.settle();
+        self.last = None;
         let flags = gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT | gst::SeekFlags::SNAP_BEFORE;
         self.pipeline
             .seek_simple(flags, clock_time(time))
             .map_err(|_| failure(&self.pipeline).unwrap_or_else(|| "couldn't seek a source".into()))
     }
 
+    /// Before a flush: near the end, reads on to it, so the decoder isn't
+    /// flushed as it hands over its last frames (`END_MARGIN`).
+    fn settle(&self) {
+        let Some(last) = self.last else {
+            return;
+        };
+        if self.duration > 0.0 && last + END_MARGIN < self.duration {
+            return;
+        }
+        while !self.frames.is_eos()
+            && self
+                .frames
+                .try_pull_sample(gst::ClockTime::from_seconds(5))
+                .is_some()
+        {}
+    }
+
     /// The next frame, None at the end.
-    fn read(&self) -> Result<Option<Frame>, String> {
+    fn read(&mut self) -> Result<Option<Frame>, String> {
         let Ok(sample) = self.frames.pull_sample() else {
             if self.frames.is_eos() {
                 return Ok(None);
@@ -113,6 +143,7 @@ impl Source {
             .unwrap_or(pts);
         let info = VideoInfo::from_caps(sample.caps().ok_or("a picture of no kind")?)
             .map_err(|error| error.to_string())?;
+        self.last = Some(seconds(time));
         Ok(Some(Frame {
             time: seconds(time),
             picture: Decoded { sample, info },
@@ -122,6 +153,7 @@ impl Source {
 
 impl Drop for Source {
     fn drop(&mut self) {
+        self.settle();
         let _ = self.pipeline.set_state(gst::State::Null);
     }
 }
@@ -195,7 +227,7 @@ pub struct VideoReader {
 
 impl VideoReader {
     pub fn open(location: &Path, time: f64) -> Result<Self, String> {
-        let source = Source::open(location)?;
+        let mut source = Source::open(location)?;
         let latest_start = (source.duration - LAST_SEEK).max(0.0);
         let time = time.min(latest_start);
         if time > 0.0 {
