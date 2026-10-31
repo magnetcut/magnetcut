@@ -192,13 +192,19 @@ if (!(again instanceof Error) || !/already/.test(again.message)) {
 	throw new Error("an export wrote over a file without being told to");
 }
 report({ step: "no overwrite", detail: again.message });
-// The project as a file, opened again: the same clip, its media found.
+// The project as a file, opened again: the same tracks, clip for clip, its
+// media found.
+const tracksOf = (text: string) => text.split("\n").filter((line) => /^[VTAGE]\d/.test(line));
+const saved = await tool({ name: "summary" });
 const projectFile = output.replace(/\.mp4$/, ".magnetcut");
 await tool({ name: "project", args: { action: "save", path: projectFile } });
 if (!existsSync(projectFile)) throw new Error(`no project file at ${projectFile}`);
 const reopened = await tool({ name: "project", args: { action: "open", path: projectFile } });
-if (!/^V1 \S+ \S+ 0:00\.0-0:00\.3/m.test(reopened.text) || /missing/.test(reopened.text)) {
-	throw new Error(`the project file didn't open as it was: ${reopened.text}`);
+if (
+	/missing/.test(reopened.text) ||
+	JSON.stringify(tracksOf(reopened.text)) !== JSON.stringify(tracksOf(saved.text))
+) {
+	throw new Error(`the project file didn't open as it was: ${reopened.text} / saved: ${saved.text}`);
 }
 report({ step: "project file", detail: `saved and opened again: ${reopened.text}` });
 console.log("AGENT done");
