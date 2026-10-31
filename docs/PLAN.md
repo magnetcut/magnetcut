@@ -107,13 +107,14 @@ telemetry: everything stays on the computer. Not for iOS or Android.
 
 ## Order
 
-Done: 1, 2, 3, 4, 7, 8 and 10 (docs/SUBTITLES.md). 5 but for publishing 0.1.0, a draft
+Done: 1, 2, 3, 4, 7, 8, 10 (docs/SUBTITLES.md) and 11 (docs/HIDE.md). 5 but for publishing 0.1.0, a draft
 release on GitHub, which is the author's to do. 6 but for what's the author's in App Store
 Connect: build 0.1.0 is on version 0.1.0 with its listing; the screenshots, the privacy and age
 rating answers, the price and submitting it are left (docs/RELEASING.md). 9 but for a desktop of
 Windows and Linux: there it's checked on CI's machines, in the app too (docs/NATIVE.md).
 What's been done since 0.1.0 without the app open (the native export's panel, the subtitle
-editor, the native export on Windows and Linux) is tested in code but not yet tried in the app.
+editor, the native export on Windows and Linux, hiding faces and plates) is tested in code but
+not yet tried in the app.
 
 1. Strip the server, accounts, analytics and website; static export; editor works in a browser.
 2. Rebrand: names, package scopes, storage keys, logo and icon.

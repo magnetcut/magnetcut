@@ -17,6 +17,8 @@ import {
 	buildHideRegionMask,
 	type HideShape,
 } from "@/hide/region";
+import { findHideRegions } from "@/hide/find";
+import { Progress } from "@/components/ui/progress";
 
 export function EffectsView() {
 	const effects = effectsRegistry.getAll().filter(({ category }) => !category);
@@ -48,13 +50,20 @@ export function AdjustmentView() {
 }
 
 /** A face or a plate blurred, pixelated or covered: an adjustment layer whose
- * effect applies only within its mask (docs/HIDE.md). */
+ * effect applies only within its mask, placed by hand or found (docs/HIDE.md). */
 function HideSection() {
 	const editor = useEditor();
 	const setActiveTab = usePropertiesStore((state) => state.setActiveTab);
 	const [shape, setShape] = useState<HideShape>("face");
+	const [lookType, setLookType] = useState<string>(HIDE_LOOKS[0].effectType);
+	const [progress, setProgress] = useState<number | null>(null);
+	const [message, setMessage] = useState<string | null>(null);
+	const cancelled = useRef(false);
+	const look =
+		HIDE_LOOKS.find((candidate) => candidate.effectType === lookType) ??
+		HIDE_LOOKS[0];
 
-	const add = ({ look }: { look: (typeof HIDE_LOOKS)[number] }) => {
+	const add = () => {
 		const canvasSize = editor.project.getActive().settings.canvasSize;
 		const element = buildEffectElement({
 			effectType: look.effectType,
@@ -73,6 +82,30 @@ function HideSection() {
 		setActiveTab({ elementType: "effect", tabId: "masks" });
 	};
 
+	const find = async () => {
+		cancelled.current = false;
+		setMessage(null);
+		setProgress(0);
+		try {
+			const { added } = await findHideRegions({
+				editor,
+				kind: shape === "face" ? "faces" : "plates",
+				look,
+				onProgress: ({ progress: done }) => setProgress(done),
+				isCancelled: () => cancelled.current,
+			});
+			setMessage(
+				added === 0
+					? `No ${shape}s found.`
+					: `${added} ${added === 1 ? shape : `${shape}s`} hidden: check each one.`,
+			);
+		} catch (error) {
+			setMessage(error instanceof Error ? error.message : String(error));
+		} finally {
+			setProgress(null);
+		}
+	};
+
 	return (
 		<div className="mt-6 flex flex-col gap-2">
 			<h3 className="text-sm font-medium">Hide a face or a plate</h3>
@@ -89,21 +122,46 @@ function HideSection() {
 				))}
 			</div>
 			<div className="grid grid-cols-3 gap-1">
-				{HIDE_LOOKS.map((look) => (
+				{HIDE_LOOKS.map((candidate) => (
 					<Button
-						key={look.effectType}
+						key={candidate.effectType}
 						size="sm"
-						variant="secondary"
-						onClick={() => add({ look })}
+						variant={candidate.effectType === lookType ? "secondary" : "ghost"}
+						onClick={() => setLookType(candidate.effectType)}
 					>
-						{look.name}
+						{candidate.name}
 					</Button>
 				))}
 			</div>
+			{progress === null ? (
+				<div className="grid grid-cols-2 gap-1">
+					<Button size="sm" variant="outline" onClick={add}>
+						Add a region
+					</Button>
+					<Button size="sm" variant="outline" onClick={() => void find()}>
+						{shape === "face" ? "Find faces" : "Find plates"}
+					</Button>
+				</div>
+			) : (
+				<div className="flex items-center gap-2">
+					<Progress value={progress * 100} className="flex-1" />
+					<Button
+						size="sm"
+						variant="ghost"
+						onClick={() => {
+							cancelled.current = true;
+						}}
+					>
+						Stop
+					</Button>
+				</div>
+			)}
+			{message ? <p className="text-xs">{message}</p> : null}
 			<p className="text-muted-foreground text-xs">
-				Adds a region at the playhead, above the clips: move and size it in the
-				preview. Check every frame before you share the film: a region that
-				misses a frame shows what&apos;s under it.
+				Add a region at the playhead and place it in the preview, or find them
+				in the selected clip (the whole timeline, if none is selected); the
+				first search downloads a small model, once. Check every frame before you
+				share the film: a region that misses a frame shows what&apos;s under it.
 			</p>
 		</div>
 	);

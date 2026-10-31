@@ -7,6 +7,12 @@ All notable changes to this project are documented here. The format is based on
 ## Unreleased
 
 ### Added
+- Hide faces and plates: a region of the picture blurred, pixelated or covered in a colour, from
+  the Adjustment tab's Hide section. Move and size it in the preview; Track follows what's in it
+  through the shot, and Find faces and Find plates look for them on their own, with a small model
+  downloaded once and run on your computer, each one found becoming a region that follows it.
+  Check each one: a frame a region misses shows what it hides. Masks, on clips as on these
+  regions, now take keyframes.
 - On Windows, and on Linux with x264 and x265, Export keeps a constant quality (Quality,
   Constant) instead of aiming at a bitrate, as it does on Apple silicon.
 - On Windows and Linux, Export makes MP4 films in H.264 or HEVC with the computer's own

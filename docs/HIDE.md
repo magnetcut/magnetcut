@@ -66,3 +66,14 @@ moves.
   playhead to the region's end and back to its start, a keyframe of the mask's place and size
   on every frame found, in one change; where it's lost, it says when. Followed through the
   editor's WebAssembly in its tests; not yet tried in the app.
+- Phase 3. Find faces and Find plates, in the Hide section, over the selected clip's span or the
+  whole timeline: YuNet for faces (OpenCV's, MIT, 233 KB) and a YOLOv11n fine-tuned on plates
+  (AGPL-3.0, 10.5 MB), each downloaded once from Hugging Face at a pinned revision, checked by
+  its SHA-256 and kept in the web view's cache, run by ONNX Runtime Web (the copy the app ships;
+  WebGPU, or WebAssembly where there's none) in its own worker. Every tenth frame is searched; a
+  find is matched to the region it overlaps, which it moves back onto what it found, or starts
+  one; between searches the tracker follows each region, and three searches without it end it.
+  Each one followed for five frames or more becomes a Hide region, a little bigger than what was
+  found, keyframed on every frame. In the built app, in Chrome: 47 faces in a group photo, in
+  44 ms once the model is loaded; the decoding of both models' outputs tested in code. Not yet
+  tried on a film in the app.

@@ -34,7 +34,8 @@ Planned:
 Your projects and media stay on your computer. MagnetCut has no servers and sends nothing about
 you anywhere. It goes online only when you use something that needs a download: a font from
 Google Fonts, a transcription model from Hugging Face and the code that runs it from jsDelivr
-(once), the platform logos in the safe-area guides.
+(once), a face or plate detection model from Hugging Face (once), the platform logos in the
+safe-area guides.
 
 The desktop app also checks once a day whether there's a new version, by downloading a small file
 from GitHub; Settings turns that off. An update installs only when you say so, and only if it's

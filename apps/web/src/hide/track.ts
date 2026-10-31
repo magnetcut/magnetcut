@@ -143,6 +143,56 @@ function withoutHideRegions({ tracks }: { tracks: SceneTracks }): SceneTracks {
 	};
 }
 
+/** Frames of the timeline as Hide regions see them: without any of them, at
+ * a size to track and detect in. */
+export function openFrames({ editor }: { editor: EditorCore }): {
+	size: { width: number; height: number };
+	render: ({ time }: { time: number }) => Promise<TrackFrame>;
+} | null {
+	const project = editor.project.getActiveOrNull();
+	if (!project) {
+		return null;
+	}
+	const { canvasSize, fps, background } = project.settings;
+	const scale = Math.min(
+		1,
+		TRACK_SIZE / Math.max(canvasSize.width, canvasSize.height),
+	);
+	const size = {
+		width: Math.max(16, Math.round(canvasSize.width * scale)),
+		height: Math.max(16, Math.round(canvasSize.height * scale)),
+	};
+	const scene = buildScene({
+		tracks: withoutHideRegions({
+			tracks: editor.scenes.getActiveScene().tracks,
+		}),
+		mediaAssets: editor.media.getAssets(),
+		duration: editor.timeline.getTotalDuration(),
+		canvasSize,
+		background,
+	});
+	const renderer = new CanvasRenderer({ ...canvasSize, fps });
+	const full = document.createElement("canvas");
+	full.width = canvasSize.width;
+	full.height = canvasSize.height;
+	const small = document.createElement("canvas");
+	small.width = size.width;
+	small.height = size.height;
+	const context = small.getContext("2d", { willReadFrequently: true });
+	if (!context) {
+		return null;
+	}
+	return {
+		size,
+		render: async ({ time }) => {
+			await renderer.renderToCanvas({ node: scene, time, targetCanvas: full });
+			context.drawImage(full, 0, 0, size.width, size.height);
+			const { data } = context.getImageData(0, 0, size.width, size.height);
+			return { rgba: data, ...size };
+		},
+	};
+}
+
 export interface TrackResult {
 	/** Frames keyframed. */
 	frames: number;
@@ -178,40 +228,12 @@ export async function trackHideRegion({
 		return null;
 	}
 	const baseMask = element.masks[0];
-	const { canvasSize, fps, background } = project.settings;
-	const scale = Math.min(
-		1,
-		TRACK_SIZE / Math.max(canvasSize.width, canvasSize.height),
-	);
-	const size = {
-		width: Math.max(16, Math.round(canvasSize.width * scale)),
-		height: Math.max(16, Math.round(canvasSize.height * scale)),
-	};
-
-	const scene = buildScene({
-		tracks: withoutHideRegions({ tracks }),
-		mediaAssets: editor.media.getAssets(),
-		duration: editor.timeline.getTotalDuration(),
-		canvasSize,
-		background,
-	});
-	const renderer = new CanvasRenderer({ ...canvasSize, fps });
-	const full = document.createElement("canvas");
-	full.width = canvasSize.width;
-	full.height = canvasSize.height;
-	const small = document.createElement("canvas");
-	small.width = size.width;
-	small.height = size.height;
-	const context = small.getContext("2d", { willReadFrequently: true });
-	if (!context) {
+	const frames = openFrames({ editor });
+	if (!frames) {
 		return null;
 	}
-	const render = async ({ time }: { time: number }): Promise<TrackFrame> => {
-		await renderer.renderToCanvas({ node: scene, time, targetCanvas: full });
-		context.drawImage(full, 0, 0, size.width, size.height);
-		const { data } = context.getImageData(0, 0, size.width, size.height);
-		return { rgba: data, ...size };
-	};
+	const { size, render } = frames;
+	const { fps } = project.settings;
 
 	// Each frame's time, from the playhead (within the region) on.
 	const frameTicks = TICKS_PER_SECOND / frameRateToFloat(fps);
