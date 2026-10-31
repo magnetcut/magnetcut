@@ -26,11 +26,11 @@ use super::media_foundation::{
     TICKS_PER_SECOND, attributes, audio_type, buffer, encoders, hd_colors, sample, start, text,
     video_type, wide,
 };
+use super::mp4_index;
 use super::settings::{
     Audio, AudioSettings, Capabilities, Container, KEY_FRAME_INTERVAL, SubtitleTrack, VideoCodec,
     VideoSettings,
 };
-use super::timed_text;
 
 // A sound sample's length, in seconds: short, so the sound and the pictures
 // interleave closely.
@@ -76,7 +76,7 @@ pub fn capabilities() -> Capabilities {
         video_codecs,
         constant_quality: constant_quality(),
         audio_copy: true,
-        // Added once the file's finished (`timed_text.rs`).
+        // Added once the file's finished (`mp4_index.rs`).
         subtitle_tracks: true,
     }
 }
@@ -472,7 +472,7 @@ impl Writer {
         }
         unsafe { self.writer.Finalize() }
             .map_err(|error| format!("Couldn't finish the file: {error}"))?;
-        timed_text::finish(&self.path, &self.subtitles, self.size)
+        mp4_index::finish(&self.path, &self.subtitles, self.size)
     }
 
     /// Stops, leaving the file for the caller to delete: closed, so it can be.

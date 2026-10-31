@@ -453,6 +453,12 @@ fn says_what_wrote_the_film() {
             "{container:?}: {found:?} in {:?}",
             metadata_boxes(&path)
         );
+        // On a Mac, an MP4's index first, so it plays as it downloads.
+        if cfg!(target_os = "macos") && container == Container::Mp4 {
+            let file = std::fs::read(&path).unwrap();
+            let at = |kind: &[u8]| file.windows(4).position(|window| window == kind);
+            assert!(at(b"moov") < at(b"mdat"), "the index after the data");
+        }
     }
 }
 
@@ -1329,18 +1335,18 @@ fn stored_subtitles(path: &Path) -> Vec<(f64, f64, String)> {
     samples
 }
 
-/// A film's subtitle track as stored, as `timed_text.rs`, which added it
+/// A film's subtitle track as stored, as `mp4_index.rs`, which added it
 /// after Media Foundation, reads it back.
 #[cfg(windows)]
 fn stored_subtitles(path: &Path) -> Vec<(f64, f64, String)> {
-    super::timed_text::read_tracks(path).remove(0)
+    super::mp4_index::read_tracks(path).remove(0)
 }
 
 #[cfg(target_os = "macos")]
 #[test]
 fn adds_timed_text_that_avfoundation_reads() {
     // A finished film, as Media Foundation leaves one, its index at the end;
-    // the tracks `timed_text.rs` adds read back by AVFoundation, and the
+    // the tracks `mp4_index.rs` adds read back by AVFoundation, and the
     // picture still there.
     let path = temporary("timed-text.mp4");
     make_source(&path);
@@ -1357,7 +1363,7 @@ fn adds_timed_text_that_avfoundation_reads() {
             cues: vec![line(0.1, 0.4, "Bonjour")],
         },
     ];
-    super::timed_text::finish(&path, &tracks, (64, 64)).unwrap();
+    super::mp4_index::finish(&path, &tracks, (64, 64)).unwrap();
     let samples = stored_subtitles(&path);
     let lines: Vec<&str> = samples
         .iter()
@@ -1370,7 +1376,7 @@ fn adds_timed_text_that_avfoundation_reads() {
         (start - 0.2).abs() < 1e-3 && (end - 0.5).abs() < 1e-3,
         "{samples:?}"
     );
-    let ours = super::timed_text::read_tracks(&path);
+    let ours = super::mp4_index::read_tracks(&path);
     assert_eq!(ours.len(), 2);
     let mut reader = VideoReader::open(&path, 0.0).unwrap();
     let (_, picture) = reader.frame_at(0.5).unwrap().unwrap();

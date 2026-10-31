@@ -30,6 +30,11 @@ mod frames;
 #[cfg(windows)]
 #[path = "windows/media_foundation.rs"]
 mod media_foundation;
+// Finishes an MP4's index after its writer: on Windows, subtitle tracks
+// and the program that wrote it; on a Mac, that and the index moved to the
+// front. Its subtitle samples, Linux's too.
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+mod mp4_index;
 #[cfg(target_os = "linux")]
 #[path = "linux/pipeline.rs"]
 mod pipeline;
@@ -40,11 +45,6 @@ mod settings;
 mod subtitle;
 #[cfg(test)]
 mod tests;
-// Finishes an MP4 on Windows (subtitle tracks, the program that wrote it);
-// its samples, Linux's too.
-#[cfg(any(windows, target_os = "linux", test))]
-#[cfg_attr(not(windows), allow(dead_code))]
-mod timed_text;
 mod turn;
 
 use std::collections::HashMap;

@@ -1,12 +1,13 @@
-// What Media Foundation's MP4 sink can't write, added to the finished file:
-// subtitle tracks, as timed text (3GPP tx3g, the "mov_text" players show),
-// and the program that wrote it. The film's index (moov) is read; the lines
-// go in a new mdat in its place, where it's at the end as that writer puts
-// it, and the index follows them with a track for each. Elsewhere, the old
-// index is left as free space. Nothing else moves, so the other tracks'
-// offsets hold.
+// An MP4's index (moov) finished after its writer: subtitle tracks, as
+// timed text (3GPP tx3g, the "mov_text" players show), for Media
+// Foundation's sink, which can't write them; the program that wrote the
+// film, which neither that sink nor AVFoundation (before macOS 27) writes in
+// an MP4; and the index moved to the front, so the film plays as it
+// downloads. The lines go in a new mdat in the index's place, where it's at
+// the end as those writers put it, and the index follows them with a track
+// for each; elsewhere, the old index is left as free space.
 
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
@@ -292,19 +293,26 @@ fn user_data(old: &[u8]) -> Result<Vec<u8>, String> {
     Ok(boxed(b"udta", &[others, meta].concat()))
 }
 
-/// Finishes the MP4 at `path`: its subtitle tracks, for a picture of
-/// `size`, and the program that wrote it.
-pub fn finish(path: &Path, tracks: &[SubtitleTrack], size: (u32, u32)) -> Result<(), String> {
-    let failed = |error: std::io::Error| format!("Couldn't finish the file: {error}");
-    let mut file = OpenOptions::new()
+fn failed(error: std::io::Error) -> String {
+    format!("Couldn't finish the file: {error}")
+}
+
+/// The file at `path`, to read and write, and its length.
+fn open(path: &Path) -> Result<(File, u64), String> {
+    let file = OpenOptions::new()
         .read(true)
         .write(true)
         .open(path)
         .map_err(failed)?;
     let length = file.metadata().map_err(failed)?.len();
-    // The top-level boxes, by their headers alone: the film's data is long.
+    Ok((file, length))
+}
+
+/// The file's top-level boxes, as (type, start, size), by their headers
+/// alone: the film's data is long.
+fn top_level(file: &mut File, length: u64) -> Result<Vec<([u8; 4], u64, u64)>, String> {
+    let mut boxes = Vec::new();
     let mut at = 0u64;
-    let mut moov = None;
     while at + 8 <= length {
         let mut header = [0u8; 16];
         file.seek(SeekFrom::Start(at)).map_err(failed)?;
@@ -321,12 +329,21 @@ pub fn finish(path: &Path, tracks: &[SubtitleTrack], size: (u32, u32)) -> Result
         if size < 8 || at + size > length {
             return Err("the film isn't a whole MP4".into());
         }
-        if &header[4..8] == b"moov" {
-            moov = Some((at, size));
-        }
+        boxes.push((header[4..8].try_into().unwrap_or_default(), at, size));
         at += size;
     }
-    let (moov_at, moov_size) = moov.ok_or("the film has no index")?;
+    Ok(boxes)
+}
+
+/// Finishes the MP4 at `path`: its subtitle tracks, for a picture of
+/// `size`, and the program that wrote it.
+pub fn finish(path: &Path, tracks: &[SubtitleTrack], size: (u32, u32)) -> Result<(), String> {
+    let (mut file, length) = open(path)?;
+    let boxes = top_level(&mut file, length)?;
+    let (_, moov_at, moov_size) = *boxes
+        .iter()
+        .find(|(kind, _, _)| kind == b"moov")
+        .ok_or("the film has no index")?;
     // Where the new data and index go: in the old index's place at the end,
     // or after everything.
     let is_last = moov_at + moov_size == length;
@@ -405,6 +422,131 @@ pub fn finish(path: &Path, tracks: &[SubtitleTrack], size: (u32, u32)) -> Result
     file.sync_all().map_err(failed)
 }
 
+// What's moved at a time when the index goes to the front.
+#[cfg(target_os = "macos")]
+const CHUNK: u64 = 8 << 20;
+
+/// A chunk offset table, `content` of a 32-bit `stco` or a 64-bit `co64`,
+/// each offset `shift` bytes on: 64-bit if one outgrows 32 bits.
+#[cfg(any(target_os = "macos", test))]
+fn chunk_offsets(kind: &[u8; 4], content: &[u8], shift: u64) -> Result<Vec<u8>, String> {
+    let damaged = || "the film's chunk offsets are damaged".to_owned();
+    let count = content
+        .get(4..8)
+        .ok_or_else(damaged)?
+        .iter()
+        .fold(0usize, |value, &byte| (value << 8) | usize::from(byte));
+    let width = if kind == b"co64" { 8 } else { 4 };
+    let table = content.get(8..8 + count * width).ok_or_else(damaged)?;
+    let offsets: Vec<u64> = table
+        .chunks_exact(width)
+        .map(|bytes| {
+            bytes
+                .iter()
+                .fold(0u64, |value, &byte| (value << 8) | u64::from(byte))
+                + shift
+        })
+        .collect();
+    let mut entries = (count as u32).to_be_bytes().to_vec();
+    if kind == b"co64" || offsets.iter().any(|&offset| offset > u64::from(u32::MAX)) {
+        for offset in offsets {
+            entries.extend(offset.to_be_bytes());
+        }
+        Ok(full_box(b"co64", 0, 0, &entries))
+    } else {
+        for offset in offsets {
+            entries.extend((offset as u32).to_be_bytes());
+        }
+        Ok(full_box(b"stco", 0, 0, &entries))
+    }
+}
+
+/// The boxes in `data`, an index or a part of it, with every chunk offset in
+/// them `shift` bytes on.
+#[cfg(any(target_os = "macos", test))]
+fn shift_offsets(data: &[u8], shift: u64) -> Result<Vec<u8>, String> {
+    let mut shifted = Vec::with_capacity(data.len());
+    for (kind, start, end) in children(data)? {
+        let header = if data[start..start + 4] == [0, 0, 0, 1] {
+            16
+        } else {
+            8
+        };
+        let content = &data[start + header..end];
+        match &kind {
+            b"moov" | b"trak" | b"mdia" | b"minf" | b"stbl" => {
+                shifted.extend(boxed(&kind, &shift_offsets(content, shift)?));
+            }
+            b"stco" | b"co64" => shifted.extend(chunk_offsets(&kind, content, shift)?),
+            _ => shifted.extend(&data[start..end]),
+        }
+    }
+    Ok(shifted)
+}
+
+/// Moves the MP4's index from its end to just after its file type, so that
+/// the film plays as it downloads: what's between moves along by the index's
+/// size, and the index's chunk offsets with it. In place: the file is all a
+/// sandboxed app may write.
+#[cfg(target_os = "macos")]
+pub fn move_index_to_front(path: &Path) -> Result<(), String> {
+    move_index(path, CHUNK)
+}
+
+/// The same, `chunk` bytes at a time.
+#[cfg(any(target_os = "macos", test))]
+fn move_index(path: &Path, chunk: u64) -> Result<(), String> {
+    let (mut file, length) = open(path)?;
+    let boxes = top_level(&mut file, length)?;
+    let (_, moov_at, moov_size) = *boxes
+        .iter()
+        .find(|(kind, _, _)| kind == b"moov")
+        .ok_or("the film has no index")?;
+    let data_at = boxes
+        .iter()
+        .find(|(kind, _, _)| kind == b"mdat")
+        .map_or(length, |&(_, at, _)| at);
+    if moov_at < data_at {
+        return Ok(());
+    }
+    if moov_at + moov_size != length {
+        return Err("the film's index isn't at its end".into());
+    }
+    let front = match boxes.first() {
+        Some(&(kind, _, size)) if &kind == b"ftyp" => size,
+        _ => 0,
+    };
+    let mut index = vec![0u8; moov_size as usize];
+    file.seek(SeekFrom::Start(moov_at)).map_err(failed)?;
+    file.read_exact(&mut index).map_err(failed)?;
+    // The data moves by the index's size, which the move can change, when a
+    // table of offsets outgrows 32 bits: until it doesn't.
+    let mut shift = moov_size;
+    let moved = loop {
+        let moved = shift_offsets(&index, shift)?;
+        if moved.len() as u64 == shift {
+            break moved;
+        }
+        shift = moved.len() as u64;
+    };
+    // From the end back, so that nothing is written over before it's read.
+    let mut buffer = vec![0u8; chunk as usize];
+    let mut end = moov_at;
+    while end > front {
+        let start = end.saturating_sub(chunk).max(front);
+        let piece = &mut buffer[..(end - start) as usize];
+        file.seek(SeekFrom::Start(start)).map_err(failed)?;
+        file.read_exact(piece).map_err(failed)?;
+        file.seek(SeekFrom::Start(start + shift)).map_err(failed)?;
+        file.write_all(piece).map_err(failed)?;
+        end = start;
+    }
+    file.seek(SeekFrom::Start(front)).map_err(failed)?;
+    file.write_all(&moved).map_err(failed)?;
+    file.set_len(moov_at + shift).map_err(failed)?;
+    file.sync_all().map_err(failed)
+}
+
 /// The subtitle tracks of an MP4 as this module writes them: each sample's
 /// start, end and text, track by track.
 #[cfg(test)]
@@ -475,7 +617,7 @@ pub fn read_tracks(path: &Path) -> Vec<Vec<(f64, f64, String)>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SubtitleCue, samples};
+    use super::{SubtitleCue, boxed, children, chunk_offsets, full_box, move_index, samples};
 
     #[test]
     fn fills_the_stretches_between_lines() {
@@ -494,5 +636,72 @@ mod tests {
                 (0.7, 0.9, "two".into()),
             ]
         );
+    }
+
+    /// A chunk offset table's content: version and flags, the count, then
+    /// each offset in 32 bits.
+    fn offsets(values: &[u32]) -> Vec<u8> {
+        let mut content = vec![0u8; 4];
+        content.extend((values.len() as u32).to_be_bytes());
+        for value in values {
+            content.extend(value.to_be_bytes());
+        }
+        content
+    }
+
+    #[test]
+    fn chunk_offsets_move_on_and_outgrow_32_bits() {
+        let content = offsets(&[100, 4_000_000_000]);
+        let moved = chunk_offsets(b"stco", &content, 1000).unwrap();
+        assert_eq!(&moved[4..8], b"stco");
+        assert_eq!(moved[16..20], 1100u32.to_be_bytes());
+        let outgrown = chunk_offsets(b"stco", &content, 300_000_000).unwrap();
+        assert_eq!(&outgrown[4..8], b"co64");
+        assert_eq!(outgrown[16..24], 300_000_100u64.to_be_bytes());
+        assert_eq!(outgrown[24..32], 4_300_000_000u64.to_be_bytes());
+    }
+
+    #[test]
+    fn moves_the_index_to_the_front_a_little_at_a_time() {
+        // A file type, data of 64 numbered bytes, then an index with one
+        // chunk at each eighth of them.
+        let ftyp = boxed(b"ftyp", b"isom\0\0\0\0isom");
+        let payload: Vec<u8> = (0..64).collect();
+        let data_at = (ftyp.len() + 8) as u32;
+        let chunks: Vec<u32> = (0..8).map(|i| data_at + i * 8).collect();
+        let stco = full_box(b"stco", 0, 0, &offsets(&chunks)[4..]);
+        let index = boxed(
+            b"moov",
+            &boxed(
+                b"trak",
+                &boxed(b"mdia", &boxed(b"minf", &boxed(b"stbl", &stco))),
+            ),
+        );
+        let file = [ftyp.clone(), boxed(b"mdat", &payload), index].concat();
+        let path = std::env::temp_dir().join(format!("index-first-{}.mp4", std::process::id()));
+        std::fs::write(&path, &file).unwrap();
+        move_index(&path, 5).unwrap();
+
+        let moved = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(moved.len(), file.len());
+        let kinds: Vec<[u8; 4]> = children(&moved).unwrap().iter().map(|b| b.0).collect();
+        assert_eq!(kinds, [*b"ftyp", *b"moov", *b"mdat"]);
+        // Each chunk offset still finds its eighth of the data.
+        let at = moved
+            .windows(4)
+            .position(|window| window == b"stco")
+            .unwrap()
+            + 12;
+        for i in 0..8 {
+            let offset =
+                u32::from_be_bytes(moved[at + i * 4..at + i * 4 + 4].try_into().unwrap()) as usize;
+            assert_eq!(moved[offset], (i * 8) as u8, "chunk {i}");
+        }
+        // Moved once, it stays.
+        std::fs::write(&path, &moved).unwrap();
+        move_index(&path, 5).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), moved);
+        std::fs::remove_file(&path).unwrap();
     }
 }

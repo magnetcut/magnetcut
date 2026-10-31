@@ -13,12 +13,12 @@ use gstreamer_app::AppSrc;
 use gstreamer_video::{VideoFormat, VideoInfo};
 
 use super::frames::FrameBuffer;
+use super::mp4_index;
 use super::pipeline::{by_name, clock_time, failure, first_element, launch, play};
 use super::settings::{
     Audio, AudioSettings, Capabilities, Container, KEY_FRAME_INTERVAL, SubtitleTrack, VideoCodec,
     VideoSettings, WRITING_APP,
 };
-use super::timed_text;
 
 // A sound buffer's length, in seconds: short, so the sound and the pictures
 // interleave closely.
@@ -256,7 +256,7 @@ impl Writer {
         play(&writer.pipeline)?;
         for (index, track) in subtitles.iter().enumerate() {
             let source: AppSrc = by_name(&writer.pipeline, &format!("subtitles{index}"))?;
-            for (start, end, text) in timed_text::samples(&track.cues) {
+            for (start, end, text) in mp4_index::samples(&track.cues) {
                 let mut buffer = gst::Buffer::from_mut_slice(text.into_bytes());
                 {
                     let buffer = buffer.get_mut().ok_or("a subtitle's buffer is in use")?;

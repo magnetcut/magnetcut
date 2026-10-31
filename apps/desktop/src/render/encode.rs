@@ -3,7 +3,7 @@
 // MP4 and QuickTime files.
 
 use std::collections::VecDeque;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::ptr::{self, NonNull};
 use std::sync::mpsc;
 use std::thread;
@@ -15,15 +15,14 @@ use objc2_av_foundation::{
     AVAssetReader, AVAssetReaderStatus, AVAssetReaderTrackOutput, AVAssetWriter,
     AVAssetWriterInput, AVAssetWriterInputPixelBufferAdaptor, AVAssetWriterStatus, AVFileTypeMPEG4,
     AVFileTypeQuickTimeMovie, AVMediaTypeAudio, AVMediaTypeVideo,
-    AVMetadataIdentifierQuickTimeUserDataSoftware, AVMetadataIdentifieriTunesMetadataEncodingTool,
-    AVMutableMetadataItem, AVVideoAverageBitRateKey, AVVideoCodecKey,
-    AVVideoCodecTypeAppleProRes422, AVVideoCodecTypeAppleProRes422HQ, AVVideoCodecTypeH264,
-    AVVideoCodecTypeHEVC, AVVideoColorPrimaries_ITU_R_709_2, AVVideoColorPrimariesKey,
-    AVVideoColorPropertiesKey, AVVideoCompressionPropertiesKey, AVVideoExpectedSourceFrameRateKey,
-    AVVideoHeightKey, AVVideoMaxKeyFrameIntervalDurationKey, AVVideoProfileLevelH264HighAutoLevel,
-    AVVideoProfileLevelKey, AVVideoQualityKey, AVVideoTransferFunction_ITU_R_709_2,
-    AVVideoTransferFunctionKey, AVVideoWidthKey, AVVideoYCbCrMatrix_ITU_R_709_2,
-    AVVideoYCbCrMatrixKey,
+    AVMetadataIdentifierQuickTimeUserDataSoftware, AVMutableMetadataItem, AVVideoAverageBitRateKey,
+    AVVideoCodecKey, AVVideoCodecTypeAppleProRes422, AVVideoCodecTypeAppleProRes422HQ,
+    AVVideoCodecTypeH264, AVVideoCodecTypeHEVC, AVVideoColorPrimaries_ITU_R_709_2,
+    AVVideoColorPrimariesKey, AVVideoColorPropertiesKey, AVVideoCompressionPropertiesKey,
+    AVVideoExpectedSourceFrameRateKey, AVVideoHeightKey, AVVideoMaxKeyFrameIntervalDurationKey,
+    AVVideoProfileLevelH264HighAutoLevel, AVVideoProfileLevelKey, AVVideoQualityKey,
+    AVVideoTransferFunction_ITU_R_709_2, AVVideoTransferFunctionKey, AVVideoWidthKey,
+    AVVideoYCbCrMatrix_ITU_R_709_2, AVVideoYCbCrMatrixKey,
 };
 use objc2_avf_audio::{AVEncoderBitRateKey, AVFormatIDKey, AVNumberOfChannelsKey, AVSampleRateKey};
 use objc2_core_audio_types::{
@@ -49,6 +48,7 @@ use super::av::{
 };
 use super::av1::Av1Encoder;
 use super::decode;
+use super::mp4_index;
 use super::settings::{
     Audio, AudioSettings, Capabilities, Container, FrameRate, KEY_FRAME_INTERVAL, SubtitleTrack,
     VideoCodec, VideoSettings, WRITING_APP,
@@ -132,6 +132,8 @@ enum VideoSink {
 
 pub struct Writer {
     writer: Retained<AVAssetWriter>,
+    path: PathBuf,
+    container: Container,
     video: Retained<AVAssetWriterInput>,
     sink: VideoSink,
     audio: Option<AudioInput>,
@@ -184,8 +186,6 @@ impl Writer {
         let url = file_url(path)?;
         let writer = unsafe { AVAssetWriter::assetWriterWithURL_fileType_error(&url, file_type) }
             .map_err(|error| describe(Some(error), "Couldn't start the file"))?;
-        // The index at the start, so the film plays as it downloads.
-        unsafe { writer.setShouldOptimizeForNetworkUse(container == Container::Mp4) };
 
         let format = NSNumber::new_u32(kCVPixelFormatType_32BGRA);
         let width = NSNumber::new_u32(video.width);
@@ -279,16 +279,16 @@ impl Writer {
             .collect::<Result<Vec<_>, _>>()?;
 
         // The program that wrote the film, where ffprobe and MediaInfo look
-        // for it: MP4's encoding tool (©too), QuickTime's software (©swr).
-        let identifier = match container {
-            Container::Mp4 => av!(AVMetadataIdentifieriTunesMetadataEncodingTool),
-            Container::Mov => av!(AVMetadataIdentifierQuickTimeUserDataSoftware),
-        };
-        let item = unsafe { AVMutableMetadataItem::new() };
-        unsafe {
-            item.setIdentifier(Some(identifier));
-            item.setValue(Some(any(&NSString::from_str(WRITING_APP))));
-            writer.setMetadata(&NSArray::from_retained_slice(&[Retained::into_super(item)]));
+        // for it: QuickTime's software (©swr). MP4's encoding tool, which
+        // AVFoundation leaves out before macOS 27, goes in once it's written
+        // (`mp4_index.rs`).
+        if container == Container::Mov {
+            let item = unsafe { AVMutableMetadataItem::new() };
+            unsafe {
+                item.setIdentifier(Some(av!(AVMetadataIdentifierQuickTimeUserDataSoftware)));
+                item.setValue(Some(any(&NSString::from_str(WRITING_APP))));
+                writer.setMetadata(&NSArray::from_retained_slice(&[Retained::into_super(item)]));
+            }
         }
 
         if !unsafe { writer.startWriting() } {
@@ -300,6 +300,8 @@ impl Writer {
         unsafe { writer.startSessionAtSourceTime(kCMTimeZero) };
         Ok(Self {
             writer,
+            path: path.to_owned(),
+            container,
             video: video_input,
             sink,
             audio,
@@ -429,6 +431,12 @@ impl Writer {
         receiver.recv().map_err(|error| error.to_string())?;
         if unsafe { self.writer.status() } != AVAssetWriterStatus::Completed {
             return Err(self.failure("Couldn't finish the file"));
+        }
+        if self.container == Container::Mp4 {
+            // The program that wrote it, then the index at the start, so the
+            // film plays as it downloads.
+            mp4_index::finish(&self.path, &[], (0, 0))?;
+            mp4_index::move_index_to_front(&self.path)?;
         }
         Ok(())
     }

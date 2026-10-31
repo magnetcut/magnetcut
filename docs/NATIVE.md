@@ -335,3 +335,11 @@ and give it constant quality and the encoders the web views lack.
   the editor calls them: a drawing and a tone into a film, then that film, decoded, into
   another, read back at its size, on all three (3 s on macOS and Windows, 0.7 s on Linux, where
   each export had first started 30 s late, waiting on its writer).
+- What wrote the film, in each file: "MagnetCut" and the version in MP4's encoding tool (©too)
+  and QuickTime's software (©swr), read back on all three systems. AVFoundation leaves the MP4
+  one out before macOS 27 (CI's macOS 26 wrote no metadata at all in an MP4, whatever the key;
+  only the M4V file type kept it, an iTunes brand on every export), so on a Mac an MP4 is now
+  written with its index at the end, the name added to it (`mp4_index.rs`, as Media Foundation's
+  files get theirs and their subtitle tracks), and the index moved to the front in place, its
+  chunk offsets with it (64-bit where a film outgrows 4 GB): one pass over the file, as
+  AVFoundation's own fast start was.
