@@ -407,6 +407,21 @@ fn written_by(path: &Path) -> Vec<String> {
     found
 }
 
+/// A film's user data and metadata boxes, wherever they are, as bytes: what
+/// a failure shows.
+fn metadata_boxes(path: &Path) -> Vec<String> {
+    let file = std::fs::read(path).unwrap();
+    (4..file.len().saturating_sub(4))
+        .filter(|&at| matches!(&file[at..at + 4], b"udta" | b"meta"))
+        .map(|at| {
+            let size = u32::from_be_bytes(file[at - 4..at].try_into().unwrap()) as usize;
+            file[at - 4..(at - 4 + size).min(file.len())]
+                .escape_ascii()
+                .to_string()
+        })
+        .collect()
+}
+
 #[test]
 fn says_what_wrote_the_film() {
     let video = VideoSettings {
@@ -435,7 +450,8 @@ fn says_what_wrote_the_film() {
             found
                 .iter()
                 .any(|name| name == super::settings::WRITING_APP),
-            "{container:?}: {found:?}"
+            "{container:?}: {found:?} in {:?}",
+            metadata_boxes(&path)
         );
     }
 }
