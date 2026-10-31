@@ -61,7 +61,7 @@ pub fn capabilities() -> Capabilities {
         formats: vec![Container::Mp4],
         video_codecs,
         constant_quality: constant_quality(),
-        audio_copy: false,
+        audio_copy: can_mux && first_element(&["aacparse"]).is_some(),
         // As timed text (tx3g), which mp4mux writes, as on a Mac.
         subtitle_tracks: can_mux,
     }
@@ -124,7 +124,7 @@ impl Writer {
     }
 
     /// Starts a file at `path`, replacing what's there, with subtitle tracks
-    /// as timed text. Copied sound isn't written here yet (`capabilities`).
+    /// as timed text.
     pub fn with_subtitles(
         path: &Path,
         container: Container,
@@ -137,12 +137,10 @@ impl Writer {
         }
         let encoder = first_element(encoders(video.codec))
             .ok_or_else(|| format!("This computer can't encode {:?}", video.codec))?;
-        let audio = match audio {
-            Some(Audio::Mix(settings)) => Some(settings),
-            Some(Audio::Copy { .. }) => {
-                return Err("Linux's own export doesn't copy sound yet".into());
-            }
-            None => None,
+        let (audio, copy) = match audio {
+            Some(Audio::Mix(settings)) => (Some(settings), None),
+            Some(Audio::Copy { location, end }) => (None, Some((location, end))),
+            None => (None, None),
         };
         let aac = match audio {
             Some(_) => {
@@ -174,6 +172,15 @@ impl Writer {
                  {aac} name=aac ! aacparse ! \
                  queue max-size-buffers=0 max-size-bytes=0 max-size-time=10000000000 ! mux."
             ));
+        }
+        // A file's sound as it's stored, read as fast as the frames take it.
+        if copy.is_some() {
+            description.push_str(
+                " filesrc name=soundfile ! qtdemux name=sounddemux sounddemux.audio_0 ! \
+                 aacparse name=copied ! \
+                 queue max-size-buffers=0 max-size-bytes=0 max-size-time=10000000000 ! \
+                 mux.audio_%u",
+            );
         }
         // Each subtitle track's lines all at once, waiting unbounded for the
         // frames they go with: they're small.
@@ -224,6 +231,11 @@ impl Writer {
             }
             None => None,
         };
+        if let Some((location, end)) = copy {
+            let file = pipeline.by_name("soundfile").ok_or("no sound file")?;
+            file.set_property("location", location.to_str().ok_or("not a UTF-8 path")?);
+            copy_until(&pipeline, clock_time(end))?;
+        }
         let writer = Self {
             pipeline,
             video: video_source,
@@ -378,6 +390,28 @@ impl Writer {
             None => doing.to_owned(),
         }
     }
+}
+
+/// Copied sound ends where the timeline stops hearing it: the first packet
+/// from `end` on is refused, as is all that follows, so the demuxer stops
+/// reading the file there.
+fn copy_until(pipeline: &gst::Pipeline, end: gst::ClockTime) -> Result<(), String> {
+    let parser = pipeline
+        .by_name("copied")
+        .ok_or("no parser for the copied sound")?;
+    let pad = parser.static_pad("src").ok_or("the parser has no output")?;
+    pad.add_probe(gst::PadProbeType::BUFFER, move |pad, info| {
+        let is_late = matches!(
+            &info.data,
+            Some(gst::PadProbeData::Buffer(buffer)) if buffer.pts().is_some_and(|pts| pts >= end)
+        );
+        if !is_late {
+            return gst::PadProbeReturn::Ok;
+        }
+        pad.push_event(gst::event::Eos::new());
+        gst::PadProbeReturn::Remove
+    });
+    Ok(())
 }
 
 /// A track's samples, one after another from zero, as (start, end, text):

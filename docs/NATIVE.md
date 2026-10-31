@@ -206,7 +206,9 @@ and give it constant quality and the encoders the web views lack.
   decodebin turns each source into BGRA, through VA-API's decoders where there are some; the
   film goes through appsrc to the best encoder there is (VA-API's, then x264, x265 or
   OpenH264) and an AAC one (fdk-aac, FFmpeg's, VisualOn's or FAAC), into mp4mux, with subtitle
-  tracks as timed text (tx3g), as on a Mac. The pipeline is set playing without waiting for it
+  tracks as timed text (tx3g), as on a Mac. A source's AAC sound is copied as it's stored
+  (qtdemux, aacparse), up to where the timeline stops hearing it: a probe refuses the packets
+  from there, which stops the demuxer reading on. The pipeline is set playing without waiting for it
   to settle, which it can't till it's fed: waited for, each export started 30 s late. The
   packages recommend the plugins with the encoders.
 - Both writers hold the mix until the frames are near (half a second ahead): the muxer
@@ -214,9 +216,9 @@ and give it constant quality and the encoders the web views lack.
 - The portrait fixture (`apps/desktop/fixtures/turned.mp4`, made by ffmpeg) turns the same way
   on all three: AVFoundation's transform, Media Foundation's `MF_MT_VIDEO_ROTATION` and
   GStreamer's `rotate-90` all mean a quarter turn clockwise.
-- Not yet on Windows and Linux: copied sound, subtitle tracks on Windows (the web view's export
-  makes those, WebVTT in MP4), constant quality, ProRes and AV1, HDR's tone mapping, and
-  decoding into the GPU's memory (D3D11, VA-API) without the copy out.
+- Not yet on Windows: copied sound and subtitle tracks (the web view's export makes those,
+  WebVTT in MP4). Not yet on Windows and Linux: constant quality, ProRes and AV1, HDR's tone
+  mapping, and decoding into the GPU's memory (D3D11, VA-API) without the copy out.
 - Checked on CI and, for GStreamer, on a Mac against Homebrew's: no Windows or Linux machine
   here, so not in the app on those systems. The Windows runner has Microsoft's H.264 and AAC
   encoders and no HEVC; WARP stands in for its GPU, and Mesa's software Vulkan for Linux's.

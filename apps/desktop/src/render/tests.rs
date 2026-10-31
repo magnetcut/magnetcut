@@ -515,7 +515,38 @@ fn stored_sound(path: &Path, end: f64) -> (Vec<usize>, f64) {
     (sizes, last)
 }
 
-#[cfg(target_os = "macos")]
+/// A file's sound as it's stored, up to `end` seconds: its packets' sizes,
+/// and how long they last, as GStreamer's demuxer reads them.
+#[cfg(target_os = "linux")]
+fn stored_sound(path: &Path, end: f64) -> (Vec<usize>, f64) {
+    use gstreamer as gst;
+    use gstreamer::prelude::*;
+
+    let pipeline = super::pipeline::launch(
+        "filesrc name=file ! qtdemux name=demux demux.audio_0 ! appsink name=sound sync=false",
+    )
+    .unwrap();
+    pipeline
+        .by_name("file")
+        .unwrap()
+        .set_property("location", path.to_str().unwrap());
+    let sound: gstreamer_app::AppSink = super::pipeline::by_name(&pipeline, "sound").unwrap();
+    pipeline.set_state(gst::State::Playing).unwrap();
+    let (mut sizes, mut last) = (Vec::new(), 0.0);
+    while let Some(sample) = sound.try_pull_sample(gst::ClockTime::from_seconds(10)) {
+        let buffer = sample.buffer().unwrap();
+        let start = super::pipeline::seconds(buffer.pts().unwrap());
+        if start >= end {
+            break;
+        }
+        sizes.push(buffer.size());
+        last = start + buffer.duration().map_or(0.0, super::pipeline::seconds);
+    }
+    pipeline.set_state(gst::State::Null).unwrap();
+    (sizes, last)
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn copies_a_files_sound_as_it_is() {
     // Two seconds of film and sound, the first second exported with its sound copied.
@@ -560,7 +591,7 @@ fn copies_a_files_sound_as_it_is() {
         output_width: 64,
         output_height: 64,
         fps: FPS,
-        video_codec: VideoCodec::Hevc,
+        video_codec: DRAWN.2,
         video_bitrate: 1_000_000,
         video_quality: None,
         audio: None,
