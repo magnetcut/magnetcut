@@ -309,7 +309,21 @@ await tool({ name: "media", args: { action: "import", paths: [black, white], add
 const shots = await tool({ name: "find", args: { what: "shots" } });
 const cut = Number(/at (\d+\.\d+)/.exec(shots.text)?.[1]);
 if (!/^1 cuts/.test(shots.text) || Math.abs(cut - 5) > 0.1) {
-	throw new Error(`the cut isn't where the pictures meet: ${shots.text} / ${(await tool({ name: "summary" })).text}`);
+	// The two pictures as drawn: the same, if they weren't drawn.
+	const frames: string[] = [];
+	for (const at of [2.5, 7.5]) {
+		const { reply } = await rpc({
+			method: "tools/call",
+			params: { name: "look", arguments: { at, width: 64 } },
+		});
+		const image = (reply?.result?.content as Array<{ type: string; data?: string }> | undefined)?.find(
+			(item) => item.type === "image",
+		);
+		frames.push(image?.data ?? "");
+	}
+	throw new Error(
+		`the cut isn't where the pictures meet: ${shots.text} / ${(await tool({ name: "summary" })).text} / frames at 2.5 and 7.5: ${frames[0].length} and ${frames[1].length} bytes, ${frames[0] === frames[1] ? "the same" : "different"}`,
+	);
 }
 report({ step: "shots", detail: shots.text });
 
