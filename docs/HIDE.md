@@ -82,8 +82,11 @@ moves.
   own renderer (the code the button calls; not the button): a 4 s pan across the 1927 Solvay
   portrait, 24 to 27 faces in view, became 29 Hide regions in 20 s, and every face the model
   sees in the frames at every fifth of a second was hidden (514 of 514), the picture away from
-  them unchanged. Faces of 15 px and less, at the back of a crowd, the model doesn't see: those
-  stay to be covered by hand. Finding this out found two faults in the renderer, both mended:
+  them unchanged. Find plates, on a 4 s pan across a supermarket's car park (a photo from
+  Geograph, CC BY-SA), three plates near and far: three Cover regions, every plate covered (48
+  of 48), nothing else; a plate find wider than a third of the frame is dropped, after the roof's
+  beams scored as high as a far plate. Faces of 15 px and less, at the back of a crowd, the
+  model doesn't see: those stay to be covered by hand. Finding this out found two faults in the renderer, both mended:
   on a frame's very start the frame before could show, depending on what the decoder had ready;
   and the decoder's canvases, used in turn, made the compositor skip uploading a frame when the
   same canvas came back three frames later, so the picture stood still.

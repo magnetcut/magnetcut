@@ -26,6 +26,8 @@ const DETECTORS = {
 		threshold: 0.6,
 		// Finds overlapping more are the same face.
 		overlap: 0.3,
+		// A face in a close-up can fill the frame.
+		widest: 1,
 	},
 	plates: {
 		// A YOLOv11 tuned for plates (AGPL-3.0).
@@ -35,6 +37,9 @@ const DETECTORS = {
 		order: "rgb1",
 		threshold: 0.35,
 		overlap: 0.45,
+		// A plate wider than a third of the frame isn't one: a car park's roof
+		// beams scored as high as a far plate (0.5), at half the frame's width.
+		widest: 1 / 3,
 	},
 } as const;
 
@@ -110,7 +115,10 @@ export async function detect({
 	kind: DetectorKind;
 	frame: TrackFrame;
 }): Promise<Detection[]> {
-	const found = await look({ kind, frame });
+	const widest = DETECTORS[kind].widest * frame.width;
+	const found = (await look({ kind, frame })).filter(
+		(detection) => detection.width <= widest,
+	);
 	const parts = tiles({
 		width: frame.width,
 		height: frame.height,
@@ -127,6 +135,7 @@ export async function detect({
 			},
 		});
 		for (const detection of inPart) {
+			if (detection.width > widest) continue;
 			found.push({ ...detection, x: detection.x + x, y: detection.y + y });
 		}
 	}
