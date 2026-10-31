@@ -85,25 +85,37 @@ function summaryInput({ editor }: { editor: EditorCore }): SummaryInput {
 }
 
 /** Waits until the editor shows project `id`, loaded: its scenes, media and
- * fonts in. */
-async function editorReady({
+ * fonts in. Woken by the managers' own notices, not timers alone: a window
+ * that can't be seen has its timers slowed right down. */
+function editorReady({
 	editor,
 	id,
 }: {
 	editor: EditorCore;
 	id: string;
 }): Promise<void> {
-	for (let waited = 0; waited < 60_000; waited += 100) {
-		if (
-			location.pathname === "/editor" &&
-			editor.project.getLoadedProjectId() === id &&
-			editor.scenes.getActiveSceneOrNull() !== null
-		) {
-			return;
-		}
-		await new Promise((resolve) => setTimeout(resolve, 100));
-	}
-	throw new ToolError("The project didn't open in time");
+	const isReady = () =>
+		location.pathname === "/editor" &&
+		editor.project.getLoadedProjectId() === id &&
+		editor.scenes.getActiveSceneOrNull() !== null;
+	if (isReady()) return Promise.resolve();
+	return new Promise((resolve, reject) => {
+		const started = Date.now();
+		const stops: Array<() => void> = [];
+		const check = () => {
+			if (isReady()) {
+				for (const stop of stops) stop();
+				resolve();
+			} else if (Date.now() - started > 60_000) {
+				for (const stop of stops) stop();
+				reject(new ToolError("The project didn't open in time"));
+			}
+		};
+		stops.push(editor.project.subscribe(check));
+		stops.push(editor.scenes.subscribe(check));
+		const timer = setInterval(check, 250);
+		stops.push(() => clearInterval(timer));
+	});
 }
 
 const status: Tool = {
