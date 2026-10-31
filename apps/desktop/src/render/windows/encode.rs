@@ -7,17 +7,17 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
 use windows::Win32::Media::MediaFoundation::{
-    CODECAPI_AVEncCommonMeanBitRate, CODECAPI_AVEncCommonRateControlMode,
-    CODECAPI_AVEncMPVDefaultBPictureCount, CODECAPI_AVEncMPVGOPSize, IMFAttributes, IMFByteStream,
-    IMFMediaBuffer, IMFMediaType, IMFSample, IMFSinkWriter, IMFSourceReader, MF_MT_DEFAULT_STRIDE,
-    MF_MT_MPEG2_PROFILE, MF_MT_SUBTYPE, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS,
-    MF_SOURCE_READER_ALL_STREAMS, MF_SOURCE_READER_FIRST_AUDIO_STREAM,
-    MF_SOURCE_READERF_ENDOFSTREAM, MF_TRANSCODE_CONTAINERTYPE, MFAudioFormat_AAC,
-    MFAudioFormat_PCM, MFCreateSinkWriterFromURL, MFCreateSourceReaderFromURL, MFMediaType_Video,
-    MFNominalRange_0_255, MFNominalRange_16_235, MFT_CATEGORY_VIDEO_ENCODER,
+    CODECAPI_AVEncCommonMeanBitRate, CODECAPI_AVEncCommonQuality,
+    CODECAPI_AVEncCommonRateControlMode, CODECAPI_AVEncMPVDefaultBPictureCount,
+    CODECAPI_AVEncMPVGOPSize, IMFAttributes, IMFByteStream, IMFMediaBuffer, IMFMediaType,
+    IMFSample, IMFSinkWriter, IMFSourceReader, MF_MT_DEFAULT_STRIDE, MF_MT_MPEG2_PROFILE,
+    MF_MT_SUBTYPE, MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, MF_SOURCE_READER_ALL_STREAMS,
+    MF_SOURCE_READER_FIRST_AUDIO_STREAM, MF_SOURCE_READERF_ENDOFSTREAM, MF_TRANSCODE_CONTAINERTYPE,
+    MFAudioFormat_AAC, MFAudioFormat_PCM, MFCreateSinkWriterFromURL, MFCreateSourceReaderFromURL,
+    MFMediaType_Video, MFNominalRange_0_255, MFNominalRange_16_235, MFT_CATEGORY_VIDEO_ENCODER,
     MFTranscodeContainerType_MPEG4, MFVideoFormat_H264, MFVideoFormat_HEVC, MFVideoFormat_RGB32,
-    eAVEncCommonRateControlMode_UnconstrainedVBR, eAVEncH264VProfile_High,
-    eAVEncH265VProfile_Main_420_8,
+    eAVEncCommonRateControlMode_Quality, eAVEncCommonRateControlMode_UnconstrainedVBR,
+    eAVEncH264VProfile_High, eAVEncH265VProfile_Main_420_8,
 };
 use windows::core::{GUID, PCWSTR};
 
@@ -43,9 +43,11 @@ const AUDIO_AHEAD: f64 = 0.5;
 // The rates Windows's AAC encoder takes, in bytes a second.
 const AAC_RATES: [u32; 4] = [12_000, 16_000, 20_000, 24_000];
 
-/// Whether H.264 and HEVC take a constant quality here: not yet.
+/// Whether H.264 and HEVC take a constant quality here: by Media
+/// Foundation's quality rate control, which Microsoft's encoders take. One
+/// that won't is given the bitrate instead (`Writer::with_subtitles`).
 pub fn constant_quality() -> bool {
-    false
+    true
 }
 
 /// The codec's encoder input, as Media Foundation names it.
@@ -280,27 +282,51 @@ impl Writer {
         // likes, where not. Out of order, Microsoft's encoder's frames came
         // back a frame late.
         let gop = (f64::from(fps.0) / f64::from(fps.1) * KEY_FRAME_INTERVAL).round() as u32;
-        let parameters = attributes(
-            &[
+        let rest = [
+            (CODECAPI_AVEncMPVGOPSize, gop.max(1)),
+            (CODECAPI_AVEncMPVDefaultBPictureCount, 0),
+        ];
+        let by_bitrate = [
+            (
+                CODECAPI_AVEncCommonRateControlMode,
+                eAVEncCommonRateControlMode_UnconstrainedVBR.0 as u32,
+            ),
+            (CODECAPI_AVEncCommonMeanBitRate, video.bitrate),
+        ];
+        // A constant quality, from 1 to 100, where asked for and taken; the
+        // bitrate, where not.
+        let by_quality = video.quality.map(|quality| {
+            [
                 (
                     CODECAPI_AVEncCommonRateControlMode,
-                    eAVEncCommonRateControlMode_UnconstrainedVBR.0 as u32,
+                    eAVEncCommonRateControlMode_Quality.0 as u32,
                 ),
-                (CODECAPI_AVEncCommonMeanBitRate, video.bitrate),
-                (CODECAPI_AVEncMPVGOPSize, gop.max(1)),
-                (CODECAPI_AVEncMPVDefaultBPictureCount, 0),
-            ],
-            &[],
-        )?;
-        if unsafe { writer.SetInputMediaType(video_stream, &frames, &parameters) }.is_err() {
-            unsafe { writer.SetInputMediaType(video_stream, &frames, None::<&IMFAttributes>) }
+                (
+                    CODECAPI_AVEncCommonQuality,
+                    (quality * 100.0).round().clamp(1.0, 100.0) as u32,
+                ),
+            ]
+        });
+        let mut choices = Vec::new();
+        if let Some(by_quality) = by_quality {
+            choices.push(Some(attributes(&[&by_quality[..], &rest].concat(), &[])?));
+        }
+        choices.push(Some(attributes(&[&by_bitrate[..], &rest].concat(), &[])?));
+        choices.push(None);
+        let mut set = Err(String::new());
+        for parameters in choices {
+            set = unsafe { writer.SetInputMediaType(video_stream, &frames, parameters.as_ref()) }
                 .map_err(|error| {
                     format!(
                         "This computer can't encode {:?} at {}x{}: {error}",
                         video.codec, size.0, size.1
                     )
-                })?;
+                });
+            if set.is_ok() {
+                break;
+            }
         }
+        set?;
         let sound = match audio {
             Some(settings) => {
                 let rate = AAC_RATES

@@ -221,8 +221,12 @@ and give it constant quality and the encoders the web views lack.
 - The portrait fixture (`apps/desktop/fixtures/turned.mp4`, made by ffmpeg) turns the same way
   on all three: AVFoundation's transform, Media Foundation's `MF_MT_VIDEO_ROTATION` and
   GStreamer's `rotate-90` all mean a quarter turn clockwise.
-- Not yet on Windows and Linux: constant quality, ProRes and AV1, HDR's tone mapping, and
-  decoding into the GPU's memory (D3D11, VA-API) without the copy out.
+- Constant quality: on Windows by Media Foundation's quality rate control (1 to 100), the
+  bitrate where an encoder won't take it; on Linux by x264's and x265's rate factor (0 to 1 as
+  40 to 12), where those are the encoders, x264's bitrate lifted, as in that mode it's a
+  ceiling. Elsewhere a bitrate stands in, as before.
+- Not yet on Windows and Linux: ProRes and AV1, HDR's tone mapping, and decoding into the GPU's
+  memory (D3D11, VA-API) without the copy out.
 - Checked on CI (the tests, and the probe in the app) and, for GStreamer, on a Mac against
   Homebrew's: no Windows or Linux desktop here. The Windows runner has Microsoft's H.264 and AAC
   encoders and no HEVC; WARP stands in for its GPU, and Mesa's software Vulkan for Linux's.

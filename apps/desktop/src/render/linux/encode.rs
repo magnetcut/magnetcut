@@ -37,9 +37,11 @@ const H264_ENCODERS: [&str; 4] = ["vah264enc", "vaapih264enc", "x264enc", "openh
 const HEVC_ENCODERS: [&str; 3] = ["vah265enc", "vaapih265enc", "x265enc"];
 const AAC_ENCODERS: [&str; 4] = ["fdkaacenc", "avenc_aac", "voaacenc", "faac"];
 
-/// Whether H.264 and HEVC take a constant quality here: not yet.
+/// Whether H.264 and HEVC take a constant quality here: where the encoders
+/// for both are x264's and x265's, by their rate factor.
 pub fn constant_quality() -> bool {
-    false
+    first_element(&H264_ENCODERS) == Some("x264enc")
+        && matches!(first_element(&HEVC_ENCODERS), None | Some("x265enc"))
 }
 
 fn encoders(codec: VideoCodec) -> &'static [&'static str] {
@@ -436,6 +438,21 @@ fn configure_encoder(
         (video.bitrate / 1000).max(1)
     };
     set("bitrate", &bitrate.to_string());
+    // A constant quality, as x264's and x265's rate factor: 0 to 1 as 40 to
+    // 12, a factor of 22 at the panel's 65 (x264's own default is 23).
+    if let Some(quality) = video.quality {
+        let factor = (40.0 - 28.0 * f64::from(quality.clamp(0.0, 1.0))).round() as u32;
+        match name {
+            "x264enc" => {
+                set("pass", "qual");
+                set("quantizer", &factor.to_string());
+                // Its bitrate is a ceiling in this mode (x264's VBV): none.
+                set("bitrate", "2048000");
+            }
+            "x265enc" => set("option-string", &format!("crf={factor}")),
+            _ => {}
+        }
+    }
     let interval = (f64::from(fps.0) / f64::from(fps.1) * KEY_FRAME_INTERVAL).round() as u32;
     let interval = interval.max(1).to_string();
     match name {

@@ -700,7 +700,11 @@ fn constant_quality_steers_the_encoder() {
         writer.finish().unwrap();
         std::fs::metadata(&path).unwrap().len()
     };
+    let made = super::encode::capabilities().video_codecs;
     for codec in [VideoCodec::Avc, VideoCodec::Hevc] {
+        if !made.contains(&codec) {
+            continue;
+        }
         let (low, high) = (size_at(codec, 0.2), size_at(codec, 0.9));
         assert!(
             high > low * 2,

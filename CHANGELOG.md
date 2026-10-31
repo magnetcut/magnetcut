@@ -7,6 +7,8 @@ All notable changes to this project are documented here. The format is based on
 ## Unreleased
 
 ### Added
+- On Windows, and on Linux with x264 and x265, Export keeps a constant quality (Quality,
+  Constant) instead of aiming at a bitrate, as it does on Apple silicon.
 - On Windows and Linux, Export makes MP4 films in H.264 or HEVC with the computer's own
   decoders and encoders (Media Foundation; GStreamer), drawing each frame on the GPU as it does
   on a Mac, instead of in the editor, wherever the sources are files on disk. On Windows and
