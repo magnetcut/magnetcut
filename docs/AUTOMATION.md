@@ -19,8 +19,8 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
   dialog (`export.rs`), the native export (`render/`). The probe (`MAGNETCUT_PROBE`) already
   runs the app from the command line and reports; the macOS menu already reaches the page as
   events (`emit_to("main", "menu", …)`). Both are how this works too.
-- Projects live in the web view's IndexedDB, not in files on disk: there's no project file an
-  agent could edit, and editing one under the open editor would race it anyway.
+- Projects live in the web view's IndexedDB, not in files on disk: there's no project file to
+  open or save, for an agent or for the user.
 - What an agent would want to use is mostly there: Whisper on the computer with word
   timestamps, Find faces and Find plates, Track, black bars found by themselves, the waveform,
   Simple mode's export answers (`export/wizard.ts`: where it's going, a file size to fit, the
@@ -28,33 +28,60 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
 
 ## How it works
 
-- **MCP, from the app's own binary.** The agent starts `magnetcut --mcp` (on a Mac
-  `/Applications/MagnetCut.app/Contents/MacOS/magnetcut --mcp`), which opens no window and speaks
-  MCP on its standard input and output. It's a bridge: it finds the running app through a local
-  socket (a Unix socket in the app's data folder; a named pipe on Windows) and relays each
-  message both ways. If the app isn't running, it starts it and waits until the editor says it's
-  ready. Settings shows the line to paste (`claude mcp add magnetcut -- …`; Codex's
-  `[mcp_servers]` the same).
+- **Served by the app itself.** With the switch on, the running app serves MCP over HTTP
+  (MCP's Streamable HTTP) at `http://127.0.0.1:<port>/mcp`, the port picked once and kept, in
+  both editions. No second process and no bridge: the agent talks to the window that's open.
+  Settings gives the lines to paste, with the agent's token in them. For Claude Code:
+  ```
+  claude mcp add --transport http magnetcut http://127.0.0.1:47213/mcp \
+    --header "Authorization: Bearer mc_…"
+  ```
+  For Codex, `codex mcp add magnetcut --url http://127.0.0.1:47213/mcp
+  --bearer-token-env-var MAGNETCUT_TOKEN`, and the variable to set. If the app isn't running,
+  the agent opens it as it opens any app (`open -a MagnetCut`, or the binary). A `magnetcut --mcp`
+  mode, MCP on standard input and output, relaying to the app, comes in phase 4, for clients that
+  speak only that.
+- **Authentication: a token for each agent.** Settings, Agents: Add, a name ("Claude Code on
+  this Mac"), and MagnetCut shows a token once (32 random bytes, `mc_` and base64url), in the
+  line to paste; it keeps only its SHA-256, in the app's own data, not the web view's. Each
+  agent is listed with when it was last used, and Revoke ends it at once. Every request must
+  carry a token that's there (`Authorization: Bearer`); any other gets 401 and nothing else. The
+  server listens on 127.0.0.1 only, never on the network, and refuses a request whose `Host`
+  isn't that address and port, or that has an `Origin` (a web page's), so a site open in a
+  browser can't reach it by DNS rebinding or a form. Tokens are never logged. The switch off
+  closes the port.
 - **The user watches.** Edits happen in the window that's open, live: a strip at the top says
-  which agent is connected, with Stop. Each batch of edits is one step of undo, named for the
+  which agent is at work, with Stop. Each batch of edits is one step of undo, named for the
   agent. Nothing runs headless until phase 4.
-- **The logic stays in the web view.** Rust relays: a request becomes an `agent` event to the
-  page, the page answers with a command (`agent_reply`), images come back as bytes. The page
-  implements MCP itself (`initialize`, `tools/list`, `tools/call`, progress notifications), in a
-  new `apps/web/src/agent/`, over the managers: the model is there, and moving it to Rust for
-  this would be a rewrite for nothing. What's heavy and has no need of the model goes to Rust as
-  it would anyway: loudness and silences (`rust/crates/audio`), shot changes on the native
-  decoder's frames.
-- **The App Store edition.** The sandbox lets the bridge run, launched from the same bundle, in
-  the same container, so it finds the same socket; no network or server entitlement is needed
-  for a Unix socket. What it can't do is reach files the user didn't give: so in both editions
-  an agent reads and writes only media the project already has, folders the user granted in
-  Settings ("Folders agents may use", picked in the open dialog and kept as bookmarks), and, in
-  the App Store edition, Downloads. The same rule in both, so an agent's script works in either.
-- **Off until switched on.** Settings, "Let agents use MagnetCut", off by default. The socket
-  answers only with a token from a file only the user can read; nothing listens on the network.
-  No tool downloads anything: where a model is missing (Whisper, the detectors), the tool says
-  which and how big, and the window asks the user.
+- **The logic stays in the web view; the door is in Rust.** Rust serves HTTP (a small server on
+  its own thread), checks the token, speaks MCP's JSON-RPC (`initialize`, `tools/list`,
+  `tools/call`, progress as server-sent events), and hands each tool call to the page as an
+  `agent` event; the page answers with a command (`agent_reply`), images as bytes. The tools are
+  in a new `apps/web/src/agent/`, over the managers: the model is there, and moving it to Rust
+  for this would be a rewrite for nothing. What's heavy and has no need of the model goes to
+  Rust as it would anyway: loudness and silences (`rust/crates/audio`), shot changes on the
+  native decoder's frames.
+- **Any file the agent names (outside the App Store).** An agent works on the user's files
+  already, with the user's own permissions: MagnetCut doesn't fence it in further. In the
+  edition from the website, a tool takes any absolute path: media imported from where it is (as
+  the desktop app already keeps media, by path), a project opened from or saved to a file, an
+  export written anywhere. Exports and saved projects never replace a file unless the call says
+  so; nothing is ever deleted.
+- **Project files.** Agent mode brings `.magnetcut` files, for the user as much as for agents:
+  the project as JSON, its media by path, with File, Open and Save As in the menu. An agent opens
+  one, or writes one and opens it, keeps versions in git, or makes a project from a script; the
+  one open in the window is still the one edited live, and saving writes the file.
+- **The App Store edition.** The sandbox is Apple's, not ours: the app can open only what the
+  user gave it. So there, a path in the Movies or Downloads folders works as it does elsewhere
+  (their entitlements, Movies to be added), and so does one in a folder granted in Settings
+  (kept as a bookmark); any other, and the window asks: an open or save dialog at the path the
+  agent named, one click, and the grant is kept. Serving on 127.0.0.1 needs the
+  `com.apple.security.network.server` entitlement, which App Review grants when it sees why:
+  the Agents settings and a sentence in the review notes. If it's refused, agent mode ships in
+  the website's edition first.
+- **Off until switched on.** Settings, "Let agents use MagnetCut", off by default, and no agent
+  without its token. No tool downloads anything: where a model is missing (Whisper, the
+  detectors), the tool says which and how big, and the window asks the user.
 
 ## Spending few tokens
 
@@ -98,8 +125,8 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
 - **Finding, as tools.** Shot changes, black bars, faces and plates (each found one a Hide
   region, as the panel does), Track: their answers in the same few lines.
 - **Exporting by intent.** `export` takes Simple mode's answers (where it's going, a file size
-  to fit, size and frame rate, the sound) or the Advanced settings, and a path in a granted
-  folder. Progress comes as MCP
+  to fit, size and frame rate, the sound) or the Advanced settings, and a path (in the App
+  Store edition, one the sandbox allows, or asked for). Progress comes as MCP
   notifications, not by polling; the answer is the file's path, size, duration and codecs, and
   any warning. It never writes over a file unless told to.
 - **Few tools, short descriptions.** Each tool's description is in every request an agent makes,
@@ -110,15 +137,18 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
 ## The phases
 
 ### 1. Connect, read, look, export
-- Settings: the switch, the folders, the line to paste; the strip with Stop.
-- The socket in Rust, the `--mcp` bridge, the relay to the page; MCP in the page.
-- `status`, `project` (list, open, new), `media` (import from granted folders, list),
-  `summary`, `describe`, `look`, `export` with progress.
+- Settings: the switch, Agents (add, the token once with the lines to paste, revoke); the strip
+  with Stop.
+- The HTTP server in Rust: 127.0.0.1, tokens, `Host` and `Origin` checked, MCP's JSON-RPC, the
+  relay to the page.
+- `status`, `project` (list, open, new; open and save `.magnetcut` files), `media` (import any
+  path, list), `summary`, `describe`, `look`, `export` with progress.
 - Tested in code (the summary of a fixture project against the text it should be, its length
-  under a budget; the tool list's size) and on CI on all three systems: a Bun script as the MCP
-  client starts the built app through `--mcp`, opens a project, imports a fixture, reads the
-  summary, looks at a frame and exports, and the film is checked by the native decoder, as the
-  probe's export is.
+  under a budget; the tool list's size; requests with no token, a revoked one, a foreign `Host`
+  or an `Origin`, all refused) and on CI on all three systems: a Bun script as the MCP client
+  starts the built app with agent mode on and a test token, imports a fixture by its path, reads
+  the summary, looks at a frame, saves and reopens the project as a file, and exports; the film
+  is checked by the native decoder, as the probe's export is.
 
 ### 2. Edits in batches
 - `edit` with its operations, the transaction, `dryRun`, the diff, the revision; `undo` and
@@ -136,24 +166,26 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
   many tokens it took, written under Done.
 
 ### 4. Headless and the command line
-- `--mcp --hidden`: the app without its window, for agents on their own (a script, CI). The web
-  view must still render with no window showing: hidden, or off screen where a system throttles
+- `--hidden`: the app without its window, for agents on their own (a script, CI). The web view
+  must still render with no window showing: hidden, or off screen where a system throttles
   hidden ones.
-- `magnetcut call <tool> '<json>'` over the same socket, for agents that only have a shell, and
-  for scripts.
+- `magnetcut --mcp`, MCP on standard input and output relayed to the app, for clients that
+  speak only that; `magnetcut call <tool> '<json>'`, for agents that only have a shell, and for
+  scripts. Both with a token.
 
 ## Risks
 - A web view with no window may slow or stop its timers and drawing (WKWebView does when it
   can't be seen). Phases 1 to 3 have the window open; phase 4 finds what each system allows.
-- Windows: an app built for the GUI has no console, but its standard input and output still
-  work when the agent gives it pipes, which MCP clients do; to be checked on CI from phase 1.
-- The sandboxed binary started from a terminal rather than by the Finder: to be checked with
-  the App Store build in phase 1, and App Review told what the socket is for.
+- App Review and the server entitlement: a refusal keeps agent mode to the website's edition
+  until it's answered.
+- A port taken by something else: the next free one, kept, and the lines to paste updated.
+- Windows, phase 4: an app built for the GUI has no console, but its standard input and output
+  still work when given pipes, as MCP clients give them; to be checked on CI.
 - A model that edits badly does it fast: the dry run, one undo per batch, the revision, the user
   watching, and exports that never overwrite are the answer; and an agent has only the files
   the user gave.
-- Any program running as the user could connect once the switch is on, as it could already
-  open the user's files: the token stops other users, the switch everyone until it's wanted.
+- A token is a key: anyone who has one can edit and export, and read files as the app can.
+  It's shown once, kept only hashed, revoked in a click, and useless from another computer.
 - The tools' descriptions cost tokens on every request: kept few and short, and measured.
 
 ## Done
