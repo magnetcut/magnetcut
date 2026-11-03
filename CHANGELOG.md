@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format is based on
 
 ## Unreleased
 
+## [0.1.2] - 2026-11-03
+
+### Added
+- Fast mode in Export, for a computer with little CPU or memory, or to keep the original
+  quality: the clips on the main track are copied out of their files instead of each frame
+  being drawn and encoded again. No re-encoding starts each clip at the key frame before its
+  cut; Smart Cut re-encodes only the few frames from each cut to the next key frame (H.264 and
+  VP9), so clips start exactly where they're cut. Transitions, effects, text and the other
+  tracks aren't in the file, and the panel lists what's left out before it starts.
+
+### Fixed
+- An update didn't install when no project was open ("No active project"): the project is
+  saved first only when there's one.
+
 ## [0.1.1] - 2026-11-03
 
 ### Added
@@ -133,5 +147,6 @@ account, ads or telemetry.
   editor's place, as in a browser. It's now imported, wherever it's dropped, and nothing
   dropped on the window can replace the app.
 
+[0.1.2]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.2
 [0.1.1]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.1
 [0.1.0]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.0

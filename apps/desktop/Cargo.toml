@@ -1,6 +1,6 @@
 [package]
 name = "magnetcut"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "MagnetCut's desktop app: the editor in apps/web, in a Tauri window"
 license = "AGPL-3.0-only"
