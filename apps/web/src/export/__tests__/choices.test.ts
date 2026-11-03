@@ -28,6 +28,7 @@ describe("sanitizeChoices", () => {
 			deinterlace: true,
 			denoise: "strong",
 			sharpen: "light",
+			fastMode: "smart",
 		};
 		expect(sanitizeChoices({ value: choices })).toEqual(choices);
 	});
@@ -51,6 +52,7 @@ describe("sanitizeChoices", () => {
 					channels: 6,
 					deinterlace: 1,
 					denoise: "max",
+					fastMode: "turbo",
 				},
 			}),
 		).toEqual(DEFAULT_EXPORT_CHOICES);
@@ -160,6 +162,7 @@ describe("getChosenOptions", () => {
 			audio: { codec: "aac", kbps: 192, channels: 1, passthrough: true },
 			filters: { deinterlace: false, denoise: "light", sharpen: "off" },
 			subtitles: "picture",
+			fastMode: "off",
 		});
 	});
 });

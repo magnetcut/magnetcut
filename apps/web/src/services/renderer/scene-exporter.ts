@@ -64,7 +64,7 @@ type ExportParams = {
 export type ExportOutput = { buffer: ArrayBuffer } | { file: ExportFile };
 
 // What's handed to the file at a time.
-const FILE_CHUNK_SIZE = 16 * 1024 * 1024;
+export const FILE_CHUNK_SIZE = 16 * 1024 * 1024;
 
 /** A window of the stereo mix, as one channel. */
 function downmix({ buffer }: { buffer: AudioBuffer }): AudioBuffer {
@@ -97,8 +97,35 @@ function preferBaselineInWebKit({ config }: { config: VideoEncoderConfig }) {
 	config.codec = config.codec.replace(/^avc1\.(64|4d)/, "avc1.42");
 }
 
+/**
+ * The encoder for the mixed soundtrack: the codec chosen, or Opus where the
+ * web view has no AAC encoder and the container takes Opus.
+ */
+export async function createSoundtrackSource({
+	format,
+	audioSettings,
+}: {
+	format: ExportFormat;
+	audioSettings: ExportAudioSettings;
+}): Promise<AudioBufferSource> {
+	const bitrate = audioSettings.kbps * 1000;
+	let codec = audioSettings.codec;
+	if (
+		codec === "aac" &&
+		FORMAT_CODECS[format].audio.includes("opus") &&
+		!(await canEncodeAudio("aac", {
+			numberOfChannels: audioSettings.channels,
+			sampleRate: EXPORT_SAMPLE_RATE,
+			bitrate,
+		}))
+	) {
+		codec = "opus";
+	}
+	return new AudioBufferSource({ codec, bitrate });
+}
+
 /** The soundtrack, handed to the encoder a window at a time ahead of the frames. */
-class SoundtrackFeed {
+export class SoundtrackFeed {
 	private readonly windows: AsyncGenerator<AudioBuffer, void, undefined>;
 	private readonly source: AudioBufferSource;
 	private readonly isMono: boolean;
@@ -310,21 +337,10 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		let audioSource: AudioBufferSource | null = null;
 		const { audioSettings } = this;
 		if (this.audio && audioSettings) {
-			const bitrate = audioSettings.kbps * 1000;
-			let codec = audioSettings.codec;
-			// A web view without an AAC encoder: Opus, where the container takes it.
-			if (
-				codec === "aac" &&
-				FORMAT_CODECS[this.format].audio.includes("opus") &&
-				!(await canEncodeAudio("aac", {
-					numberOfChannels: audioSettings.channels,
-					sampleRate: EXPORT_SAMPLE_RATE,
-					bitrate,
-				}))
-			) {
-				codec = "opus";
-			}
-			audioSource = new AudioBufferSource({ codec, bitrate });
+			audioSource = await createSoundtrackSource({
+				format: this.format,
+				audioSettings,
+			});
 			output.addAudioTrack(audioSource);
 		}
 

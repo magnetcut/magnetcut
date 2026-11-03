@@ -1,4 +1,5 @@
 import type { FrameRate } from "magnetcut-wasm";
+import type { FastMode } from "./fast/clips";
 import type { ExportFilters } from "./filters";
 import type { ExportSubtitles } from "./subtitles";
 import { EXPORT_MIME_TYPES } from "./mime-types";
@@ -38,6 +39,9 @@ export interface ExportOptions {
 	subtitles?: ExportSubtitles;
 	/** In the desktop app, the file picked in its save dialog, written as it's made. */
 	path?: string;
+	/** The clips copied out of their files instead of drawn and encoded
+	 * (`export/fast`): off if not said. */
+	fastMode?: FastMode;
 }
 
 export interface ExportResult {

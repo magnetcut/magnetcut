@@ -101,6 +101,12 @@ import {
 import { getSubtitleTracks } from "@/subtitles/track";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ExportSimple } from "./export-simple";
+import {
+	ExportFast,
+	FastModePicker,
+	getFastSummary,
+	useFastExportInfo,
+} from "./export-fast";
 import { frameRateToFloat } from "@/fps/utils";
 import { TICKS_PER_SECOND } from "@/wasm";
 
@@ -637,11 +643,19 @@ function ExportPopover({
 		sharpen,
 		subtitles,
 		panelMode,
+		fastMode,
 	} = choices;
 	const options = getChosenOptions({ choices });
 	const { quality, shortSide, audio, filters } = options;
 	const sceneTracks = useEditor((e) => e.scenes.getActiveScene().tracks);
 	const hasSubtitles = getSubtitleTracks({ tracks: sceneTracks }).length > 0;
+	const isFast = fastMode !== "off";
+	const fastInfo = useFastExportInfo({
+		tracks: sceneTracks,
+		mode: fastMode,
+		format,
+		copiesSound: hasAudio && audioPassthrough,
+	});
 
 	// The crop is the film's, not the settings': it starts afresh each time.
 	const [crop, setCrop] = useState<ExportCrop>(NO_CROP);
@@ -734,6 +748,7 @@ function ExportPopover({
 				filters,
 				subtitles: hasSubtitles ? subtitles : undefined,
 				path,
+				fastMode,
 			},
 		});
 		if (result.cancelled) {
@@ -808,7 +823,15 @@ function ExportPopover({
 		.join(" · ");
 
 	return (
-		<PopoverContent className="bg-background mr-4 flex max-h-(--radix-popover-content-available-height) w-96 flex-col overflow-y-auto p-0">
+		<PopoverContent
+			className="bg-background mr-4 flex max-h-(--radix-popover-content-available-height) w-96 flex-col overflow-y-auto p-0"
+			// The panel itself, not its first control: that's Fast mode's (i),
+			// whose tooltip would cover the panel as it opens.
+			onOpenAutoFocus={(event) => {
+				event.preventDefault();
+				if (event.currentTarget instanceof HTMLElement) event.currentTarget.focus();
+			}}
+		>
 			{exportResult && !exportResult.success ? (
 				<ExportError
 					error={exportResult.error || "Unknown error occurred"}
@@ -826,6 +849,21 @@ function ExportPopover({
 						{!isExporting && (
 							<>
 								<div className="flex flex-col">
+									<FastModePicker
+										value={fastMode}
+										onChange={({ mode }) =>
+											setChoices({ choices: { fastMode: mode } })
+										}
+									/>
+									{isFast ? (
+										<ExportFast
+											choices={choices}
+											setChoices={setChoices}
+											info={fastInfo}
+											onFormatChange={handleFormatChange}
+										/>
+									) : (
+									<>
 									<div className="flex justify-center px-3 pt-3">
 										<ToggleGroup
 											type="single"
@@ -1305,14 +1343,18 @@ function ExportPopover({
 										</Section>
 										</>
 									)}
+									</>
+									)}
 								</div>
 
 								<div className="flex flex-col gap-2 p-3 pt-0">
-									<p className="text-muted-foreground text-xs">{summary}</p>
+									<p className="text-muted-foreground text-xs">
+										{isFast ? getFastSummary({ info: fastInfo, choices }) : summary}
+									</p>
 									<Button
 										onClick={handleExport}
 										className="w-full gap-2"
-										disabled={!canEncode}
+										disabled={isFast ? !fastInfo || !!fastInfo.problem : !canEncode}
 									>
 										<Download className="size-4" />
 										Export

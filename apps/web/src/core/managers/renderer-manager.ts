@@ -38,6 +38,7 @@ import {
 	openAudioPassthrough,
 	type AudioPassthrough,
 } from "@/export/passthrough";
+import { exportFast } from "@/export/fast/exporter";
 import { formatTimecode } from "magnetcut-wasm";
 import { TICKS_PER_SECOND } from "@/wasm";
 import { frameRateToFloat } from "@/fps/utils";
@@ -195,7 +196,18 @@ export class RendererManager {
 			filters,
 			subtitles = "picture",
 			path,
+			fastMode = "off",
 		} = options;
+		if (fastMode !== "off") {
+			return await this.exportFast({
+				mode: fastMode,
+				format,
+				audio,
+				path,
+				onProgress,
+				onCancel,
+			});
+		}
 		const filterPasses =
 			filters && hasFilters({ filters })
 				? buildFilterPasses({ filters })
@@ -405,6 +417,46 @@ export class RendererManager {
 		} catch (error) {
 			passthrough?.close();
 			console.error("Export failed:", error);
+			return {
+				success: false,
+				error: error instanceof Error ? error.message : "Unknown export error",
+			};
+		}
+	}
+
+	/** A Fast mode export: the main track's clips copied (`export/fast`). */
+	private async exportFast({
+		mode,
+		format,
+		audio,
+		path,
+		onProgress,
+		onCancel,
+	}: {
+		mode: "copy" | "smart";
+		format: ExportOptions["format"];
+		audio: ExportOptions["audio"];
+		path?: string;
+		onProgress?: ({ progress }: { progress: number }) => void;
+		onCancel?: () => boolean;
+	}): Promise<ExportResult> {
+		try {
+			const output = await exportFast({
+				tracks: this.editor.scenes.getActiveScene().tracks,
+				mediaAssets: this.editor.media.getAssets(),
+				mode,
+				format,
+				audio,
+				file: path ? await openExportFile({ path }) : undefined,
+				onProgress: (progress) => onProgress?.({ progress }),
+				isCancelled: () => !!onCancel?.(),
+			});
+			if (!output) return { success: false, cancelled: true };
+			return "buffer" in output
+				? { success: true, buffer: output.buffer }
+				: { success: true, path };
+		} catch (error) {
+			console.error("Fast export failed:", error);
 			return {
 				success: false,
 				error: error instanceof Error ? error.message : "Unknown export error",

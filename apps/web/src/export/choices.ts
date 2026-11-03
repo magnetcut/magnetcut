@@ -15,6 +15,7 @@ import {
 	type ExportVideoCodec,
 	type ExportVideoQuality,
 } from "./settings";
+import { FAST_MODES, type FastMode } from "./fast/clips";
 import { FILTER_STRENGTHS, type FilterStrength } from "./filters";
 import { EXPORT_SUBTITLE_MODES, type ExportSubtitles } from "./subtitles";
 import {
@@ -54,6 +55,9 @@ export interface ExportChoices {
 	denoise: FilterStrength;
 	sharpen: FilterStrength;
 	subtitles: ExportSubtitles;
+	/** The clips copied out of their files, without the rest of the timeline
+	 * (`export/fast`), or drawn and encoded as usual. */
+	fastMode: FastMode;
 	/** Simple asks a few questions in everyday words (`export/wizard.ts`),
 	 * and sets the rest from the answers; Advanced is every setting. */
 	panelMode: "simple" | "advanced";
@@ -85,6 +89,7 @@ export const DEFAULT_EXPORT_CHOICES: ExportChoices = {
 	denoise: "off",
 	sharpen: "off",
 	subtitles: "picture",
+	fastMode: "off",
 	panelMode: "simple",
 	wizard: DEFAULT_WIZARD_ANSWERS,
 };
@@ -210,6 +215,7 @@ export function getChosenOptions({
 			sharpen: choices.sharpen,
 		},
 		subtitles: choices.subtitles,
+		fastMode: choices.fastMode,
 	};
 }
 
@@ -320,6 +326,9 @@ export function sanitizeChoices({ value }: { value: unknown }): ExportChoices {
 		subtitles:
 			oneOf({ value: read("subtitles"), values: EXPORT_SUBTITLE_MODES }) ??
 			defaults.subtitles,
+		fastMode:
+			oneOf({ value: read("fastMode"), values: FAST_MODES }) ??
+			defaults.fastMode,
 		panelMode:
 			oneOf({
 				value: read("panelMode"),
