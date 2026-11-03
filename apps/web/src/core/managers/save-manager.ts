@@ -7,7 +7,7 @@ type SaveManagerOptions = {
 export class SaveManager {
 	private debounceMs: number;
 	private isPaused = false;
-	private isSaving = false;
+	private saving: Promise<void> | null = null;
 	private hasPendingSave = false;
 	private saveTimer: ReturnType<typeof setTimeout> | null = null;
 	private unsubscribeHandlers: Array<() => void> = [];
@@ -62,17 +62,25 @@ export class SaveManager {
 		this.queueSave();
 	}
 
+	/**
+	 * Saves the open project now, once any save under way has finished. With
+	 * no project open, as on the projects page, there's nothing to save.
+	 */
 	async flush(): Promise<void> {
+		if (!this.editor.project.getActiveOrNull()) return;
 		this.hasPendingSave = true;
+		while (this.saving) {
+			await this.saving;
+		}
 		await this.saveNow();
 	}
 
 	getIsDirty(): boolean {
-		return this.hasPendingSave || this.isSaving;
+		return this.hasPendingSave || this.saving !== null;
 	}
 
 	private queueSave(): void {
-		if (this.isSaving) return;
+		if (this.saving) return;
 		if (this.saveTimer) {
 			clearTimeout(this.saveTimer);
 		}
@@ -82,22 +90,21 @@ export class SaveManager {
 	}
 
 	private async saveNow(): Promise<void> {
-		if (this.isSaving) return;
+		if (this.saving) return;
 		if (!this.hasPendingSave) return;
 
-		const activeProject = this.editor.project.getActive();
-		if (!activeProject) return;
+		if (!this.editor.project.getActiveOrNull()) return;
 		if (this.editor.project.getIsLoading()) return;
 		if (this.editor.project.getMigrationState().isMigrating) return;
 
-		this.isSaving = true;
 		this.hasPendingSave = false;
 		this.clearTimer();
 
+		this.saving = this.editor.project.saveCurrentProject();
 		try {
-			await this.editor.project.saveCurrentProject();
+			await this.saving;
 		} finally {
-			this.isSaving = false;
+			this.saving = null;
 			if (this.hasPendingSave) {
 				this.queueSave();
 			}
