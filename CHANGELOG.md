@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## Unreleased
 
+## [0.1.1] - 2026-11-03
+
 ### Added
 - Zoom to fit, beside the timeline's zoom slider: the whole timeline, every track, in view from
   its start.
@@ -131,4 +133,5 @@ account, ads or telemetry.
   editor's place, as in a browser. It's now imported, wherever it's dropped, and nothing
   dropped on the window can replace the app.
 
+[0.1.1]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.1
 [0.1.0]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.0
