@@ -25,7 +25,7 @@ const FRAME_START_TOLERANCE = 1e-6;
  * A file's decoder, by the stream it serves: one per file, and more for clips
  * that show side by side (`streamKey`).
  */
-function getSinkKey({
+export function getSinkKey({
 	mediaId,
 	streamKey,
 }: {

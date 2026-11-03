@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format is based on
 
 ## Unreleased
 
+### Fixed
+- Transitions played in the preview as a plain cut when the incoming clip starts far into its
+  file, as in a screen recording split in two: its frames weren't ready before the transition
+  ended. Clips coming up are now readied a few seconds ahead.
+
 ## [0.1.0] - 2026-10-31
 
 The first version: OpenCut's editor as a desktop app for macOS, Windows and Linux, with no

@@ -14,6 +14,7 @@ import {
 import { TICKS_PER_SECOND } from "@/wasm";
 import type { RootNode } from "@/services/renderer/nodes/root-node";
 import { buildScene } from "@/services/renderer/scene-builder";
+import { warmUpcomingVideos } from "@/services/renderer/warm-up";
 import { PreviewOverlayLayer } from "./overlay-layer";
 import { PreviewInteractionOverlay } from "./preview-interaction-overlay";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -187,7 +188,16 @@ function PreviewCanvas({
 	}, [renderer]);
 
 	const render = useCallback(() => {
-		if (!renderTree || renderingRef.current) return;
+		if (!renderTree) return;
+		// Also while a frame is still rendering: a clip coming up then would
+		// otherwise wait for its decoder to seek when it comes.
+		if (editor.playback.getIsPlaying()) {
+			warmUpcomingVideos({
+				root: renderTree,
+				time: editor.playback.getCurrentTime(),
+			});
+		}
+		if (renderingRef.current) return;
 
 		const renderTime = Math.min(
 			editor.playback.getCurrentTime(),

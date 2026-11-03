@@ -144,6 +144,11 @@ interface Transition {
    (`transition-0`/`transition-1`, alternating along the track; the video cache keys its sinks
    `mediaId#stream`), so two halves of one file each get their frames without seeking. Still to
    check: that mediabunny's canvas pool doesn't reuse a canvas still being uploaded.
+   The incoming side's stream is used first when the window opens, and seeking it there means
+   decoding from the keyframe before: seconds of frames in a screen recording, longer than the
+   window, which the preview then played past as a cut. While the preview plays, the decoders of
+   the clips starting within 3 s are sought ahead, each where no clip shows from it until then
+   (`services/renderer/warm-up.ts`).
 
 ### Audio crossfade
 - Where a transition has `crossfadeAudio`, each clip's audio reaches into its handle across the

@@ -231,6 +231,30 @@ function resolveVisualState({
 	};
 }
 
+/**
+ * Where a video is in its file at a time on the timeline, in seconds: before
+ * its start or past its end in a transition, into its handles.
+ */
+export function getVideoSourceTime({
+	params,
+	time,
+}: {
+	params: VisualNodeParams;
+	time: number;
+}): number {
+	const sourceTimeTicks = Math.max(
+		0,
+		params.trimStart +
+			getSourceTimeAtClipTime({
+				clipTime: time - params.timeOffset,
+				retime: params.retime,
+			}),
+	);
+	return mediaTimeToSeconds({
+		time: roundMediaTime({ time: sourceTimeTicks }),
+	});
+}
+
 async function resolveVideoNode({
 	node,
 	context,
@@ -242,18 +266,9 @@ async function resolveVideoNode({
 		return null;
 	}
 
-	// Before its start or past its end in a transition: into its handles.
-	const clipTime = context.time - node.params.timeOffset;
-	const sourceTimeTicks = Math.max(
-		0,
-		node.params.trimStart +
-			getSourceTimeAtClipTime({
-				clipTime,
-				retime: node.params.retime,
-			}),
-	);
-	const sourceTime = mediaTimeToSeconds({
-		time: roundMediaTime({ time: sourceTimeTicks }),
+	const sourceTime = getVideoSourceTime({
+		params: node.params,
+		time: context.time,
 	});
 
 	if (context.videoReferences) {
