@@ -34,6 +34,7 @@ import {
 	SnowIcon,
 	ScissorIcon,
 	MagnetIcon,
+	FitToScreenIcon,
 	SearchAddIcon,
 	SearchMinusIcon,
 	Copy01Icon,
@@ -54,10 +55,13 @@ export function TimelineToolbar({
 	zoomLevel,
 	minZoom,
 	setZoomLevel,
+	onZoomToFit,
 }: {
 	zoomLevel: number;
 	minZoom: number;
 	setZoomLevel: ({ zoom }: { zoom: number }) => void;
+	/** The whole timeline in view; none when it's empty. */
+	onZoomToFit?: () => void;
 }) {
 	const handleZoom = ({ direction }: { direction: "in" | "out" }) => {
 		const newZoomLevel =
@@ -79,6 +83,7 @@ export function TimelineToolbar({
 					minZoom={minZoom}
 					onZoomChange={(zoom) => setZoomLevel({ zoom })}
 					onZoom={handleZoom}
+					onZoomToFit={onZoomToFit}
 				/>
 			</div>
 		</ScrollArea>
@@ -269,11 +274,13 @@ function ToolbarRightSection({
 	minZoom,
 	onZoomChange,
 	onZoom,
+	onZoomToFit,
 }: {
 	zoomLevel: number;
 	minZoom: number;
 	onZoomChange: (zoom: number) => void;
 	onZoom: (options: { direction: "in" | "out" }) => void;
+	onZoomToFit?: () => void;
 }) {
 	const snappingEnabled = useTimelineStore((s) => s.snappingEnabled);
 	const rippleEditingEnabled = useTimelineStore((s) => s.rippleEditingEnabled);
@@ -325,6 +332,14 @@ function ToolbarRightSection({
 				>
 					<HugeiconsIcon icon={SearchAddIcon} />
 				</Button>
+				<TooltipProvider delayDuration={500}>
+					<ToolbarButton
+						icon={<HugeiconsIcon icon={FitToScreenIcon} />}
+						tooltip="Zoom to fit"
+						disabled={!onZoomToFit}
+						onClick={() => onZoomToFit?.()}
+					/>
+				</TooltipProvider>
 			</div>
 		</div>
 	);

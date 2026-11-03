@@ -7,6 +7,9 @@ import { TICKS_PER_SECOND } from "@/wasm";
 const PADDING_MAX_RATIO = 0.75;
 const PADDING_MIN_RATIO = 0.15;
 const PADDING_MIN_AT_ZOOM_PERCENT = 0.2;
+// Zoomed to fit, how much of the view the timeline fills: a little room past
+// its end shows that it ends there.
+const FIT_CONTENT_RATIO = 0.95;
 
 export function getTimelineZoomMin({
 	duration,
@@ -23,6 +26,27 @@ export function getTimelineZoomMin({
 		availableWidth / (safeDurationSeconds * BASE_TIMELINE_PIXELS_PER_SECOND);
 
 	return Math.min(TIMELINE_ZOOM_MAX, zoomToFit);
+}
+
+/**
+ * The zoom that shows the whole timeline, every track, in a view that wide
+ * from its start: null when there's nothing on it.
+ */
+export function getTimelineZoomToFit({
+	duration,
+	viewportWidth,
+}: {
+	duration: number;
+	viewportWidth: number;
+}): number | null {
+	const durationSeconds = duration / TICKS_PER_SECOND;
+	if (durationSeconds <= 0 || viewportWidth <= 0) {
+		return null;
+	}
+	const zoom =
+		(viewportWidth * FIT_CONTENT_RATIO) /
+		(durationSeconds * BASE_TIMELINE_PIXELS_PER_SECOND);
+	return Math.min(TIMELINE_ZOOM_MAX, zoom);
 }
 
 export function getTimelinePaddingPx({

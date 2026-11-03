@@ -47,6 +47,8 @@ export class ZoomController {
 	private preZoomScrollLeft = 0;
 	private prePlayheadAnchorScrollLeft = 0;
 	private isInPlayheadAnchorMode = false;
+	// Where `zoomTo` asked the view to be once the new zoom is laid out.
+	private pendingScrollLeft: number | null = null;
 	private scrollSaveTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(deps: { configRef: ZoomConfigRef; initialZoom?: number }) {
@@ -61,6 +63,7 @@ export class ZoomController {
 		this.hasInitialized = deps.initialZoom !== undefined;
 
 		this.setZoomLevel = this.setZoomLevel.bind(this);
+		this.zoomTo = this.zoomTo.bind(this);
 		this.handleWheel = this.handleWheel.bind(this);
 		this.saveScrollPosition = this.saveScrollPosition.bind(this);
 	}
@@ -103,6 +106,34 @@ export class ZoomController {
 
 		this.zoomLevelValue = nextZoom;
 		this.notify();
+	}
+
+	/**
+	 * That zoom, with the view scrolled to `scrollLeft` rather than kept on
+	 * the playhead: zoom to fit, from the timeline's start.
+	 */
+	zoomTo({
+		zoomLevel,
+		scrollLeft,
+	}: {
+		zoomLevel: number;
+		scrollLeft: number;
+	}): void {
+		const zoomBefore = this.zoomLevelValue;
+		this.pendingScrollLeft = scrollLeft;
+		this.setZoomLevel(zoomLevel);
+		if (this.zoomLevelValue !== zoomBefore) {
+			// Scrolled once the new width is laid out (applyZoomLayout).
+			return;
+		}
+		this.pendingScrollLeft = null;
+		const scrollElement = this.config.getTracksScrollEl();
+		if (!scrollElement) return;
+		this.syncScroll({
+			scrollElement,
+			scrollLeft: this.clampScrollLeft({ scrollElement, scrollLeft }),
+		});
+		this.saveScrollPosition();
 	}
 
 	handleWheel(event: ReactWheelEvent): void {
@@ -169,26 +200,23 @@ export class ZoomController {
 			previousSliderPercent >= TIMELINE_ZOOM_ANCHOR_PLAYHEAD_THRESHOLD &&
 			sliderPercent < TIMELINE_ZOOM_ANCHOR_PLAYHEAD_THRESHOLD;
 
-		const syncScroll = (scrollLeft: number) => {
-			scrollElement.scrollLeft = scrollLeft;
-			const ruler = this.config.getRulerScrollEl();
-			if (ruler) {
-				ruler.scrollLeft = scrollLeft;
+		const syncScroll = (scrollLeft: number) =>
+			this.syncScroll({ scrollElement, scrollLeft });
+
+		const clampScrollLeft = (scrollLeft: number) =>
+			this.clampScrollLeft({ scrollElement, scrollLeft });
+
+		if (this.pendingScrollLeft !== null) {
+			// Asked for by zoomTo: there, not kept on the playhead. Where the
+			// view was before the playhead anchor took over no longer applies.
+			syncScroll(clampScrollLeft(this.pendingScrollLeft));
+			this.pendingScrollLeft = null;
+			this.isInPlayheadAnchorMode = false;
+		} else if (sliderPercent >= TIMELINE_ZOOM_ANCHOR_PLAYHEAD_THRESHOLD) {
+			if (isCrossingThresholdUp) {
+				this.prePlayheadAnchorScrollLeft = currentScrollLeft;
+				this.isInPlayheadAnchorMode = true;
 			}
-		};
-
-		const clampScrollLeft = (scrollLeft: number) => {
-			const maxScrollLeft =
-				scrollElement.scrollWidth - scrollElement.clientWidth;
-			return Math.max(0, Math.min(maxScrollLeft, scrollLeft));
-		};
-
-		if (isCrossingThresholdUp) {
-			this.prePlayheadAnchorScrollLeft = currentScrollLeft;
-			this.isInPlayheadAnchorMode = true;
-		}
-
-		if (sliderPercent >= TIMELINE_ZOOM_ANCHOR_PLAYHEAD_THRESHOLD) {
 			const playheadPixelsBefore = timelineTimeToPixels({
 				time: playheadTime,
 				zoomLevel: previousZoom,
@@ -291,6 +319,32 @@ export class ZoomController {
 		return () => {
 			document.removeEventListener("wheel", preventZoom, { capture: true });
 		};
+	}
+
+	/** The tracks scrolled there, and the ruler with them. */
+	private syncScroll({
+		scrollElement,
+		scrollLeft,
+	}: {
+		scrollElement: HTMLDivElement;
+		scrollLeft: number;
+	}): void {
+		scrollElement.scrollLeft = scrollLeft;
+		const ruler = this.config.getRulerScrollEl();
+		if (ruler) {
+			ruler.scrollLeft = scrollLeft;
+		}
+	}
+
+	private clampScrollLeft({
+		scrollElement,
+		scrollLeft,
+	}: {
+		scrollElement: HTMLDivElement;
+		scrollLeft: number;
+	}): number {
+		const maxScrollLeft = scrollElement.scrollWidth - scrollElement.clientWidth;
+		return Math.max(0, Math.min(maxScrollLeft, scrollLeft));
 	}
 
 	private notify(): void {

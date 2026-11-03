@@ -53,6 +53,7 @@ import {
 	canTrackHaveAudio,
 	canTrackBeHidden,
 	getTimelineZoomMin,
+	getTimelineZoomToFit,
 	getTimelinePaddingPx,
 } from "@/timeline";
 import { timelineTimeToPixels } from "@/timeline/pixel-utils";
@@ -175,7 +176,7 @@ export function Timeline() {
 
 	const savedViewState = editor.project.getTimelineViewState();
 
-	const { zoomLevel, setZoomLevel, handleWheel, saveScrollPosition } =
+	const { zoomLevel, setZoomLevel, zoomTo, handleWheel, saveScrollPosition } =
 		useTimelineZoom({
 			containerRef: timelineRef,
 			minZoom: minZoomLevel,
@@ -387,6 +388,10 @@ export function Timeline() {
 	);
 	const hasHorizontalScrollbar =
 		dynamicTimelineWidth > (tracksViewportWidth || containerWidth);
+	const fitZoomLevel = getTimelineZoomToFit({
+		duration: timelineDuration,
+		viewportWidth: tracksViewportWidth || containerWidth,
+	});
 
 	useEdgeAutoScroll({
 		isActive: bookmarkDragState.isDragging,
@@ -442,6 +447,11 @@ export function Timeline() {
 				zoomLevel={zoomLevel}
 				minZoom={minZoomLevel}
 				setZoomLevel={({ zoom }) => setZoomLevel(zoom)}
+				onZoomToFit={
+					fitZoomLevel === null
+						? undefined
+						: () => zoomTo({ zoomLevel: fitZoomLevel, scrollLeft: 0 })
+				}
 			/>
 
 			<div className="relative flex flex-1 overflow-hidden" ref={timelineRef}>

@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 
 ## Unreleased
 
+### Added
+- Zoom to fit, beside the timeline's zoom slider: the whole timeline, every track, in view from
+  its start.
+
 ### Fixed
 - Transitions played in the preview as a plain cut when the incoming clip starts far into its
   file, as in a screen recording split in two: its frames weren't ready before the transition

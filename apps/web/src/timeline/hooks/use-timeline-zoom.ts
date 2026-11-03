@@ -28,6 +28,8 @@ interface UseTimelineZoomProps {
 interface UseTimelineZoomReturn {
 	zoomLevel: number;
 	setZoomLevel: (zoomLevel: number | ((prev: number) => number)) => void;
+	/** A zoom with the view scrolled to a place: zoom to fit. */
+	zoomTo: ZoomController["zoomTo"];
 	handleWheel: (event: ReactWheelEvent) => void;
 	saveScrollPosition: () => void;
 }
@@ -90,6 +92,7 @@ export function useTimelineZoom({
 	return {
 		zoomLevel,
 		setZoomLevel: controller.setZoomLevel,
+		zoomTo: controller.zoomTo,
 		handleWheel: controller.handleWheel,
 		saveScrollPosition: controller.saveScrollPosition,
 	};
