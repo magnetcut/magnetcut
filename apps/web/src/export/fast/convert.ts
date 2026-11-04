@@ -226,7 +226,7 @@ const colourInputs = new Map<string, Promise<ColourInput>>();
  * range, found by encoding a grey frame each way and reading the SPS: I420
  * if it keeps the range the frame is tagged with, else RGB if that comes out
  * in it. Chromium's writes RGB in full range and keeps I420's; WebKit's on
- * macOS 27 keeps I420's, but on macOS 15 it marks limited I420 full range
+ * macOS 27 keeps I420's, but on macOS 26 it marks limited I420 full range
  * and writes RGB in limited. I420 for VP9, whose stream isn't read here.
  */
 export function chooseColourInput({

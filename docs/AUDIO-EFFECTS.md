@@ -122,7 +122,8 @@ in the export, and nothing leaves the computer. All four phases are built (Done,
   in Chrome: an export at -14 read -13.6 LUFS in ffmpeg's `ebur128`, the same mix left as it is
   -6.9. Through the desktop's native export as well: the agent check
   (`apps/desktop/scripts/agent-check.ts`, in the probe) exports its -20 LUFS tone for sites and
-  hears it back within 1 LU of -14; on a Mac, an HEVC MP4 that ffmpeg reads at -13.6. Tests:
+  hears it back within 1 LU of -14; on a Mac, an HEVC MP4 that ffmpeg reads at -13.6. On
+  GitHub it heard -13.3 on macOS and Linux (HEVC) and -13.2 on Windows (H.264). Tests:
   `export/__tests__/loudness.test.ts` (the meter through wasm, the gain, the choices and
   Simple's target).
 - Not done: the compressor's meter, setting several selected clips at once, keyframes, and

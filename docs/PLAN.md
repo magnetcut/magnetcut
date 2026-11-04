@@ -181,6 +181,10 @@ From `MAGNETCUT_PROBE=1` (apps/desktop), on the app's own origin:
   Opus and decodes Opus; with `gstreamer1.0-plugins-bad` and `gstreamer1.0-libav`, everything
   (H.264, HEVC, VP9, AV1, AAC and Opus, both ways). The deb and rpm recommend those packages,
   which apt and dnf install by default; without them, importing a video says what to install.
+- In each, the probe also runs the editor's own code (`apps/web/src/desktop/probe-checks.ts`):
+  a second recorded from a stand-in tone and from a stand-in microphone, the system's voices
+  (180 on macOS, 3 on the Windows runner, espeak-ng's 130 on Linux), the test films converted
+  and joined (docs/CONFORM.md), and a proxy made.
 
 ## Risks
 
