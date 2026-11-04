@@ -248,12 +248,12 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
   brightness histogram against the last's; a cut is a change over 0.3 and three times the
   usual around it: on CI, a black picture then a white one, the one cut found at 5.00 s, where
   they meet, on all three systems) and track (Track on a Hide region, from the frame given).
-  On macOS and Linux the shots on pictures just brought in once found no cut, three runs in
-  four, while the same pictures looked at afterwards were right. The likely cause, not seen
-  directly (a hidden window can't be probed on this Mac): a picture loaded but not yet decoded
-  drawn as nothing, and its texture kept while the clip lasts. Pictures are now decoded before
-  they're drawn (`loadImageSource`); since then the cut has been found in three runs of three of the
-  agent check on all three systems, and four times over in each web view by the probe.
+  The shots on pictures just brought in once found no cut, on macOS in three runs of four (on
+  Linux in one), while the same pictures looked at afterwards were right. The likely cause,
+  not seen directly (a hidden window can't be probed on this Mac): a picture loaded but not
+  yet decoded drawn as nothing, and its texture kept while the clip lasts. Pictures are now
+  decoded before they're drawn (`loadImageSource`); since then the agent check has found the
+  cut in three runs of three on all three systems, and the probe four times over in each.
   The App Store edition: folders granted in Settings, kept as security-scoped bookmarks that
   read and write, opened again at each launch; and for a path outside Movies, Downloads and
   them, the window's open or save dialog put at that path, the agent's name in its title, the
