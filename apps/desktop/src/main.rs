@@ -78,6 +78,9 @@ const PROBE_ENV: &str = "MAGNETCUT_PROBE";
 /// With this one set too, the probe records a second from the microphone: on
 /// a computer of one's own, the system may ask first.
 const PROBE_MICROPHONE_ENV: &str = "MAGNETCUT_PROBE_MICROPHONE";
+/// And with this one, a sentence spoken by ElevenLabs and OpenAI, with the
+/// keys in this computer's keychain: never on CI, which has none.
+const PROBE_PROVIDERS_ENV: &str = "MAGNETCUT_PROBE_PROVIDERS";
 
 #[tauri::command]
 fn probe_report(app: tauri::AppHandle, report: String) {
@@ -245,8 +248,9 @@ fn main() {
 
     if std::env::var_os(PROBE_ENV).is_some() {
         let microphone = std::env::var_os(PROBE_MICROPHONE_ENV).is_some();
+        let providers = std::env::var_os(PROBE_PROVIDERS_ENV).is_some();
         let script = format!(
-            "window.__magnetcutProbeMicrophone = {microphone};\n{}",
+            "window.__magnetcutProbeMicrophone = {microphone};\nwindow.__magnetcutProbeProviders = {providers};\n{}",
             include_str!("probe.js")
         );
         builder = builder

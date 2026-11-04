@@ -50,6 +50,7 @@ import { VoiceRecorder } from "@/voiceover/recorder";
 import {
 	listCuesToSpeak,
 	speakCues,
+	speechApi,
 	spokenTrackName,
 	type SpeechChoice,
 } from "@/voiceover/speech";
@@ -72,10 +73,16 @@ import {
 export interface ProbeOptions {
 	/** Record from the microphone too: the system may ask first. */
 	microphone: boolean;
+	/**
+	 * Speak a sentence with ElevenLabs and OpenAI too, with the keys in the
+	 * keychain: sent to them, and counted against the account.
+	 */
+	providers?: boolean;
 }
 
 export async function runProbeChecks({
 	microphone,
+	providers = false,
 }: ProbeOptions): Promise<Record<string, unknown>> {
 	const folder = await invoke<string>("probe_folder");
 	return {
@@ -87,6 +94,9 @@ export async function runProbeChecks({
 			? await attempt({ check: () => recordSecond({ folder }), seconds: 20 })
 			: "not asked",
 		systemVoices: await attempt({ check: checkSystemVoices, seconds: 30 }),
+		providers: providers
+			? await attempt({ check: checkProviders, seconds: 90 })
+			: "not asked",
 		dubbing: await attempt({
 			check: () => checkDubbing({ folder }),
 			seconds: 90,
@@ -243,6 +253,47 @@ async function checkSystemVoices() {
 			.map(({ name, language }) => `${name} (${language})`),
 		spoken: readWav({ bytes: new Uint8Array(spoken) }),
 	};
+}
+
+/**
+ * ElevenLabs and OpenAI, each with the key in the keychain (the web view never
+ * holds it): its voices and models, ElevenLabs' characters this month, and a
+ * short sentence spoken by its first voice, with its default model.
+ */
+async function checkProviders() {
+	const keys = await speechApi.keys();
+	const results: Record<string, unknown> = {};
+	for (const provider of ["elevenlabs", "openai"] as const) {
+		if (!keys[provider]) {
+			results[provider] = "no key";
+			continue;
+		}
+		results[provider] = await attempt({
+			check: async () => {
+				const voices = await speechApi.voices({ provider });
+				const models = await speechApi.models({ provider });
+				const quota = await speechApi.quota({ provider });
+				const [voice] = voices;
+				if (!voice) throw new Error("no voices");
+				const spoken = await invoke<ArrayBuffer>("speak", {
+					provider,
+					text: "MagnetCut speaks the subtitles.",
+					voice: voice.id,
+					model: null,
+					instructions: null,
+				});
+				return {
+					voices: voices.length,
+					voice: voice.name,
+					models: models.map(({ id }) => id),
+					quota,
+					spoken: readWav({ bytes: new Uint8Array(spoken) }),
+				};
+			},
+			seconds: 40,
+		});
+	}
+	return results;
 }
 
 // The subtitles dubbed: English, and the first of these a voice speaks.

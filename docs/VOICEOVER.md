@@ -163,4 +163,8 @@ computer's own voices in place of Kokoro.
   the English beside them on "Spoken subtitles", both again from the project. In WebKitGTK the
   same with espeak-ng's Italian; in WebView2, whose runner has only English voices, the
   translation in English with David, on its own track the same.
-- Not checked yet: a real key with each provider, which only the user can type in Settings.
+- With a real key, typed in Settings by the user: `MAGNETCUT_PROBE_PROVIDERS=1` (never on CI)
+  has the probe ask each provider with a key for its voices, models and count, and speak "MagnetCut
+  speaks the subtitles." with its first voice. ElevenLabs, in WKWebView: 37 voices, ten models
+  (eleven_v4 first), the month's count read, the sentence 2.09 s at 24 kHz from Roger.
+- Not checked yet: OpenAI with a real key.
