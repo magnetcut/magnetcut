@@ -2,7 +2,6 @@ import type { ElementType } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import {
-	ArrowRightDoubleIcon,
 	ClosedCaptionIcon,
 	Folder03Icon,
 	Happy01Icon,
@@ -13,6 +12,7 @@ import {
 	ColorsIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
+import { TransitionIcon } from "@/transitions/components/transition-icon";
 
 export const TAB_KEYS = [
 	"media",
@@ -50,7 +50,7 @@ export const tabs = {
 		label: "Effects",
 	},
 	transitions: {
-		icon: createHugeiconsIcon({ icon: ArrowRightDoubleIcon }),
+		icon: createHugeiconsIcon({ icon: TransitionIcon }),
 		label: "Transitions",
 	},
 	captions: {
@@ -63,7 +63,8 @@ export const tabs = {
 	},
 	settings: {
 		icon: createHugeiconsIcon({ icon: Settings01Icon }),
-		label: "Settings",
+		// The project's frame and background; "Settings" read as the app's.
+		label: "Project",
 	},
 } satisfies Record<
 	Tab,

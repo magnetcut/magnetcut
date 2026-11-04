@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowRightDoubleIcon } from "@hugeicons/core-free-icons";
+import { TransitionIcon } from "@/transitions/components/transition-icon";
 import { useEditor } from "@/editor/use-editor";
 import type { VideoTrack } from "@/timeline";
 import { timelineTimeToSnappedPixels } from "@/timeline/pixel-utils";
@@ -65,7 +65,7 @@ export function TimelineTransitions({
 				}}
 			>
 				{width >= ICON_MIN_WIDTH_PX && (
-					<HugeiconsIcon icon={ArrowRightDoubleIcon} className="size-3.5" />
+					<HugeiconsIcon icon={TransitionIcon} className="size-3.5" />
 				)}
 			</button>
 		);

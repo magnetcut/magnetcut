@@ -131,6 +131,11 @@ export async function openDiskFile({
 	return info ? new DiskFile(info) : null;
 }
 
+/** Shows a file the editor was given where it is, in Finder or Explorer. */
+export function revealDiskFile({ path }: { path: string }): Promise<void> {
+	return invoke("reveal_media_file", { path });
+}
+
 /**
  * Dropped files as files on disk, where the desktop app knows their paths (on
  * macOS, from the drag pasteboard); the others stay as they are, to be copied.

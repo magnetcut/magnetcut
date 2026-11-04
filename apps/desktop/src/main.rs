@@ -26,6 +26,7 @@ macro_rules! commands {
             media::dropped_media_files,
             media::media_file_info,
             media::read_media_file,
+            media::reveal_media_file,
             export::pick_export_file,
             export::open_export_file,
             export::write_export_file,

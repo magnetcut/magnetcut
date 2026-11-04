@@ -226,13 +226,18 @@ export function SelectableSurface({
 			return;
 		}
 
+		// Selected as well as flashed, so it's still marked once the flash is over.
+		setSelectionState(replaceSelection({ ids: [revealId] }));
 		setHighlightedId(revealId);
-		getItemElement(revealId)?.scrollIntoView({ block: "center" });
+		getItemElement(revealId)?.scrollIntoView({
+			block: "center",
+			behavior: "smooth",
+		});
 
 		const timer = setTimeout(() => {
 			setHighlightedId(null);
 			onRevealComplete?.();
-		}, 1500);
+		}, 2000);
 
 		return () => clearTimeout(timer);
 	}, [getItemElement, onRevealComplete, revealId]);

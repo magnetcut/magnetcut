@@ -24,7 +24,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
-import { cn } from "@/utils/ui";
 import {
 	getExportMimeType,
 	getExportFileExtension,
@@ -137,13 +136,11 @@ export function ExportButton() {
 			open={isExportPopoverOpen}
 			onOpenChange={(open) => handlePopoverOpenChange({ open })}
 		>
+			{/* The app's own button, as Export inside the panel, not upstream's gradient. */}
 			<PopoverTrigger asChild>
-				<button
-					type="button"
-					className={cn(
-						"flex items-center gap-1.5 rounded-md bg-[#38BDF8] px-[0.12rem] py-[0.12rem] text-white",
-						hasProject ? "cursor-pointer" : "cursor-not-allowed opacity-50",
-					)}
+				<Button
+					size="sm"
+					className="h-8 gap-1.5 rounded-sm px-3"
 					onClick={hasProject ? () => setIsExportPopoverOpen(true) : undefined}
 					disabled={!hasProject}
 					onKeyDown={(event) => {
@@ -153,14 +150,9 @@ export function ExportButton() {
 						}
 					}}
 				>
-					<div className="relative flex items-center gap-1.5 rounded-[0.6rem] bg-linear-270 from-[#2567EC] to-[#37B6F7] px-4 py-1 shadow-[0_1px_3px_0px_rgba(0,0,0,0.65)]">
-						<HugeiconsIcon icon={TransitionTopIcon} className="z-50 size-3.5" />
-						<span className="z-50 text-[0.875rem]">Export</span>
-						<div className="absolute top-0 left-0 z-10 flex size-full items-center justify-center rounded-[0.6rem] bg-linear-to-t from-white/0 to-white/50">
-							<div className="absolute top-[0.08rem] z-50 h-[calc(100%-2px)] w-[calc(100%-2px)] rounded-[0.6rem] bg-linear-270 from-[#2567EC] to-[#37B6F7]"></div>
-						</div>
-					</div>
-				</button>
+					<HugeiconsIcon icon={TransitionTopIcon} className="size-3.5!" />
+					Export
+				</Button>
 			</PopoverTrigger>
 			{hasProject && <ExportPopover onOpenChange={setIsExportPopoverOpen} />}
 		</Popover>

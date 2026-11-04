@@ -222,7 +222,7 @@ export function SettingsView() {
 					}}
 				>
 					<TabsList>
-						<TabsTrigger value="project-info">Project info</TabsTrigger>
+						<TabsTrigger value="project-info">Format</TabsTrigger>
 						<TabsTrigger value="background">Background</TabsTrigger>
 					</TabsList>
 				</Tabs>
@@ -230,6 +230,11 @@ export function SettingsView() {
 		>
 			{view === "project-info" && (
 				<div className="flex flex-col">
+					<p className="text-muted-foreground px-4 pt-1 pb-2 text-xs">
+						The frame you edit in, where clips, text and stickers are placed,
+						and the frame rate cuts and keyframes snap to. Export can still
+						make the file smaller, crop it, or change its frame rate.
+					</p>
 					<Section showTopBorder={false}>
 						<SectionHeader>
 							<SectionTitle className="flex-1">Name</SectionTitle>
@@ -316,7 +321,16 @@ export function SettingsView() {
 					</Section>
 				</div>
 			)}
-			{view === "background" && <BackgroundContent />}
+			{view === "background" && (
+				<div className="flex flex-col">
+					<p className="text-muted-foreground px-4 pt-1 pb-2 text-xs">
+						What fills the frame where no clip covers it: a colour, a
+						gradient, or the video itself blurred, as behind a vertical clip
+						in a wide frame.
+					</p>
+					<BackgroundContent />
+				</div>
+			)}
 		</PanelView>
 	);
 }

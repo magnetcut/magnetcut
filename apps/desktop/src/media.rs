@@ -239,6 +239,15 @@ pub fn read_media_file(
     Ok(Response::new(bytes))
 }
 
+/// Shows a file the editor was given where it is, in Finder or Explorer.
+#[tauri::command]
+pub fn reveal_media_file(media: State<'_, MediaFiles>, path: String) -> Result<(), String> {
+    let location = media
+        .location(&path)
+        .ok_or("not a file MagnetCut was given")?;
+    tauri_plugin_opener::reveal_item_in_dir(&location).map_err(|error| error.to_string())
+}
+
 /// The files on the drag pasteboard, and which drag put them there.
 #[cfg(target_os = "macos")]
 fn drag_paths() -> Option<(isize, Vec<PathBuf>)> {

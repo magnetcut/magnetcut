@@ -52,10 +52,9 @@ export const SelectableItem = forwardRef<HTMLDivElement, SelectableItemProps>(
 			"relative",
 			isBoxSelecting && "pointer-events-none",
 			isItemSelected && "ring-1 ring-primary rounded-sm bg-primary/10",
+			// A revealed item: a ring that pulses, so it's seen even in a full panel.
 			isItemHighlighted &&
-				(isItemSelected
-					? "rounded-sm shadow-[0_0_0_1px_hsl(var(--primary))]"
-					: "ring-1 ring-primary/60 rounded-sm bg-primary/5"),
+				"ring-2 ring-primary rounded-sm bg-primary/20 animate-pulse",
 		);
 
 		const handleRef = useCallback(

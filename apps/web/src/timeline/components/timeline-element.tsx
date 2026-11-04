@@ -42,6 +42,9 @@ import type {
 } from "@/timeline";
 import type { MediaAsset } from "@/media/types";
 import { mediaSupportsAudio } from "@/media/media-utils";
+import { DiskFile, revealDiskFile } from "@/media/disk-file";
+import { getRevealLabel } from "@/export/disk-target";
+import { toast } from "sonner";
 import {
 	canToggleSourceAudio,
 	getSourceAudioActionLabel,
@@ -74,6 +77,7 @@ import {
 	Exchange01Icon,
 	KeyframeIcon,
 	MagicWand05Icon,
+	FolderOpenIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { uppercase } from "@/utils/string";
@@ -336,6 +340,19 @@ export function TimelineElement({
 		}
 	};
 
+	// In the desktop app, the clip's file where it is on disk.
+	const diskFile =
+		mediaAsset?.file instanceof DiskFile ? mediaAsset.file : null;
+	const handleShowFile = ({ event }: { event: React.MouseEvent }) => {
+		event.stopPropagation();
+		if (!diskFile) return;
+		revealDiskFile({ path: diskFile.path }).catch((error: unknown) =>
+			toast.error(`Can't show "${diskFile.name}"`, {
+				description: error instanceof Error ? error.message : String(error),
+			}),
+		);
+	};
+
 	const isMuted = canElementHaveAudio(element) && isElementMuted({ element });
 	const canToggleCurrentSourceAudio =
 		selectedElements.length === 1 &&
@@ -492,8 +509,18 @@ export function TimelineElement({
 									handleRevealInMedia({ event })
 								}
 							>
-								Reveal media
+								Show in Media
 							</ContextMenuItem>
+							{diskFile && (
+								<ContextMenuItem
+									icon={<HugeiconsIcon icon={FolderOpenIcon} />}
+									onClick={(event: React.MouseEvent) =>
+										handleShowFile({ event })
+									}
+								>
+									{getRevealLabel()}
+								</ContextMenuItem>
+							)}
 							<ContextMenuItem
 								icon={<HugeiconsIcon icon={Exchange01Icon} />}
 								disabled

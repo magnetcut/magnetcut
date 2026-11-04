@@ -22,6 +22,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { ShortcutsDialog } from "@/actions/components/shortcuts-dialog";
 import { AppMenuItems } from "@/desktop/components/app-menu";
 import Image from "next/image";
+import { ChevronDown } from "lucide-react";
 import { cn } from "@/utils/ui";
 
 export function EditorHeader() {
@@ -106,15 +107,22 @@ function ProjectDropdown() {
 	return (
 		<>
 			<DropdownMenu>
+				{/* The logo alone went unnoticed as a menu: it says so now. */}
 				<DropdownMenuTrigger asChild>
-					<Button variant="ghost" size="icon" className="p-1 rounded-sm size-8">
+					<Button
+						variant="outline"
+						size="sm"
+						className="h-8 gap-1.5 rounded-sm pl-1.5 pr-2 font-normal data-[state=open]:bg-accent"
+					>
 						<Image
 							src={DEFAULT_LOGO_URL}
-							alt="Project thumbnail"
+							alt=""
 							width={32}
 							height={32}
 							className="invert dark:invert-0 size-5"
 						/>
+						<span>Menu</span>
+						<ChevronDown className="text-muted-foreground size-3.5!" />
 					</Button>
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="start" className="z-100 w-44">

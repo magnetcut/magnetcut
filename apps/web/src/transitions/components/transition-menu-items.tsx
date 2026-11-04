@@ -1,7 +1,7 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowRightDoubleIcon } from "@hugeicons/core-free-icons";
+import { TransitionIcon } from "@/transitions/components/transition-icon";
 import { ContextMenuItem } from "@/components/ui/context-menu";
 import { useEditor } from "@/editor/use-editor";
 import type { TimelineTrack } from "@/timeline";
@@ -36,7 +36,7 @@ export function TransitionMenuItems({
 			cut && (
 				<ContextMenuItem
 					key={label}
-					icon={<HugeiconsIcon icon={ArrowRightDoubleIcon} />}
+					icon={<HugeiconsIcon icon={TransitionIcon} />}
 					onClick={(event: React.MouseEvent) => {
 						event.stopPropagation();
 						addTransitionAtCut({ editor, cut });
