@@ -6,7 +6,6 @@ import {
 } from "magnetcut-wasm";
 import {
 	AddTrackCommand,
-	BatchCommand,
 	InsertElementCommand,
 	UpdateElementsCommand,
 } from "@/commands";
@@ -38,6 +37,7 @@ import { cn } from "@/utils/ui";
 import { mediaTimeFromSeconds, mediaTimeToSeconds } from "@/wasm";
 import { SUBTITLE_FORMAT_NAMES, saveSubtitleFile } from "../save";
 import { buildSubtitleTextElement } from "../build-subtitle-text-element";
+import { addTranslationTrack } from "../insert";
 import {
 	findTimelineSpeech,
 	fitTrackToSpeech,
@@ -239,24 +239,7 @@ function SubtitleTools({
 
 	// A track timed as this one, to put each line's translation in.
 	const handleTranslate = () => {
-		const addTrack = new AddTrackCommand({
-			type: "text",
-			index: 0,
-			subtitles: true,
-			name: `${track.name} (translation)`,
-			translationOf: track.id,
-		});
-		const trackId = addTrack.getTrackId();
-		const inserts = track.elements.map(
-			({ id: _id, ...element }) =>
-				new InsertElementCommand({
-					placement: { mode: "explicit", trackId },
-					element,
-				}),
-		);
-		editor.command.execute({
-			command: new BatchCommand([addTrack, ...inserts]),
-		});
+		const trackId = addTranslationTrack({ editor, track });
 		onSelectTrack({ trackId });
 		onMessage({
 			message:

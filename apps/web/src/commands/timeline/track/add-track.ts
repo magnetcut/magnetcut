@@ -22,6 +22,7 @@ export class AddTrackCommand extends Command {
 		index?: number;
 		/** A text track of subtitles. */
 		subtitles?: boolean;
+		/** An audio track's name, or a subtitle track's. */
 		name?: string;
 		/** Subtitles translating another track's, by its id. */
 		translationOf?: string;
@@ -58,6 +59,7 @@ export class AddTrackCommand extends Command {
 						tracks: this.savedState,
 						insertIndex,
 						trackId: this.trackId,
+						name: this.name,
 					})
 				: buildOverlayTrackState({
 						tracks: this.savedState,
@@ -89,15 +91,18 @@ function buildAudioTrackState({
 	tracks,
 	insertIndex,
 	trackId,
+	name,
 }: {
 	tracks: SceneTracks;
 	insertIndex: number;
 	trackId: string;
+	name?: string;
 }): SceneTracks {
 	const audioInsertIndex = Math.max(0, insertIndex - tracks.overlay.length - 1);
 	const newTrack = buildEmptyTrack({
 		id: trackId,
 		type: "audio",
+		name,
 	});
 	return {
 		...tracks,

@@ -2,7 +2,7 @@
 
 `docs/PLAN.md` step 13; issue #1 has voice-over in it. Two ways in, from a Voice-over panel:
 recording from the microphone, or the subtitles spoken. Built (Done, at the end), with this
-computer's own voices in place of Kokoro; dubbing a translated track isn't.
+computer's own voices in place of Kokoro.
 
 ## What's there
 
@@ -107,7 +107,14 @@ computer's own voices in place of Kokoro; dubbing a translated track isn't.
 - Placing (`voiceover/place.ts`): the takes go on the "Voice-over" audio track, the spoken cues
   on "Spoken subtitles". What a new sound covers on those tracks is deleted (a take over a take
   replaces it; the earlier file stays), sounds that overlap each other go on "… 2", "… 3", and
-  it's one step that Undo takes back.
+  it's one step that Undo takes back. Fixed on the way: `AddTrackCommand` dropped an audio
+  track's name, so those tracks were called "Audio", and each take or cue spoken again went on
+  a new one instead of replacing what it covered.
+- Dubbing: Captions' Translate makes a translation track timed as the original
+  (`addTranslationTrack`, `subtitles/insert.ts`), its lines written over in the other language;
+  spoken with a voice in that language (the panel says so when a translation is picked), its
+  cues go on a track of their own, "Spoken subtitles: <its name>" (`spokenTrackName`), so the
+  dubbed version is beside the original's speech, not over it.
 - Isolate the voice sets Reduce noise (docs/AUDIO-EFFECTS.md) to 0.85 on the take, which its
   Audio tab changes.
 - Permissions: the Info.plist's `NSMicrophoneUsageDescription`; the audio-input entitlement in
@@ -146,4 +153,12 @@ computer's own voices in place of Kokoro; dubbing a translated track isn't.
   workflow: wry sets the web view's arguments itself, so `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`
   is ignored): with it, a take of 1 s of its beep, asked for through the app's permission
   handler. The macOS runner has no microphone: its take is silence.
-- Not checked yet: a real key with each provider, and dubbing a translated track.
+- The probe dubs a translation in each web view, with the panels' own code: a project with two
+  English lines, Translate, the lines written in the first of Italian, French, German or
+  Spanish one of the system's voices speaks (English where there's none, as on GitHub's
+  Windows), the original spoken with the system's voice and the translation with that one, the
+  clips looked for on their two tracks at the lines' starts, and the translation spoken again,
+  from the project. In WKWebView: Alice (it-IT), "Buongiorno a tutti." and "Ci vediamo
+  domani." at 0.5 and 3.5 s on "Spoken subtitles: Subtitles (translation)", the English beside
+  them on "Spoken subtitles", both again from the project.
+- Not checked yet: a real key with each provider, which only the user can type in Settings.

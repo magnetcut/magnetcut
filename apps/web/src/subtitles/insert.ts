@@ -4,6 +4,7 @@ import {
 	BatchCommand,
 	InsertElementCommand,
 } from "@/commands";
+import type { TextTrack } from "@/timeline";
 import { buildSubtitleTextElement } from "./build-subtitle-text-element";
 import type { SubtitleCue } from "./types";
 
@@ -40,5 +41,38 @@ export function insertCaptionChunksAsTextTrack({
 		command: new BatchCommand([addTrackCommand, ...insertCommands]),
 	});
 
+	return trackId;
+}
+
+/**
+ * A translation of `track`: a subtitle track above it, timed as it is, its
+ * lines copied to be written over in the other language (Captions'
+ * Translate), and spoken in it, a dubbed version (docs/VOICEOVER.md).
+ */
+export function addTranslationTrack({
+	editor,
+	track,
+}: {
+	editor: EditorCore;
+	track: TextTrack;
+}): string {
+	const addTrack = new AddTrackCommand({
+		type: "text",
+		index: 0,
+		subtitles: true,
+		name: `${track.name} (translation)`,
+		translationOf: track.id,
+	});
+	const trackId = addTrack.getTrackId();
+	const inserts = track.elements.map(
+		({ id: _id, ...element }) =>
+			new InsertElementCommand({
+				placement: { mode: "explicit", trackId },
+				element,
+			}),
+	);
+	editor.command.execute({
+		command: new BatchCommand([addTrack, ...inserts]),
+	});
 	return trackId;
 }

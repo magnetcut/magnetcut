@@ -182,6 +182,16 @@ export function listCuesToSpeak({
 /** The track the spoken cues go on. */
 export const SPOKEN_TRACK_NAME = "Spoken subtitles";
 
+/**
+ * The track a subtitle track's cues are spoken onto: a translation's on one of
+ * its own, a dubbed version beside the original's speech rather than over it.
+ */
+export function spokenTrackName({ track }: { track: TextTrack }): string {
+	return track.translationOf
+		? `${SPOKEN_TRACK_NAME}: ${track.name}`
+		: SPOKEN_TRACK_NAME;
+}
+
 export interface SpeakProgress {
 	index: number;
 	count: number;
@@ -249,6 +259,7 @@ export async function speakCues({
 	cues,
 	choice,
 	folder,
+	trackName,
 	signal,
 	onProgress,
 }: {
@@ -256,6 +267,8 @@ export async function speakCues({
 	cues: CueToSpeak[];
 	choice: SpeechChoice;
 	folder: string;
+	/** `spokenTrackName` of the subtitles spoken. */
+	trackName: string;
 	signal: AbortSignal;
 	onProgress: (progress: SpeakProgress) => void;
 }): Promise<SpeakResult> {
@@ -294,7 +307,7 @@ export async function speakCues({
 			});
 		}
 	} finally {
-		placeSounds({ editor, trackName: SPOKEN_TRACK_NAME, sounds });
+		placeSounds({ editor, trackName, sounds });
 	}
 	return result;
 }

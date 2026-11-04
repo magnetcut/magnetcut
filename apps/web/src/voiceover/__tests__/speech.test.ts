@@ -4,9 +4,12 @@ import {
 	hashSpeech,
 	MAX_SPEED_UP,
 	nameSpokenFile,
+	SPOKEN_TRACK_NAME,
+	spokenTrackName,
 	toSpokenText,
 	type SpeechChoice,
 } from "../speech";
+import type { TextTrack } from "@/timeline";
 
 const CHOICE: SpeechChoice = {
 	provider: "openai",
@@ -70,5 +73,26 @@ describe("speaking the subtitles", () => {
 		expect(fit.rate).toBe(MAX_SPEED_UP);
 		expect(fit.length).toBeCloseTo(4 / MAX_SPEED_UP);
 		expect(fit.isTooLong).toBe(true);
+	});
+
+	test("a translation is spoken onto a track of its own, beside the original's", () => {
+		const original: TextTrack = {
+			id: "en",
+			name: "Subtitles",
+			type: "text",
+			elements: [],
+			hidden: false,
+			subtitles: true,
+		};
+		const translation: TextTrack = {
+			...original,
+			id: "it",
+			name: "Italiano",
+			translationOf: "en",
+		};
+		expect(spokenTrackName({ track: original })).toBe(SPOKEN_TRACK_NAME);
+		expect(spokenTrackName({ track: translation })).toBe(
+			`${SPOKEN_TRACK_NAME}: Italiano`,
+		);
 	});
 });

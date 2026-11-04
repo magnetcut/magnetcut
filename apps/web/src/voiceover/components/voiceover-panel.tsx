@@ -48,6 +48,7 @@ import {
 	listCuesToSpeak,
 	speakCues,
 	speechApi,
+	spokenTrackName,
 	type SpeakResult,
 	type SpeechChoice,
 	type SpeechModel,
@@ -553,6 +554,7 @@ function SpeakFields() {
 	const providerName =
 		SPEECH_PROVIDERS.find(({ value }) => value === provider)?.label ?? provider;
 	const chosenVoice = voices.find(({ id }) => id === voice);
+	const trackName = track ? spokenTrackName({ track }) : SPOKEN_TRACK_NAME;
 
 	const speak = async () => {
 		if (!choice || cues.length === 0) return;
@@ -567,6 +569,7 @@ function SpeakFields() {
 				cues,
 				choice,
 				folder,
+				trackName,
 				signal: controller.signal,
 				onProgress: ({ index, count }) => setRun({ index, count, controller }),
 			});
@@ -576,7 +579,7 @@ function SpeakFields() {
 				toast(`Stopped: ${placed} of ${cues.length} cues are on the timeline`);
 			} else {
 				toast.success(
-					`${placed} cues on the "${SPOKEN_TRACK_NAME}" track${
+					`${placed} cues on the "${trackName}" track${
 						outcome.reused > 0 ? `, ${outcome.reused} spoken before` : ""
 					}`,
 				);
@@ -721,6 +724,12 @@ function SpeakFields() {
 								{chosenVoice.description}
 							</p>
 						)}
+						{track?.translationOf && (
+							<p className="text-muted-foreground text-xs">
+								A translation: a voice that speaks its language makes the dubbed
+								version.
+							</p>
+						)}
 					</SectionField>
 				)}
 
@@ -811,7 +820,7 @@ function SpeakFields() {
 				</Button>
 			)}
 			<p className="text-muted-foreground text-xs">
-				{`Each cue goes on the "${SPOKEN_TRACK_NAME}" track at its start, sped up by at most ${Math.round((MAX_SPEED_UP - 1) * 100)}% if it's a little long; overlapping ones go on a second track. Undo takes them all back.`}
+				{`Each cue goes on the "${trackName}" track at its start, sped up by at most ${Math.round((MAX_SPEED_UP - 1) * 100)}% if it's a little long; overlapping ones go on a second track. Undo takes them all back.`}
 			</p>
 
 			{result && result.tooLong.length > 0 && (

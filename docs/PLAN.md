@@ -156,7 +156,8 @@ was tried in the built app, through its panel.
     author to read before it's built. Built from their plans: the main track's clips converted
     to match, so Fast mode copies them, and proxies for the preview (docs/CONFORM.md); a clip's
     sound cleaned up and shaped, and the export's loudness brought to a target
-    (docs/AUDIO-EFFECTS.md); voice-over, recorded or the subtitles spoken (docs/VOICEOVER.md).
+    (docs/AUDIO-EFFECTS.md); voice-over, recorded or the subtitles spoken, a translation
+    dubbed (docs/VOICEOVER.md).
     Planned, not yet read: several soundtracks in one file (docs/SOUNDTRACKS.md); fades to
     black, white or transparent on any clip (docs/FADES.md).
 
