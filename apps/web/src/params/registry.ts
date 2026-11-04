@@ -15,6 +15,7 @@ import {
 	CORNER_RADIUS_MAX,
 	CORNER_RADIUS_MIN,
 } from "@/text/background";
+import { AUDIO_EFFECT_PARAMS } from "@/media/audio-effects";
 
 export type ElementParamDefinition<TKey extends string = string> =
 	ParamDefinition<TKey> & {
@@ -333,7 +334,11 @@ export const elementParamRegistry = new DefinitionRegistry<
 
 elementParamRegistry.register({
 	key: "video",
-	definition: [...visualElementParams, ...audioElementParams],
+	definition: [
+		...visualElementParams,
+		...audioElementParams,
+		...AUDIO_EFFECT_PARAMS,
+	],
 });
 elementParamRegistry.register({ key: "image", definition: visualElementParams });
 elementParamRegistry.register({
@@ -348,7 +353,10 @@ elementParamRegistry.register({
 	key: "graphic",
 	definition: visualElementParams,
 });
-elementParamRegistry.register({ key: "audio", definition: audioElementParams });
+elementParamRegistry.register({
+	key: "audio",
+	definition: [...audioElementParams, ...AUDIO_EFFECT_PARAMS],
+});
 elementParamRegistry.register({ key: "effect", definition: [] });
 
 export function getElementParams({

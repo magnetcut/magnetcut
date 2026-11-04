@@ -13,6 +13,8 @@ import { PreviewPanel } from "@/preview/components";
 import { EditorHeader } from "@/components/editor/editor-header";
 import { EditorProvider } from "@/components/providers/editor-provider";
 import { MigrationDialog } from "@/project/components/migration-dialog";
+import { ConformDialog } from "@/components/editor/conform-dialog";
+import { ConformWatcher } from "@/export/fast/conform-watcher";
 import { usePanelStore } from "@/editor/panel-store";
 import { usePasteMedia } from "@/media/use-paste-media";
 import { useDropMedia } from "@/media/use-drop-media";
@@ -55,6 +57,8 @@ function EditorPage() {
 					<EditorLayout />
 				</div>
 				<MigrationDialog />
+				<ConformWatcher />
+				<ConformDialog />
 			</div>
 		</EditorProvider>
 	);

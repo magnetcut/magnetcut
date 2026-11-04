@@ -6,6 +6,7 @@ import {
 	Folder03Icon,
 	Happy01Icon,
 	MagicWand05Icon,
+	Mic01Icon,
 	TextIcon,
 	Settings01Icon,
 	SlidersHorizontalIcon,
@@ -21,6 +22,7 @@ export const TAB_KEYS = [
 	"effects",
 	"transitions",
 	"captions",
+	"voiceover",
 	"adjustment",
 	"settings",
 ] as const;
@@ -56,6 +58,10 @@ export const tabs = {
 	captions: {
 		icon: createHugeiconsIcon({ icon: ClosedCaptionIcon }),
 		label: "Captions",
+	},
+	voiceover: {
+		icon: createHugeiconsIcon({ icon: Mic01Icon }),
+		label: "Voice-over",
 	},
 	adjustment: {
 		icon: createHugeiconsIcon({ icon: SlidersHorizontalIcon }),

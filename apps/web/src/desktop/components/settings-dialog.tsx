@@ -15,6 +15,7 @@ import { useAppInfo } from "../app-info";
 import { useSettingsStore } from "../settings-store";
 import { checkForUpdatesNow } from "../updates";
 import { AgentsSetting } from "./agents-setting";
+import { SpeechKeysSetting } from "@/voiceover/components/speech-keys-setting";
 
 const THEMES = [
 	{ value: "system", label: "System" },
@@ -37,10 +38,11 @@ export function SettingsDialog({
 				<DialogHeader>
 					<DialogTitle>Settings</DialogTitle>
 				</DialogHeader>
-				<DialogBody className="gap-6">
+				<DialogBody className="max-h-[70vh] gap-6 overflow-y-auto">
 					<AppearanceSetting />
 					{info?.updates && <UpdatesSetting />}
 					<AgentsSetting />
+					<SpeechKeysSetting />
 				</DialogBody>
 			</DialogContent>
 		</Dialog>

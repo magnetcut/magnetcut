@@ -2,13 +2,14 @@
 // feature flags: the Storage API (navigator.storage) and the origin private
 // file system behind it, where imported media is kept. They're switched on
 // here, through WebKitGTK 2.42's feature API, looked up at run time: on an
-// older WebKitGTK the app still starts, without them.
+// older WebKitGTK the app still starts, without them. The microphone's media
+// stream is an ordinary setting.
 
 use std::ffi::{CStr, c_char, c_int, c_void};
 
 use serde::Serialize;
-use webkit2gtk::WebViewExt;
 use webkit2gtk::glib::object::ObjectType;
+use webkit2gtk::{SettingsExt, WebViewExt};
 
 /// What the editor needs, by WebKit's identifiers (with or without "Enabled").
 const NEEDED: &[&str] = &[
@@ -91,7 +92,13 @@ fn is_needed(id: &str) -> bool {
 /// first page loads, and returns every feature's state (for the probe): none
 /// on a WebKitGTK without the feature API.
 pub fn enable_needed(webview: &webkit2gtk::WebView) -> Vec<Feature> {
-    let (Some(api), Some(settings)) = (Api::load(), webview.settings()) else {
+    let Some(settings) = webview.settings() else {
+        return Vec::new();
+    };
+    // getUserMedia, for recording a voice-over (docs/VOICEOVER.md): a
+    // setting of its own, off by default.
+    settings.set_enable_media_stream(true);
+    let Some(api) = Api::load() else {
         return Vec::new();
     };
     let settings = settings.as_ptr().cast::<c_void>();
@@ -122,4 +129,12 @@ pub fn enable_needed(webview: &webkit2gtk::WebView) -> Vec<Feature> {
         (api.unref)(list);
     }
     features
+}
+
+/// For the probe: WebKit's stand-in microphone and camera, as a CI runner has
+/// none. getUserMedia still asks, so the permission handler is what answers.
+pub fn use_mock_capture_devices(webview: &webkit2gtk::WebView) {
+    if let Some(settings) = webview.settings() {
+        settings.set_enable_mock_capture_devices(true);
+    }
 }

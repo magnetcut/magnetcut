@@ -264,6 +264,19 @@ if (!/ 0:02\.[01] rev/.test(shorter.text.split("\n")[0])) {
 	throw new Error(`the silence wasn't taken out: ${shorter.text}`);
 }
 report({ step: "remove", detail: `${removed.text} / ${shorter.text.split("\n")[0]}` });
+// Export's loudness (docs/AUDIO-EFFECTS.md, phase 4): the -20 LUFS tone
+// exported for sites, which aim at -14 LUFS, through whichever export this
+// system takes, and the film heard again.
+const upload = output.replace(/\.mp4$/, "-upload.mp4");
+const uploaded = await tool({ name: "export", args: { path: upload, destination: "upload" } });
+await tool({ name: "project", args: { action: "new", name: "Loudness check" } });
+await tool({ name: "media", args: { action: "import", paths: [upload], add: true } });
+const normalised = await tool({ name: "listen", args: { what: "loudness" } });
+const reached = Number(/(-?\d+\.\d) LUFS/.exec(normalised.text)?.[1]);
+if (!(Math.abs(reached + 14) < 1)) {
+	throw new Error(`the export for sites isn't at -14 LUFS: ${normalised.text} / ${uploaded.text}`);
+}
+report({ step: "loudness target", detail: `${uploaded.text} / ${normalised.text}` });
 // Shots: a black picture, then a white one, written here as PNGs; the one
 // cut found where they meet.
 function png({ grey }: { grey: number }): Buffer {

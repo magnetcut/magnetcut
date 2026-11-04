@@ -47,6 +47,13 @@ import {
 } from "@/components/editor/panels/assets/assets-panel-store";
 import { MASKABLE_ELEMENT_TYPES } from "@/timeline";
 import type { MediaAsset } from "@/media/types";
+import {
+	canHaveProxy,
+	cancelProxy,
+	queueProxies,
+	removeProxy,
+	useProxyStore,
+} from "@/media/proxy";
 import { cn } from "@/utils/ui";
 import {
 	CloudUploadIcon,
@@ -296,16 +303,72 @@ function MediaItemWithContextMenu({
 		ids: string[];
 	}) => void;
 }) {
+	const editor = useEditor();
 	const { isSelected, selectedIds } = useSelection();
+	const queue = useProxyStore((state) => state.queue);
 	const idsToDelete = isSelected(item.id) ? selectedIds : [item.id];
 	const deleteLabel =
 		idsToDelete.length > 1 ? `Delete ${idsToDelete.length} items` : "Delete";
+	const targets = editor.media
+		.getAssets()
+		.filter((asset) => idsToDelete.includes(asset.id));
+	const toMake = targets.filter(
+		(asset) => canHaveProxy({ asset }) && !queue.includes(asset.id),
+	);
+	const toStop = targets.filter((asset) => queue.includes(asset.id));
+	const toRemove = targets.filter((asset) => asset.proxy);
+	const count = ({
+		assets,
+		one,
+		many,
+	}: {
+		assets: MediaAsset[];
+		one: string;
+		many: string;
+	}) => (assets.length > 1 ? `${many} (${assets.length})` : one);
 
 	return (
 		<ContextMenu>
 			<ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
 			<ContextMenuContent>
 				<ContextMenuItem>Export clips</ContextMenuItem>
+				{toMake.length > 0 && (
+					<ContextMenuItem
+						onClick={() => queueProxies({ editor, assets: toMake })}
+					>
+						{count({
+							assets: toMake,
+							one: "Make a proxy",
+							many: "Make proxies",
+						})}
+					</ContextMenuItem>
+				)}
+				{toStop.length > 0 && (
+					<ContextMenuItem
+						onClick={() => {
+							for (const { id } of toStop) cancelProxy({ id });
+						}}
+					>
+						{count({
+							assets: toStop,
+							one: "Stop making the proxy",
+							many: "Stop making proxies",
+						})}
+					</ContextMenuItem>
+				)}
+				{toRemove.length > 0 && (
+					<ContextMenuItem
+						onClick={() => {
+							for (const { id } of toRemove) void removeProxy({ editor, id });
+						}}
+					>
+						{count({
+							assets: toRemove,
+							one: "Remove the proxy",
+							many: "Remove proxies",
+						})}
+					</ContextMenuItem>
+				)}
 				<ContextMenuItem
 					variant="destructive"
 					onClick={(event: React.MouseEvent<HTMLDivElement>) =>
@@ -376,6 +439,23 @@ function MediaDurationBadge({ duration }: { duration?: number }) {
 	return (
 		<div className="absolute right-1 bottom-1 rounded bg-black/70 px-1 text-xs text-white">
 			{formatDuration({ duration })}
+		</div>
+	);
+}
+
+/** Whether a video has a proxy, or how far its proxy is. */
+function ProxyBadge({ item }: { item: MediaAsset }) {
+	const position = useProxyStore((state) => state.queue.indexOf(item.id));
+	const progress = useProxyStore((state) => state.progress);
+	if (!item.proxy && position === -1) return null;
+	const label = item.proxy
+		? "Proxy"
+		: position === 0
+			? `Proxy ${Math.round(progress * 100)}%`
+			: "Proxy…";
+	return (
+		<div className="absolute top-1 left-1 rounded bg-black/70 px-1 text-[0.65rem] text-white">
+			{label}
 		</div>
 	);
 }
@@ -456,6 +536,7 @@ function MediaPreview({
 					{shouldShowDurationBadge ? (
 						<MediaDurationBadge duration={item.duration} />
 					) : null}
+					{shouldShowDurationBadge ? <ProxyBadge item={item} /> : null}
 				</div>
 			);
 		}

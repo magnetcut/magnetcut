@@ -4,5 +4,7 @@
 <dict>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>MagnetCut records voice-overs from the microphone when you ask it to.</string>
 </dict>
 </plist>

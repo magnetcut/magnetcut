@@ -7,6 +7,7 @@ import { useEffect } from "react";
 import { AgentBridge } from "@/agent/bridge";
 import { useAppDialogsStore } from "../app-dialogs-store";
 import { openProjectFromDisk, saveProjectToDisk } from "../project-files";
+import type { ProbeOptions } from "../probe-checks";
 import { checkForUpdatesIfDue, checkForUpdatesNow } from "../updates";
 import { AboutDialog } from "./about-dialog";
 import { SettingsDialog } from "./settings-dialog";
@@ -23,6 +24,7 @@ export function AppDialogs() {
 	const setOpenDialog = useAppDialogsStore((state) => state.setOpenDialog);
 	useNativeMenu();
 	useDailyUpdateCheck();
+	useProbeChecks();
 
 	return (
 		<>
@@ -42,6 +44,30 @@ export function AppDialogs() {
 			<AgentBridge />
 		</>
 	);
+}
+
+declare global {
+	interface Window {
+		/** For the web view probe (apps/desktop/src/probe.js). */
+		__magnetcutProbe?: (options: ProbeOptions) => Promise<unknown>;
+	}
+}
+
+/**
+ * The editor's own code, run by the web view probe in each system's web view
+ * (apps/desktop/src/probe.js): loaded only when the probe asks.
+ */
+function useProbeChecks() {
+	useEffect(() => {
+		if (!isTauri()) return;
+		window.__magnetcutProbe = async (options) => {
+			const { runProbeChecks } = await import("../probe-checks");
+			return runProbeChecks(options);
+		};
+		return () => {
+			delete window.__magnetcutProbe;
+		};
+	}, []);
 }
 
 /** The macOS menu's own items (apps/desktop/src/menu.rs). */

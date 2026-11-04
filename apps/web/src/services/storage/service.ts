@@ -1,6 +1,6 @@
 import type { TProject, TProjectMetadata } from "@/project/types";
 import { getProjectDurationFromScenes } from "@/timeline/scenes";
-import type { MediaAsset } from "@/media/types";
+import type { MediaAsset, MediaProxy } from "@/media/types";
 import {
 	createObjectUrl,
 	DiskFile,
@@ -18,6 +18,7 @@ import {
 } from "./quota";
 import type {
 	MediaAssetData,
+	MediaProxyData,
 	StorageConfig,
 	SerializedProject,
 	SerializedScene,
@@ -79,6 +80,17 @@ async function openMediaOnDisk({
 		console.warn(`Couldn't open ${path}`, error);
 		return null;
 	}
+}
+
+/** Where a proxy kept in storage is, beside its asset's file. */
+const proxyKey = ({ id }: { id: string }) => `${id}.proxy`;
+
+function describeProxy({ proxy }: { proxy: MediaProxy }): MediaProxyData {
+	return {
+		width: proxy.width,
+		height: proxy.height,
+		path: proxy.file instanceof DiskFile ? proxy.file.path : undefined,
+	};
 }
 
 function stripAudioBuffers({ tracks }: { tracks: SceneTracks }): SceneTracks {
@@ -341,6 +353,9 @@ class StorageService {
 			duration: mediaAsset.duration,
 			thumbnailUrl: mediaAsset.thumbnailUrl,
 			ephemeral: mediaAsset.ephemeral,
+			proxy: mediaAsset.proxy
+				? describeProxy({ proxy: mediaAsset.proxy })
+				: undefined,
 		};
 
 		try {
@@ -352,6 +367,13 @@ class StorageService {
 				await mediaAssetsAdapter.set({
 					key: mediaAsset.id,
 					value: mediaAsset.file,
+				});
+			}
+			const proxyFile = mediaAsset.proxy?.file;
+			if (proxyFile && !(proxyFile instanceof DiskFile)) {
+				await mediaAssetsAdapter.set({
+					key: proxyKey({ id: mediaAsset.id }),
+					value: proxyFile,
 				});
 			}
 			await mediaMetadataAdapter.set({
@@ -373,6 +395,57 @@ class StorageService {
 
 			throw error;
 		}
+	}
+
+	/**
+	 * Gives an asset its proxy, or takes it away (null): what describes it, and
+	 * in a browser the file, kept beside the asset's.
+	 */
+	async saveMediaProxy({
+		projectId,
+		id,
+		proxy,
+	}: {
+		projectId: string;
+		id: string;
+		proxy: MediaProxy | null;
+	}): Promise<void> {
+		const { mediaMetadataAdapter, mediaAssetsAdapter } =
+			this.getProjectMediaAdapters({ projectId });
+		const metadata = await mediaMetadataAdapter.get(id);
+		if (!metadata) return;
+		const key = proxyKey({ id });
+		if (proxy && !(proxy.file instanceof DiskFile)) {
+			await mediaAssetsAdapter.set({ key, value: proxy.file });
+		} else {
+			await mediaAssetsAdapter.remove(key);
+		}
+		await mediaMetadataAdapter.set({
+			key: id,
+			value: {
+				...metadata,
+				proxy: proxy ? describeProxy({ proxy }) : undefined,
+			},
+		});
+	}
+
+	/** An asset's proxy, if it has one that's still there. */
+	private async loadMediaProxy({
+		metadata,
+		mediaAssetsAdapter,
+	}: {
+		metadata: MediaAssetData;
+		mediaAssetsAdapter: OPFSAdapter;
+	}): Promise<MediaProxy | undefined> {
+		const data = metadata.proxy;
+		if (!data) return undefined;
+		// A proxy that's gone isn't missing media: the original plays instead.
+		const file = data.path
+			? await openMediaOnDisk({ path: data.path, type: "video" })
+			: await mediaAssetsAdapter
+					.get(proxyKey({ id: metadata.id }))
+					.catch(() => null);
+		return file ? { file, width: data.width, height: data.height } : undefined;
 	}
 
 	async loadMediaAsset({
@@ -425,6 +498,7 @@ class StorageService {
 			duration: metadata.duration,
 			thumbnailUrl: metadata.thumbnailUrl,
 			ephemeral: metadata.ephemeral,
+			proxy: await this.loadMediaProxy({ metadata, mediaAssetsAdapter }),
 		};
 	}
 
@@ -470,6 +544,7 @@ class StorageService {
 
 		await Promise.all([
 			mediaAssetsAdapter.remove(id),
+			mediaAssetsAdapter.remove(proxyKey({ id })),
 			mediaMetadataAdapter.remove(id),
 		]);
 	}

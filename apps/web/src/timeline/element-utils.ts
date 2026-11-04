@@ -33,6 +33,7 @@ import {
 } from "@/params/registry";
 import { capitalizeFirstLetter } from "@/utils/string";
 import { type MediaTime, ZERO_MEDIA_TIME } from "@/wasm";
+import { AUDIO_EFFECT_PARAMS } from "@/media/audio-effects";
 
 export function canElementHaveAudio(
 	element: TimelineElement,
@@ -95,8 +96,15 @@ function buildDefaultElementParams({
 }: {
 	type: TimelineElement["type"];
 }): ParamValues {
-	return buildDefaultParamValues(getBuiltInElementParams({ type }));
+	// The sound's effects stay unset until they're used: not on every clip.
+	return buildDefaultParamValues(
+		getBuiltInElementParams({ type }).filter(
+			(param) => !AUDIO_EFFECT_KEYS.has(param.key),
+		),
+	);
 }
+
+const AUDIO_EFFECT_KEYS = new Set(AUDIO_EFFECT_PARAMS.map(({ key }) => key));
 
 export function buildTextElement({
 	raw,

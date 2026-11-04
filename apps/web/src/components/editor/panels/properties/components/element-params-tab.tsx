@@ -1,7 +1,13 @@
 "use client";
 
 import { resolveAnimationPathValueAtTime } from "@/animation";
-import { Section, SectionContent, SectionFields } from "@/components/section";
+import {
+	Section,
+	SectionContent,
+	SectionFields,
+	SectionHeader,
+	SectionTitle,
+} from "@/components/section";
 import { useElementPlayhead } from "@/components/editor/panels/properties/hooks/use-element-playhead";
 import { useKeyframedParamProperty } from "@/components/editor/panels/properties/hooks/use-keyframed-param-property";
 import { PropertyParamField } from "@/components/editor/panels/properties/components/property-param-field";
@@ -20,24 +26,37 @@ export function ElementParamsTab({
 	trackId,
 	paramKeys,
 	sectionKey,
+	title,
+	hint,
+	params: givenParams,
 }: {
 	element: TimelineElement;
 	trackId: string;
 	paramKeys?: readonly string[];
 	sectionKey: string;
+	/** A heading above the fields, and a line under them. */
+	title?: string;
+	hint?: string;
+	/** These instead of the element's own, in their order. */
+	params?: readonly ElementParamDefinition[];
 }) {
 	const { localTime, isPlayheadWithinElementRange } = useElementPlayhead({
 		startTime: element.startTime,
 		duration: element.duration,
 	});
-	const params = getElementParams({ element }).filter(
+	const params = (givenParams ?? getElementParams({ element })).filter(
 		(param) => !paramKeys || paramKeys.includes(param.key),
 	);
 	const baseValues = buildValues({ element, params });
 
 	return (
 		<Section sectionKey={`${element.id}:${sectionKey}`}>
-			<SectionContent className="pt-4">
+			{title && (
+				<SectionHeader>
+					<SectionTitle>{title}</SectionTitle>
+				</SectionHeader>
+			)}
+			<SectionContent className={title ? undefined : "pt-4"}>
 				<SectionFields>
 					{params
 						.filter((param) => isVisible({ param, values: baseValues }))
@@ -53,6 +72,7 @@ export function ElementParamsTab({
 							/>
 						))}
 				</SectionFields>
+				{hint && <p className="text-muted-foreground mt-2 text-xs">{hint}</p>}
 			</SectionContent>
 		</Section>
 	);

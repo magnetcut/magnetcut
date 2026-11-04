@@ -39,7 +39,8 @@
       "icons/MagnetCut.icon"
     ],
     "macOS": {
-      "minimumSystemVersion": "13.0"
+      "minimumSystemVersion": "13.0",
+      "entitlements": "./Direct.entitlements"
     },
     "windows": {
       "nsis": { "installMode": "currentUser" }

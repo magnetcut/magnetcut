@@ -11,6 +11,7 @@ import {
 	type ResolvedTransition,
 } from "@/transitions";
 import type { MediaAsset } from "@/media/types";
+import { getProxyMediaId } from "@/media/proxy-id";
 import { RootNode } from "./nodes/root-node";
 import { VideoNode } from "./nodes/video-node";
 import { ImageNode } from "./nodes/image-node";
@@ -339,7 +340,31 @@ export type BuildSceneParams = {
 	duration: number;
 	background: TBackground;
 	isPreview?: boolean;
+	/** The preview plays videos' proxies where they have them (docs/CONFORM.md). */
+	useProxies?: boolean;
 };
+
+/** The assets the scene reads: a video's proxy in its place, if asked for. */
+function mapSceneMedia({
+	mediaAssets,
+	useProxies,
+}: {
+	mediaAssets: MediaAsset[];
+	useProxies: boolean;
+}): Map<string, MediaAsset> {
+	return new Map(
+		mediaAssets.map((asset) => [
+			asset.id,
+			useProxies && asset.type === "video" && asset.proxy
+				? {
+						...asset,
+						id: getProxyMediaId({ id: asset.id }),
+						file: asset.proxy.file,
+					}
+				: asset,
+		]),
+	);
+}
 
 export function buildScene({
 	canvasSize,
@@ -348,9 +373,13 @@ export function buildScene({
 	duration,
 	background,
 	isPreview,
+	useProxies,
 }: BuildSceneParams) {
 	const rootNode = new RootNode({ duration });
-	const mediaMap = new Map(mediaAssets.map((m) => [m.id, m]));
+	const mediaMap = mapSceneMedia({
+		mediaAssets,
+		useProxies: !!isPreview && !!useProxies,
+	});
 
 	const visibleTracks = [
 		...tracks.overlay.filter((track) => !("hidden" in track && track.hidden)),

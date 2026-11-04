@@ -2,6 +2,8 @@ import { useEffect, useReducer, useState, type RefObject } from "react";
 import { useEditor } from "@/editor/use-editor";
 import { useCommittedRef } from "@/hooks/use-committed-ref";
 import { addTransitionAtCut } from "@/transitions/add-at-cut";
+import { replaceWithAsset } from "@/media/replace-actions";
+import { findTrackInSceneTracks } from "@/timeline/track-element-update";
 import {
 	DragDropController,
 	type DragDropConfig,
@@ -40,6 +42,14 @@ export function useTimelineDragDrop({
 		addClipEffect: (args) => editor.timeline.addClipEffect(args),
 		addTransitionAtCut: ({ cut, type }) =>
 			addTransitionAtCut({ editor, cut, type }),
+		replaceMedia: ({ trackId, elementId, asset }) => {
+			const track = findTrackInSceneTracks({
+				tracks: editor.scenes.getActiveScene().tracks,
+				trackId,
+			});
+			const element = track?.elements.find(({ id }) => id === elementId);
+			if (element) replaceWithAsset({ editor, trackId, element, asset });
+		},
 	};
 	const configRef = useCommittedRef(config);
 	const [controller] = useState(() => new DragDropController({ configRef }));

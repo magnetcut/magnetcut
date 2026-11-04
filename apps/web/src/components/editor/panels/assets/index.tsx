@@ -10,6 +10,7 @@ import { StickersView } from "@/stickers/components/assets-view";
 import { TextView } from "@/text/components/assets-view";
 import { AdjustmentView, EffectsView } from "@/effects/components/assets-view";
 import { TransitionsView } from "@/transitions/components/assets-view";
+import { VoiceoverView } from "@/voiceover/components/voiceover-panel";
 
 export function AssetsPanel() {
 	const { activeTab } = useAssetsPanelStore();
@@ -21,6 +22,7 @@ export function AssetsPanel() {
 		effects: <EffectsView />,
 		transitions: <TransitionsView />,
 		captions: <Captions />,
+		voiceover: <VoiceoverView />,
 		adjustment: <AdjustmentView />,
 		settings: <SettingsView />,
 	};

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Info } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
@@ -33,6 +34,7 @@ import {
 	inspectFastExport,
 	type FastExportInfo,
 } from "@/export/fast/exporter";
+import { useConformStore } from "@/export/fast/conform-store";
 import { AUDIO_CODEC_NAMES, FORMAT_NAMES } from "@/export/settings";
 import type { SceneTracks } from "@/timeline";
 
@@ -55,7 +57,7 @@ function nameCodec({ codec }: { codec: string }): string {
 }
 
 const FAST_MODE_WHAT =
-	"Copies the clips on the main track out of their files instead of drawing and encoding every frame again: for a slow or busy computer, or to keep the original quality. What the timeline adds on top (transitions, effects, text, other tracks) is left out.";
+	"Copies the clips on the main track out of their files instead of drawing and encoding every frame again: for a slow or busy computer, or to keep the original quality. What the timeline adds on top (transitions, effects, text, other video tracks) is left out; the audio tracks are mixed in.";
 
 function isFastMode(value: string): value is FastMode {
 	return FAST_MODES.some((mode) => mode === value);
@@ -205,6 +207,7 @@ export function ExportFast({
 	onFormatChange: ({ value }: { value: ExportFormat }) => void;
 }) {
 	const tracks = useEditor((e) => e.scenes.getActiveScene().tracks);
+	const openConform = useConformStore((state) => state.openDialog);
 	const losses = listFastLosses({ tracks });
 	const { format, hasAudio, audioPassthrough } = choices;
 	const formats = info?.codec
@@ -253,7 +256,9 @@ export function ExportFast({
 							setChoices({ choices: { hasAudio: !!checked } })
 						}
 					/>
-					<Label htmlFor="fast-audio">{"The clips' own sound"}</Label>
+					<Label htmlFor="fast-audio">
+						{"Sound: the clips' own, and the audio tracks"}
+					</Label>
 				</div>
 				{hasAudio && (
 					<>
@@ -272,7 +277,7 @@ export function ExportFast({
 						<p className="text-muted-foreground text-xs">
 							{info?.copiedSound
 								? `The ${nameCodec({ codec: info.copiedSound })} sound is copied, its cuts within a hundredth of a second of the picture's.`
-								: "Mixed from the clips and encoded with the audio settings of Advanced: their volumes are kept. Copied only when every clip's sound is in the same codec, unchanged, and the container takes it."}
+								: "Mixed from the clips and the audio tracks under them, and encoded with the audio settings of Advanced: their volumes are kept. Copied only when the audio tracks are empty, every clip's sound is in the same codec and unchanged, and the container takes it."}
 						</p>
 					</>
 				)}
@@ -287,7 +292,19 @@ export function ExportFast({
 				<p className="text-muted-foreground text-xs">{info.smartFallback}</p>
 			)}
 			{info?.problem && (
-				<p className="text-destructive text-xs">{info.problem}</p>
+				<div className="flex flex-col items-start gap-1.5">
+					<p className="text-destructive text-xs">{info.problem}</p>
+					{info.canConform && (
+						<Button
+							variant="outline"
+							size="sm"
+							className="h-7 text-xs"
+							onClick={openConform}
+						>
+							Make the clips match…
+						</Button>
+					)}
+				</div>
 			)}
 		</div>
 	);

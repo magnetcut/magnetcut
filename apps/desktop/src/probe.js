@@ -249,6 +249,20 @@
 		return { second: info, seconds: (performance.now() - started) / 1000 };
 	});
 
+	// The editor's own code here (apps/web/src/desktop/probe-checks.ts): a take
+	// recorded from a stand-in microphone, and from the real one when
+	// MAGNETCUT_PROBE_MICROPHONE is set (main.rs); the system's voices; clips
+	// converted to match and joined by Fast mode; a proxy made.
+	report.app = await attempt(async () => {
+		for (let waited = 0; !window.__magnetcutProbe; waited += 100) {
+			if (waited >= 20000) return "the editor's checks never showed up";
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+		return window.__magnetcutProbe({
+			microphone: window.__magnetcutProbeMicrophone === true,
+		});
+	});
+
 	window.__TAURI_INTERNALS__.invoke("probe_report", {
 		report: JSON.stringify(report),
 	});

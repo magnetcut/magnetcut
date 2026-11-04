@@ -1,6 +1,7 @@
 import type { EditorCore } from "@/core";
 import { toast } from "sonner";
-import type { MediaAsset } from "@/media/types";
+import type { MediaAsset, MediaProxy } from "@/media/types";
+import { getProxyMediaId } from "@/media/proxy-id";
 import { storageService } from "@/services/storage/service";
 import { generateUUID } from "@/utils/id";
 import { videoCache } from "@/services/video-cache/service";
@@ -59,6 +60,25 @@ export class MediaManager {
 
 			return null;
 		}
+	}
+
+	/** Gives a video its proxy, or takes it away (null); kept with the project. */
+	async setProxy({
+		projectId,
+		id,
+		proxy,
+	}: {
+		projectId: string;
+		id: string;
+		proxy: MediaProxy | null;
+	}): Promise<void> {
+		if (!this.assets.some((asset) => asset.id === id)) return;
+		await storageService.saveMediaProxy({ projectId, id, proxy });
+		videoCache.clearVideo({ mediaId: getProxyMediaId({ id }) });
+		this.assets = this.assets.map((asset) =>
+			asset.id === id ? { ...asset, proxy: proxy ?? undefined } : asset,
+		);
+		this.notify();
 	}
 
 	removeMediaAsset({ projectId, id }: { projectId: string; id: string }): void {

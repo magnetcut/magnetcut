@@ -79,6 +79,7 @@ import {
 	getVideoBitrate,
 	isCropped,
 	isNativeOnlyCodec,
+	LOUDNESS_TARGETS,
 	NO_CROP,
 	type ExportCrop,
 	type ExportVideoCodec,
@@ -630,6 +631,7 @@ function ExportPopover({
 		audioCodec,
 		audioKbps,
 		channels,
+		loudness,
 		deinterlace,
 		denoise,
 		sharpen,
@@ -646,7 +648,7 @@ function ExportPopover({
 		tracks: sceneTracks,
 		mode: fastMode,
 		format,
-		copiesSound: hasAudio && audioPassthrough,
+		copiesSound: hasAudio && audioPassthrough && loudness === null,
 	});
 
 	// The crop is the film's, not the settings': it starts afresh each time.
@@ -677,7 +679,8 @@ function ExportPopover({
 	);
 	const fps = options.fps ?? activeProject.settings.fps;
 	const passthroughInfo = usePassthroughInfo({ format });
-	const copied = hasAudio && audioPassthrough ? passthroughInfo : null;
+	const copied =
+		hasAudio && audioPassthrough && loudness === null ? passthroughInfo : null;
 	const duration = editor.timeline.getTotalDuration() / TICKS_PER_SECOND;
 	const audioBitrate = copied
 		? copied.bitrate
@@ -1329,6 +1332,40 @@ function ExportPopover({
 																</SelectContent>
 															</Select>
 														</div>
+													)}
+													{hasAudio && (
+														<SectionField label="Loudness">
+															<Select
+																value={loudness === null ? "off" : String(loudness)}
+																onValueChange={(value) =>
+																	setChoices({
+																		choices: {
+																			loudness:
+																				LOUDNESS_TARGETS.find(
+																					({ lufs }) => String(lufs) === value,
+																				)?.lufs ?? null,
+																		},
+																	})
+																}
+															>
+																<SelectTrigger variant="outline" className="w-full">
+																	<SelectValue />
+																</SelectTrigger>
+																<SelectContent position="popper">
+																	<SelectItem value="off">As it is</SelectItem>
+																	{LOUDNESS_TARGETS.map(({ lufs, name }) => (
+																		<SelectItem key={lufs} value={String(lufs)}>
+																			{name}
+																		</SelectItem>
+																	))}
+																</SelectContent>
+															</Select>
+															{loudness !== null && (
+																<p className="text-muted-foreground text-xs">
+																	{"The whole mix is measured first, then turned up or down to it, the limiter keeping peaks under -1 dB. The source's sound isn't copied."}
+																</p>
+															)}
+														</SectionField>
 													)}
 												</SectionFields>
 											</SectionContent>

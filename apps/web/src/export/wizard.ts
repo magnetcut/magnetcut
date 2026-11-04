@@ -257,5 +257,11 @@ export function applyWizardAnswers({
 		audioCodec: sound.audioCodec,
 		audioKbps: sound.audioKbps,
 		channels: sound.channels,
+		// Those sites play everything at about -14 LUFS: a mix made to it plays
+		// as it was heard here. Copied sound can't be measured.
+		loudness:
+			destination === "upload" && sound.hasAudio && !sound.audioPassthrough
+				? -14
+				: null,
 	};
 }

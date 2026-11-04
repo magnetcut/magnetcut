@@ -45,6 +45,14 @@ compositor = { path = "../../rust/crates/compositor" }
 gpu = { path = "../../rust/crates/gpu" }
 # Waits for the GPU on the export's thread.
 futures-executor = "0.3"
+# Subtitles spoken by ElevenLabs or OpenAI (src/speech.rs): the updater's
+# reqwest, with its native-tls (see above), as a dependency of its own, since
+# the App Store edition has no updater.
+reqwest = { version = "0.13", default-features = false, features = ["native-tls", "json"] }
+# Their keys, in the system's keychain: the macOS Keychain, the Windows
+# Credential Manager, and on Linux the Secret Service through zbus, in Rust
+# (no libdbus to build against).
+keyring = "4"
 
 # The drag pasteboard, for the paths of dropped files, and bookmarks, which
 # the App Store sandbox needs to open a file again (src/media.rs). The
@@ -56,6 +64,7 @@ objc2-app-kit = { version = "0.3", features = ["NSPasteboard"] }
 # The native export on macOS (src/render/): AVFoundation decodes the sources
 # and encodes the film.
 objc2-av-foundation = { version = "0.3", features = ["block2", "objc2-core-media", "objc2-core-video"] }
+# Its speech synthesizer, for the system's voices (src/speech/avspeech.rs).
 objc2-avf-audio = "0.3"
 objc2-core-media = { version = "0.3", features = ["objc2-core-audio-types", "objc2-core-video"] }
 objc2-core-video = "0.3"
@@ -71,10 +80,13 @@ rav1e = { version = "0.8", default-features = false, features = ["threading", "a
 rav1e = { version = "0.8", default-features = false, features = ["threading"] }
 
 # Media Foundation, for the native export on Windows (src/render/windows/),
-# and the power requests that keep an export going (src/activity.rs): the
-# version Tauri itself uses.
+# the power requests that keep an export going (src/activity.rs), and the
+# system's voices (src/speech/winrt.rs): the version Tauri itself uses.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
+    "Media_Core",
+    "Media_SpeechSynthesis",
+    "Storage_Streams",
     "Win32_Foundation",
     "Win32_Media_MediaFoundation",
     "Win32_System_Com",

@@ -2,7 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { BlobSource, StreamSource, type Source } from "mediabunny";
 
 /** As the desktop app describes a file (apps/desktop/src/media.rs). */
-interface DiskFileInfo {
+export interface DiskFileInfo {
 	path: string;
 	name: string;
 	size: number;

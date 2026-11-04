@@ -24,7 +24,12 @@ import {
 import { shouldMaintainPitch } from "@/retime/rate";
 import { getSourceTimeAtClipTime, renderRetimedBuffer } from "@/retime";
 import { getAudioCrossfades } from "@/transitions";
+import {
+	applyAudioEffectsToBuffer,
+	readAudioEffects,
+} from "@/media/audio-effects";
 import { TICKS_PER_SECOND } from "@/wasm";
+import { LoudnessMeter } from "magnetcut-wasm";
 
 export const EXPORT_SAMPLE_RATE = 44100;
 /** The mix is stereo. */
@@ -305,16 +310,19 @@ async function openClip({
 		const sound = await openClipSound({ clip, sampleRate, context });
 		if (!sound) return null;
 		const { retime, trimStart, duration } = clip;
-		if (
-			!shouldMaintainPitch({
-				rate: retime?.rate ?? 1,
-				maintainPitch: retime?.maintainPitch,
-			})
-		) {
+		const effects = readAudioEffects({
+			params: clip.timelineElement.params,
+		});
+		const keepsPitch = shouldMaintainPitch({
+			rate: retime?.rate ?? 1,
+			maintainPitch: retime?.maintainPitch,
+		});
+		if (!keepsPitch && !effects) {
 			return { sound, trimStart, retime };
 		}
 
-		// Its pitch kept: the stretcher takes the clip whole, at its first window.
+		// Its pitch kept, or its effects (media/audio-effects.ts): the clip
+		// whole, at its first window, as the preview has it.
 		let piece: SoundPiece | null;
 		try {
 			piece = await sound.read({
@@ -326,14 +334,21 @@ async function openClip({
 			sound.dispose();
 		}
 		if (!piece) return null;
-		const buffer = await renderRetimedBuffer({
+		const retimed = await renderRetimedBuffer({
 			audioContext: context,
 			sourceBuffer: piece.buffer,
 			trimStart: Math.max(0, trimStart - piece.start),
 			clipDuration: duration,
 			retime,
-			maintainPitch: true,
+			maintainPitch: keepsPitch,
 		});
+		const buffer = effects
+			? await applyAudioEffectsToBuffer({
+					context,
+					buffer: retimed,
+					settings: effects,
+				})
+			: retimed;
 		return { sound: new WholeSound({ buffer }), trimStart: 0 };
 	} catch (error) {
 		console.warn("Failed to decode clip audio:", error);
@@ -447,21 +462,131 @@ export function mixTimelineAudio({
 	mediaAssets,
 	duration,
 	sampleRate = EXPORT_SAMPLE_RATE,
+	loudness = null,
 }: {
 	tracks: SceneTracks;
 	mediaAssets: MediaAsset[];
 	duration: number;
 	sampleRate?: number;
+	/** The integrated loudness to bring the mix to, in LUFS: none leaves it as it is. */
+	loudness?: number | null;
 }): AsyncGenerator<AudioBuffer, void, undefined> | null {
 	const clips = collectMixClips({ tracks, mediaAssets, sampleRate });
 	if (clips.length === 0) return null;
-	return mixWindows({
+	return masterWindows({
 		clips,
 		length: Math.ceil((duration / TICKS_PER_SECOND) * sampleRate),
 		sampleRate,
+		loudness,
 	});
 }
 
+// A loudness target moves the mix by at most this, in dB: a near-silent
+// timeline isn't brought up to speech level.
+const MAX_LOUDNESS_GAIN_DB = 20;
+
+/**
+ * The gain, as a factor, that brings a mix measured at `measured` LUFS to
+ * `target`: 1 when there was nothing to measure.
+ */
+export function computeLoudnessGain({
+	measured,
+	target,
+}: {
+	measured: number | undefined;
+	target: number;
+}): number {
+	if (measured === undefined || !Number.isFinite(measured)) return 1;
+	const db = Math.max(
+		-MAX_LOUDNESS_GAIN_DB,
+		Math.min(MAX_LOUDNESS_GAIN_DB, target - measured),
+	);
+	return 10 ** (db / 20);
+}
+
+/**
+ * The mix's integrated loudness (ITU-R BS.1770, as EBU R128 measures it),
+ * after each clip's effects and before the limiter; undefined if it's all
+ * silence.
+ */
+async function measureMix({
+	clips,
+	length,
+	sampleRate,
+}: {
+	clips: MixClip[];
+	length: number;
+	sampleRate: number;
+}): Promise<number | undefined> {
+	const meter = new LoudnessMeter(sampleRate, MIX_CHANNELS);
+	try {
+		for await (const mix of mixWindows({ clips, length, sampleRate })) {
+			meter.push(
+				Array.from({ length: MIX_CHANNELS }, (_, channel) =>
+					mix.getChannelData(channel),
+				),
+			);
+		}
+		return meter.integrated;
+	} finally {
+		meter.free();
+	}
+}
+
+/**
+ * The mix through the limiter, a window at a time: first measured whole and
+ * turned up or down to the loudness target, if there is one.
+ */
+async function* masterWindows({
+	clips,
+	length,
+	sampleRate,
+	loudness,
+}: {
+	clips: MixClip[];
+	length: number;
+	sampleRate: number;
+	loudness: number | null;
+}): AsyncGenerator<AudioBuffer, void, undefined> {
+	const gain =
+		loudness === null
+			? 1
+			: computeLoudnessGain({
+					measured: await measureMix({ clips, length, sampleRate }),
+					target: loudness,
+				});
+	const prerollLength = Math.round(LIMITER_PREROLL_SECONDS * sampleRate);
+	let preroll = Array.from(
+		{ length: MIX_CHANNELS },
+		() => new Float32Array(prerollLength),
+	);
+	for await (const mix of mixWindows({ clips, length, sampleRate })) {
+		const heardByLimiter = new AudioBuffer({
+			numberOfChannels: MIX_CHANNELS,
+			length: prerollLength + mix.length,
+			sampleRate,
+		});
+		for (let channel = 0; channel < MIX_CHANNELS; channel++) {
+			const data = mix.getChannelData(channel);
+			if (gain !== 1) {
+				for (let index = 0; index < data.length; index++) data[index] *= gain;
+			}
+			heardByLimiter.copyToChannel(preroll[channel], channel);
+			heardByLimiter.copyToChannel(data, channel, prerollLength);
+		}
+		preroll = preroll.map((_, channel) =>
+			heardByLimiter
+				.getChannelData(channel)
+				.slice(heardByLimiter.length - prerollLength),
+		);
+		yield await masterAudioStretch({
+			audioBuffer: heardByLimiter,
+			prerollLength,
+		});
+	}
+}
+
+/** The clips mixed a window at a time, before the limiter. */
 async function* mixWindows({
 	clips,
 	length,
@@ -478,7 +603,6 @@ async function* mixWindows({
 		sampleRate,
 	});
 	const windowLength = WINDOW_SECONDS * sampleRate;
-	const prerollLength = Math.round(LIMITER_PREROLL_SECONDS * sampleRate);
 	// Each clip's sound from its first window; null once it's done with.
 	const opened = new Map<MixClip, Promise<OpenClip | null> | null>();
 	const close = async ({ clip }: { clip: MixClip }) => {
@@ -486,10 +610,6 @@ async function* mixWindows({
 		opened.set(clip, null);
 		(await opening)?.sound.dispose();
 	};
-	let preroll = Array.from(
-		{ length: MIX_CHANNELS },
-		() => new Float32Array(prerollLength),
-	);
 
 	try {
 		for (let first = 0; first < length; first += windowLength) {
@@ -552,26 +672,7 @@ async function* mixWindows({
 					sampleRate,
 				});
 			}
-
-			const heardByLimiter = new AudioBuffer({
-				numberOfChannels: MIX_CHANNELS,
-				length: prerollLength + mix.length,
-				sampleRate,
-			});
-			for (let channel = 0; channel < MIX_CHANNELS; channel++) {
-				const data = mix.getChannelData(channel);
-				heardByLimiter.copyToChannel(preroll[channel], channel);
-				heardByLimiter.copyToChannel(data, channel, prerollLength);
-			}
-			preroll = preroll.map((_, channel) =>
-				heardByLimiter
-					.getChannelData(channel)
-					.slice(heardByLimiter.length - prerollLength),
-			);
-			yield await masterAudioStretch({
-				audioBuffer: heardByLimiter,
-				prerollLength,
-			});
+			yield mix;
 		}
 	} finally {
 		await Promise.all([...opened.keys()].map((clip) => close({ clip })));

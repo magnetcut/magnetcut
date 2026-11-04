@@ -302,6 +302,7 @@ export class RendererManager {
 					sources: native.sources,
 					filters: filterPasses,
 					path,
+					loudness: audio?.loudness ?? null,
 					options: {
 						path,
 						format,
@@ -373,7 +374,12 @@ export class RendererManager {
 				// Mixed as the frames go, a window ahead.
 				audio:
 					audio && !passthrough
-						? (mixTimelineAudio({ tracks, mediaAssets, duration }) ?? undefined)
+						? (mixTimelineAudio({
+								tracks,
+								mediaAssets,
+								duration,
+								loudness: audio.loudness,
+							}) ?? undefined)
 						: undefined,
 				audioSettings: audio ?? undefined,
 				audioPassthrough: passthrough ?? undefined,
@@ -470,6 +476,7 @@ export class RendererManager {
 		sources,
 		filters,
 		path,
+		loudness,
 		options,
 		onProgress,
 		onCancel,
@@ -478,6 +485,8 @@ export class RendererManager {
 		sources: Map<string, NativeSourceInfo>;
 		filters?: FilterPasses;
 		path: string;
+		/** The mix's loudness target, in LUFS; none leaves it. */
+		loudness: number | null;
 		options: NativeExportOptions;
 		onProgress?: ({ progress }: { progress: number }) => void;
 		onCancel?: () => boolean;
@@ -487,7 +496,12 @@ export class RendererManager {
 		const duration = this.editor.timeline.getTotalDuration();
 		// Mixed as the frames go; none when nothing's heard, and no sound track.
 		const audio = options.audio
-			? mixTimelineAudio({ tracks, mediaAssets, duration })
+			? mixTimelineAudio({
+					tracks,
+					mediaAssets,
+					duration,
+					loudness,
+				})
 			: null;
 		const exporter = new NativeSceneExporter({
 			options: { ...options, audio: audio ? options.audio : null },

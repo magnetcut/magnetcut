@@ -2,7 +2,9 @@ name: Web view probe
 
 # What each system's web view supports of what the editor needs
 # (apps/desktop/src/probe.js: WebGPU, WebGL2, WebCodecs per codec, OPFS…),
-# from the app itself, in the job summary. Run by hand: the runners have no
+# from the app itself, in the job summary; then the editor's own code there
+# (apps/web/src/desktop/probe-checks.ts: a take recorded, the system's voices,
+# clips converted and joined by Fast mode, a proxy made). Run by hand: the runners have no
 # GPU, so it tells what works without one. Linux is 24.04, as on desktops:
 # on 22.04's runner image, WebKit's web process loads two GStreamers and
 # aborts.
@@ -15,6 +17,9 @@ permissions:
 env:
   NEXT_TELEMETRY_DISABLED: 1
   TURBO_TELEMETRY_DISABLED: 1
+  # A second recorded from the microphone: the web view's stand-in on Linux
+  # and Windows (below), whatever the Mac runner has.
+  MAGNETCUT_PROBE_MICROPHONE: 1
 
 jobs:
   probe:
@@ -29,7 +34,8 @@ jobs:
         uses: actions/checkout@v4
 
       # The GStreamer plugins are what WebKitGTK decodes media with; base and
-      # good are what a desktop install has (no patented codecs).
+      # good are what a desktop install has (no patented codecs). espeak-ng is
+      # the system's voice (apps/desktop/src/speech/espeak.rs).
       - name: Install the Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -37,7 +43,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
             libayatana-appindicator3-dev librsvg2-dev xvfb \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev espeak-ng
           # Mesa's software Vulkan: the GPU the app's own export draws on.
           sudo apt-get install -y mesa-vulkan-drivers
 
@@ -80,22 +86,25 @@ jobs:
       - name: Probe (Linux)
         if: runner.os == 'Linux'
         run: |
-          MAGNETCUT_PROBE=1 timeout 120 xvfb-run -a ./target/debug/magnetcut | tee probe.txt || true
+          MAGNETCUT_PROBE=1 timeout 420 xvfb-run -a ./target/debug/magnetcut | tee probe.txt || true
           sudo apt-get install -y gstreamer1.0-plugins-bad gstreamer1.0-libav
-          MAGNETCUT_PROBE=1 timeout 120 xvfb-run -a ./target/debug/magnetcut | tee probe-codecs.txt || true
+          MAGNETCUT_PROBE=1 timeout 420 xvfb-run -a ./target/debug/magnetcut | tee probe-codecs.txt || true
 
       - name: Probe (macOS)
         if: runner.os == 'macOS'
-        run: MAGNETCUT_PROBE=1 perl -e 'alarm 120; exec @ARGV' ./target/debug/magnetcut | tee probe.txt || true
+        run: MAGNETCUT_PROBE=1 perl -e 'alarm 420; exec @ARGV' ./target/debug/magnetcut | tee probe.txt || true
 
       - name: Probe (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        # WebView2's stand-in microphone (a beep); the app's permission handler
+        # still answers the request.
         run: |
           $env:MAGNETCUT_PROBE = "1"
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--use-fake-device-for-media-stream"
           $app = Start-Process -FilePath target\debug\magnetcut.exe -NoNewWindow -PassThru `
             -RedirectStandardOutput probe.txt -RedirectStandardError probe-errors.txt
-          if (-not $app.WaitForExit(120000)) { $app.Kill() }
+          if (-not $app.WaitForExit(420000)) { $app.Kill() }
           Get-Content probe.txt, probe-errors.txt
 
       # Agent mode end to end: the app with a test token, hidden, and a script
@@ -139,7 +148,7 @@ jobs:
             if [ -f probe-codecs.txt ]; then
               echo "#### With codecs"
               echo '```json'
-              grep '^MAGNETCUT_PROBE ' probe-codecs.txt | sed 's/^MAGNETCUT_PROBE //' | jq -c '{videoEncode, videoDecode, audioEncode, audioDecode, nativeExport, nativeExportRun}'
+              grep '^MAGNETCUT_PROBE ' probe-codecs.txt | sed 's/^MAGNETCUT_PROBE //' | jq -c '{videoEncode, videoDecode, audioEncode, audioDecode, nativeExport, nativeExportRun, app}'
               echo '```'
             fi
             # WebKitGTK's feature flags, all of them: SWITCHED marks those the

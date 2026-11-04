@@ -11,6 +11,10 @@ import {
 import { getCrossfadeGain, getCrossfadeTimes } from "@/transitions";
 import { createAudioMasteringChain } from "@/media/audio-mastering";
 import {
+	applyAudioEffectsToBuffer,
+	readAudioEffects,
+} from "@/media/audio-effects";
+import {
 	getClipTimeAtSourceTime,
 	getSourceTimeAtClipTime,
 	renderRetimedBuffer,
@@ -467,6 +471,8 @@ export class AudioManager {
 			this.hasCurveRetime({ clip }) ||
 			hasAnimatedVolume({ element: clip.timelineElement }) ||
 			clip.crossfade !== undefined ||
+			// Effects run on the clip whole, as in the export (audio-mix.ts).
+			readAudioEffects({ params: clip.timelineElement.params }) !== null ||
 			shouldMaintainPitch({
 				rate: clip.retime?.rate ?? 1,
 				maintainPitch: clip.retime?.maintainPitch,
@@ -557,6 +563,7 @@ export class AudioManager {
 			trimStart: clip.trimStart,
 			trimEnd: clip.trimEnd,
 			retime: clip.retime ?? null,
+			effects: readAudioEffects({ params: clip.timelineElement.params }),
 		});
 	}
 
@@ -582,7 +589,7 @@ export class AudioManager {
 				return null;
 			}
 
-			return await renderRetimedBuffer({
+			const buffer = await renderRetimedBuffer({
 				audioContext,
 				sourceBuffer: decodedBuffer,
 				trimStart: clip.trimStart,
@@ -590,6 +597,16 @@ export class AudioManager {
 				retime: clip.retime,
 				maintainPitch: clip.retime?.maintainPitch === true,
 			});
+			const effects = readAudioEffects({
+				params: clip.timelineElement.params,
+			});
+			return effects
+				? await applyAudioEffectsToBuffer({
+						context: audioContext,
+						buffer,
+						settings: effects,
+					})
+				: buffer;
 		})();
 
 		this.preparedClipBuffers.set(cacheKey, promise);

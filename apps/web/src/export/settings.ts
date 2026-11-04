@@ -296,7 +296,16 @@ export interface ExportAudioSettings {
 	channels: 1 | 2;
 	/** The source's sound copied instead, when it's the whole soundtrack, uncut. */
 	passthrough?: boolean;
+	/** The mix brought to this integrated loudness, in LUFS; none leaves it. */
+	loudness?: number | null;
 }
+
+/** The loudness targets offered (docs/AUDIO-EFFECTS.md, phase 4). */
+export const LOUDNESS_TARGETS: { lufs: number; name: string }[] = [
+	{ lufs: -14, name: "Streaming, -14 LUFS (YouTube, Spotify)" },
+	{ lufs: -16, name: "Podcasts, -16 LUFS (Apple)" },
+	{ lufs: -23, name: "Broadcast, -23 LUFS (EBU R128)" },
+];
 
 /** The bitrates offered, in kbit/s: AAC's are those encoders take everywhere. */
 export const AUDIO_BITRATES: Record<ExportAudioCodec, number[]> = {

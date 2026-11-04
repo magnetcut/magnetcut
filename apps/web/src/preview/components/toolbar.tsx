@@ -24,6 +24,12 @@ import { PREVIEW_ZOOM_PRESETS } from "@/preview/zoom";
 import { usePreviewViewport } from "./preview-viewport";
 import { GridPopover } from "./guide-popover";
 import { usePreviewStore } from "@/preview/preview-store";
+import { useProxyStore } from "@/media/proxy";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { MediaTime } from "@/wasm";
 
 export function PreviewToolbar({
@@ -36,6 +42,7 @@ export function PreviewToolbar({
 			<TimecodeDisplay />
 			<PlayPauseButton />
 			<div className="justify-self-end flex items-center gap-2.5">
+				<ProxyToggle />
 				<ZoomSelect />
 				<Separator orientation="vertical" className="h-4" />
 				{/* v0.4.0 */}
@@ -56,6 +63,35 @@ export function PreviewToolbar({
 				</Button>
 			</div>
 		</div>
+	);
+}
+
+/** Whether the preview plays the videos' proxies: shown once there are some. */
+function ProxyToggle() {
+	const hasProxies = useEditor((e) =>
+		e.media.getAssets().some((asset) => asset.proxy),
+	);
+	const isOn = useProxyStore((state) => state.isOn);
+	const setOn = useProxyStore((state) => state.setOn);
+	if (!hasProxies) return null;
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<Button
+					variant={isOn ? "secondary" : "text"}
+					size="sm"
+					aria-pressed={isOn}
+					onClick={() => setOn(!isOn)}
+				>
+					Proxies
+				</Button>
+			</TooltipTrigger>
+			<TooltipContent>
+				{isOn
+					? "The preview plays the small copies; Export uses the originals."
+					: "The preview plays the originals."}
+			</TooltipContent>
+		</Tooltip>
 	);
 }
 

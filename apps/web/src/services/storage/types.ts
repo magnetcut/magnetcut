@@ -29,6 +29,15 @@ export interface MediaAssetData {
 	thumbnailUrl?: string;
 	/** Where it is on disk, in the desktop app, which reads it there: not kept in storage. */
 	path?: string;
+	/** A small copy the preview plays (docs/CONFORM.md, phase 4). */
+	proxy?: MediaProxyData;
+}
+
+export interface MediaProxyData {
+	width: number;
+	height: number;
+	/** On disk, in the desktop app; kept in storage beside the file otherwise. */
+	path?: string;
 }
 
 export type SerializedScene = Omit<TScene, "createdAt" | "updatedAt"> & {

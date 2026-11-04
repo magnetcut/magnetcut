@@ -1,12 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import type { MediaAsset } from "@/media/types";
-import type { SceneTracks, VideoElement } from "@/timeline";
+import type { SceneTracks, UploadAudioElement, VideoElement } from "@/timeline";
 import { mediaTime, TICKS_PER_SECOND } from "@/wasm";
 import {
 	buildFastSoundTracks,
 	collectFastClips,
+	cutAudioElement,
+	hasAudibleAudioTracks,
 	isSoundUnchanged,
 	listFastLosses,
+	placeAudioTracks,
 } from "../clips";
 
 const ticks = (seconds: number) =>
@@ -188,7 +191,6 @@ describe("listFastLosses", () => {
 			"gaps between clips (closed up)",
 			"pictures",
 			"subtitles",
-			"the audio tracks",
 		]);
 	});
 });
@@ -235,7 +237,123 @@ describe("the clips' sound", () => {
 			trimStart: ticks(2.5),
 			duration: ticks(4.5),
 			retime: undefined,
-			isSourceAudioEnabled: true,
 		});
+	});
+});
+
+function makeSound({
+	id,
+	start,
+	duration,
+	trim = 0,
+	...rest
+}: { id: string; start: number; duration: number; trim?: number } & Partial<
+	Omit<UploadAudioElement, "id" | "duration" | "startTime">
+>): UploadAudioElement {
+	return {
+		id,
+		type: "audio",
+		sourceType: "upload",
+		mediaId: "song",
+		name: id,
+		startTime: ticks(start),
+		duration: ticks(duration),
+		trimStart: ticks(trim),
+		trimEnd: ticks(0),
+		params: {},
+		...rest,
+	};
+}
+
+describe("the audio tracks in Fast mode", () => {
+	test("a cut keeps the part heard, its trims moved", () => {
+		const element = makeSound({ id: "m", start: 2, duration: 10, trim: 1 });
+		expect(
+			cutAudioElement({ element, from: ticks(4), to: ticks(7) }),
+		).toMatchObject({
+			startTime: ticks(4),
+			duration: ticks(3),
+			trimStart: ticks(3),
+			trimEnd: ticks(5),
+		});
+		expect(
+			cutAudioElement({ element, from: ticks(20), to: ticks(30) }),
+		).toBeNull();
+		const faster = makeSound({
+			id: "f",
+			start: 0,
+			duration: 4,
+			retime: { rate: 2 },
+		});
+		expect(
+			cutAudioElement({ element: faster, from: ticks(1), to: ticks(4) }),
+		).toMatchObject({
+			duration: ticks(3),
+			trimStart: ticks(2),
+			trimEnd: ticks(0),
+		});
+	});
+
+	test("each clip hears what's under it, moved to where it is in the output", () => {
+		const first = makeClip({ id: "a", start: 0, duration: 4, trim: 10 });
+		const second = makeClip({ id: "b", start: 10, duration: 5, trim: 0 });
+		const music = makeSound({ id: "music", start: 0, duration: 20 });
+		const tracks: SceneTracks = {
+			...makeTracks({ elements: [first, second] }),
+			audio: [
+				{
+					id: "t",
+					name: "Music",
+					type: "audio",
+					muted: false,
+					elements: [music],
+				},
+				{
+					id: "quiet",
+					name: "Muted",
+					type: "audio",
+					muted: true,
+					elements: [{ ...music, id: "q" }],
+				},
+			],
+		};
+		expect(hasAudibleAudioTracks({ tracks })).toBe(true);
+		const [placed] = placeAudioTracks({
+			tracks,
+			placed: [
+				{
+					clip: { element: first, asset: assets[0], from: 10, to: 14 },
+					start: 10,
+					end: 14,
+					outStart: 0,
+				},
+				// Started at the key frame a second before its cut.
+				{
+					clip: { element: second, asset: assets[0], from: 0, to: 5 },
+					start: -1,
+					end: 5,
+					outStart: 4,
+				},
+			],
+		}).map((track) => track.elements);
+		expect(placed).toHaveLength(2);
+		expect(placed[0]).toMatchObject({
+			id: "music:0",
+			startTime: ticks(0),
+			duration: ticks(4),
+			trimStart: ticks(0),
+		});
+		// The gap from 4 to 10 s is closed up; the lead-in hears from 9 s.
+		expect(placed[1]).toMatchObject({
+			id: "music:1",
+			startTime: ticks(4),
+			duration: ticks(6),
+			trimStart: ticks(9),
+		});
+	});
+
+	test("are heard only when there's something on them", () => {
+		const tracks = makeTracks({ elements: [] });
+		expect(hasAudibleAudioTracks({ tracks })).toBe(false);
 	});
 });

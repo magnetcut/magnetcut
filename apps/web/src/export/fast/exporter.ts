@@ -36,6 +36,7 @@ import { TICKS_PER_SECOND } from "@/wasm";
 import {
 	buildFastSoundTracks,
 	collectFastClips,
+	hasAudibleAudioTracks,
 	isSoundUnchanged,
 	type FastClip,
 	type PlacedClip,
@@ -412,6 +413,8 @@ function canCopySound({
 		isStreamed: true,
 	}).getSupportedAudioCodecs();
 	if (!supported.includes(first.audio.codec)) return false;
+	// The audio tracks are mixed in: nothing to copy them with.
+	if (hasAudibleAudioTracks({ tracks })) return false;
 	return placed.every(({ clip }) => {
 		const source = sources.get(clip.asset.id);
 		const other = source?.audioConfig;
@@ -434,6 +437,8 @@ export interface FastExportInfo {
 	height: number;
 	/** Why it can't be made; null if it can. */
 	problem: string | null;
+	/** Whether the problem is clips that differ, which converting them fixes (docs/CONFORM.md). */
+	canConform: boolean;
 	/** Why Smart Cut cuts at key frames instead, if it does. */
 	smartFallback: string | null;
 	/** The sound's codec, if it's copied. */
@@ -462,6 +467,7 @@ export async function inspectFastExport({
 		height: 0,
 		problem:
 			"Fast mode copies the video clips on the main track, and it has none.",
+		canConform: false,
 		smartFallback: null,
 		copiedSound: null,
 	};
@@ -490,11 +496,19 @@ export async function inspectFastExport({
 			copiesSound && canCopySound({ placed, sources, tracks, format })
 				? (first.audio?.codec ?? null)
 				: null;
+		const problem = findJoinProblem({ sources: ordered, format });
+		// The clips unlike each other, not a container that can't hold them.
+		const canConform =
+			problem !== null &&
+			(!first.video.codec ||
+				(ordered.length > 1 &&
+					findJoinProblem({ sources: [first], format }) === null));
 		return {
 			codec: first.video.codec,
 			width: first.video.displayWidth,
 			height: first.video.displayHeight,
-			problem: findJoinProblem({ sources: ordered, format }),
+			problem,
+			canConform,
 			smartFallback:
 				mode === "smart"
 					? await findSmartCutProblem({ sources: ordered })
@@ -777,6 +791,7 @@ export async function exportFast({
 				tracks: buildFastSoundTracks({ tracks, placed }),
 				mediaAssets,
 				duration: Math.round(total * TICKS_PER_SECOND),
+				loudness: audio.loudness,
 			});
 			if (soundtrack) {
 				const audioSource = await createSoundtrackSource({

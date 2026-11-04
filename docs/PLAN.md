@@ -24,8 +24,9 @@ telemetry: everything stays on the computer. Not for iOS or Android.
   privacy), the onboarding and the mobile gate. Next.js builds a static export for Tauri;
   `/editor/[id]` is `/editor?id=`. What's left that reaches the network, only when used:
   Google Fonts (the font picker), Hugging Face (Whisper models, and the face and plate
-  detection models, once each), jsDelivr (the runtime transformers.js runs Whisper with, once)
-  and Brandfetch (platform logos in the safe-area guides; to be bundled instead).
+  detection models, once each), jsDelivr (the runtime transformers.js runs Whisper with, once),
+  Brandfetch (platform logos in the safe-area guides; to be bundled instead), and ElevenLabs
+  and OpenAI (voices for the subtitles, with the user's own key; docs/VOICEOVER.md).
 - **Updates, as in MyDiskIsFull.** The direct download checks
   `github.com/magnetcut/magnetcut/releases/latest/download/latest.json` once a day (Tauri's
   updater plugin, the cross-platform counterpart of Sparkle). The feed is a hint: an update
@@ -37,10 +38,11 @@ telemetry: everything stays on the computer. Not for iOS or Android.
   Mac: CI builds the Windows and Linux installers with no secrets, and
   `apps/desktop/scripts/release.sh` signs them (docs/RELEASING.md).
 - **App Store edition.** `apps/desktop/scripts/app-store.sh` builds a sandboxed Mac App Store
-  app (user-selected files and Downloads read-write, network client for model and font
-  downloads), its own bundle id, no updater compiled in (`--no-default-features`), and has App
-  Store Connect validate it; `--upload` sends it (docs/RELEASING.md). Same features otherwise,
-  so no "Lite". Microsoft Store and Flathub can follow from the same builds.
+  app (user-selected files and Downloads read-write, Music read-write for recordings, the
+  microphone, network client for model and font downloads and voices), its own bundle id, no
+  updater compiled in (`--no-default-features`), and has App Store Connect validate it;
+  `--upload` sends it (docs/RELEASING.md). Same features otherwise, so no "Lite". Microsoft
+  Store and Flathub can follow from the same builds.
 - **About box, as in MyDiskIsFull.** Icon, name, version, the update line (direct download
   only), one sentence on what it does, a card with what it keeps on this computer (the storage
   its projects and media take, of what the web view lets it keep), "Completely free and open source, under the GNU AGPL 3.0 licence. No
@@ -151,7 +153,12 @@ was tried in the built app, through its panel.
     audio (clip fades, solo, track meters, loudness normalisation, voice-over; #1), edits
     (freeze frame, reverse, speed ramps, slip, roll; #2), colour (chroma key, LUTs, curves,
     scopes; #3), proxies (#4) and OpenTimelineIO (#5). Each gets a plan in docs/ for the
-    author to read before it's built.
+    author to read before it's built. Built from their plans: the main track's clips converted
+    to match, so Fast mode copies them, and proxies for the preview (docs/CONFORM.md); a clip's
+    sound cleaned up and shaped, and the export's loudness brought to a target
+    (docs/AUDIO-EFFECTS.md); voice-over, recorded or the subtitles spoken (docs/VOICEOVER.md).
+    Planned, not yet read: several soundtracks in one file (docs/SOUNDTRACKS.md); fades to
+    black, white or transparent on any clip (docs/FADES.md).
 
 ## Web view support
 

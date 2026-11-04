@@ -84,3 +84,8 @@ thrown away; each encoded packet carries the parameter sets it was made under.
 - Clips from files whose colour ranges differ: each frame says its own range, which ffmpeg,
   VLC and mpv follow; QuickTime shows the ones that differ from the first file's wrong.
 - Only the main track's clips are copied, with their own sound.
+- QuickTime and Safari (AVFoundation and WebKit) don't take an avcC whose SPSs code the picture
+  at different sizes, though ffmpeg, VLC and mpv play the file. Files of one display size have
+  one coded size, but VideoToolbox codes a picture under 192×96 at 192×96 and crops it, so a
+  tiny clip converted on a Mac (docs/CONFORM.md), or Smart Cut's frames there, joined with a
+  tiny one from elsewhere doesn't play in those two.

@@ -65,6 +65,11 @@ export interface DragDropConfig {
 		effectType: string;
 	}) => void;
 	addTransitionAtCut: (args: { cut: Cut; type: string }) => void;
+	replaceMedia: (args: {
+		trackId: string;
+		elementId: string;
+		asset: MediaAsset;
+	}) => void;
 }
 
 export interface DragDropConfigRef {
@@ -500,15 +505,16 @@ export class DragDropController {
 		target: DropTarget;
 		dragData: Extract<TimelineDragData, { type: "media" }>;
 	}): void {
-		if (target.targetElement) {
-			// Replace media source — not yet implemented
-			return;
-		}
-
 		const mediaAsset = this.config
 			.getMediaAssets()
 			.find((asset) => asset.id === dragData.id);
 		if (!mediaAsset) return;
+
+		// Dropped on a clip: the file takes the clip's place, its cuts kept.
+		if (target.targetElement) {
+			this.config.replaceMedia({ ...target.targetElement, asset: mediaAsset });
+			return;
+		}
 
 		const trackType: TrackType =
 			dragData.mediaType === "audio" ? "audio" : "video";

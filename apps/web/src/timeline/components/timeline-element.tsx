@@ -43,6 +43,8 @@ import type {
 import type { MediaAsset } from "@/media/types";
 import { mediaSupportsAudio } from "@/media/media-utils";
 import { DiskFile, revealDiskFile } from "@/media/disk-file";
+import { replaceFromPicker } from "@/media/replace-actions";
+import { ConformBadge } from "./conform-badge";
 import { getRevealLabel } from "@/export/disk-target";
 import { toast } from "sonner";
 import {
@@ -235,7 +237,11 @@ export function TimelineElement({
 	dragView,
 	isDropTarget = false,
 }: TimelineElementProps) {
+	const editor = useEditor();
 	const mediaAssets = useEditor((e) => e.media.getAssets());
+	const isMainTrack = useEditor(
+		(e) => e.scenes.getActiveScene().tracks.main.id === track.id,
+	);
 	const { selectedElements } = useElementSelection();
 	const requestRevealMedia = useAssetsPanelStore((s) => s.requestRevealMedia);
 	const { renderElement } = useElementPreview({
@@ -340,6 +346,11 @@ export function TimelineElement({
 		}
 	};
 
+	const handleReplaceMedia = ({ event }: { event: React.MouseEvent }) => {
+		event.stopPropagation();
+		void replaceFromPicker({ editor, trackId: track.id, element });
+	};
+
 	// In the desktop app, the clip's file where it is on disk.
 	const diskFile =
 		mediaAsset?.file instanceof DiskFile ? mediaAsset.file : null;
@@ -422,6 +433,9 @@ export function TimelineElement({
 							onResizeStart={onResizeStart}
 							isDropTarget={isDropTarget}
 						/>
+						{isMainTrack && hasMediaId(element) && (
+							<ConformBadge mediaId={element.mediaId} />
+						)}
 						{isSelected && (
 							<div
 								className="pointer-events-none absolute inset-x-0 top-0 overflow-hidden"
@@ -523,9 +537,11 @@ export function TimelineElement({
 							)}
 							<ContextMenuItem
 								icon={<HugeiconsIcon icon={Exchange01Icon} />}
-								disabled
+								onClick={(event: React.MouseEvent) =>
+									handleReplaceMedia({ event })
+								}
 							>
-								Replace media
+								Replace media…
 							</ContextMenuItem>
 						</>
 					)}

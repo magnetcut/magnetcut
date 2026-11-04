@@ -23,6 +23,7 @@ import {
 	DashboardSpeed02Icon,
 } from "@hugeicons/core-free-icons";
 import { ElementParamsTab } from "./components/element-params-tab";
+import { AudioTab } from "./components/audio-effects-tab";
 import { ClipEffectsTab, StandaloneEffectTab } from "@/effects/components/effects-tab";
 import { MasksTab } from "@/masks/components/masks-tab";
 import { SpeedTab } from "@/speed/components/speed-tab";
@@ -38,7 +39,6 @@ const TRANSFORM_PARAM_KEYS = [
 ] as const;
 
 const BLENDING_PARAM_KEYS = ["opacity", "blendMode"] as const;
-const AUDIO_PARAM_KEYS = ["volume", "muted"] as const;
 const TEXT_PARAM_KEYS = [
 	"content",
 	"fontFamily",
@@ -124,14 +124,7 @@ function buildAudioTab({
 		id: "audio",
 		label: "Audio",
 		icon: <HugeiconsIcon icon={MusicNote03Icon} size={16} />,
-		content: ({ trackId }) => (
-			<ElementParamsTab
-				element={element}
-				trackId={trackId}
-				paramKeys={AUDIO_PARAM_KEYS}
-				sectionKey="audio"
-			/>
-		),
+		content: ({ trackId }) => <AudioTab element={element} trackId={trackId} />,
 	};
 }
 

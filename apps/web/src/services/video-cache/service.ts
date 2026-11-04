@@ -329,12 +329,12 @@ export class VideoCache {
 		}
 	}
 
-	/** All of a file's decoders. */
+	/** All of a file's decoders, its proxy's included. */
 	clearVideo({ mediaId }: { mediaId: string }): void {
 		const isOfFile = (key: string) =>
 			key === mediaId || key.startsWith(`${mediaId}#`);
 		for (const [key, sinkData] of this.sinks) {
-			if (sinkData.mediaId !== mediaId) continue;
+			if (!isOfFile(key)) continue;
 			if (sinkData.iterator) {
 				void sinkData.iterator.return();
 			}

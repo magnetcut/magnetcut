@@ -1,17 +1,25 @@
+import { splitAnimationsAtTime } from "@/animation";
+import { readAudioEffects } from "@/media/audio-effects";
 import type { MediaAsset } from "@/media/types";
-import type { SceneTracks, VideoElement, VideoTrack } from "@/timeline";
+import type {
+	AudioElement,
+	AudioTrack,
+	SceneTracks,
+	VideoElement,
+	VideoTrack,
+} from "@/timeline";
 import {
 	buildTransformFromParams,
 	readBlendModeFromParams,
 	readOpacityFromParams,
 } from "@/rendering";
-import { getSourceTimeAtClipTime } from "@/retime";
+import { getSourceSpanAtClipTime, getSourceTimeAtClipTime } from "@/retime";
 import {
 	getElementVolume,
 	hasAnimatedVolume,
 	isElementMuted,
 } from "@/timeline/audio-state";
-import { mediaTime, TICKS_PER_SECOND } from "@/wasm";
+import { mediaTime, roundMediaTime, TICKS_PER_SECOND } from "@/wasm";
 
 // Fast mode (docs/FAST.md): Export copies the main track's video clips out of
 // their files, one after another, instead of drawing and encoding each frame.
@@ -141,9 +149,6 @@ export function listFastLosses({ tracks }: { tracks: SceneTracks }): string[] {
 			losses.add("clips on other video tracks");
 		}
 	}
-	if (tracks.audio.some((track) => track.elements.length > 0)) {
-		losses.add("the audio tracks");
-	}
 	return [...losses];
 }
 
@@ -159,7 +164,8 @@ export function isSoundUnchanged({
 		!track.muted &&
 		!isElementMuted({ element }) &&
 		getElementVolume({ element }) === 0 &&
-		!hasAnimatedVolume({ element })
+		!hasAnimatedVolume({ element }) &&
+		readAudioEffects({ params: element.params }) === null
 	);
 }
 
@@ -172,9 +178,122 @@ export interface PlacedClip {
 	outStart: number;
 }
 
+/** Whether the audio tracks have anything to hear: then the sound is mixed, not copied. */
+export function hasAudibleAudioTracks({
+	tracks,
+}: {
+	tracks: SceneTracks;
+}): boolean {
+	return tracks.audio.some(
+		(track) =>
+			!track.muted &&
+			track.elements.some(
+				(element) => element.duration > 0 && !isElementMuted({ element }),
+			),
+	);
+}
+
 /**
- * A timeline of the clips as Fast mode lays them out, its own sound only, for
- * the mix when the sound isn't copied: their volumes kept, nothing else.
+ * The part of an audio clip heard between `from` and `to` of the timeline,
+ * in ticks, as a clip of its own: its cuts and keyframes moved as a split
+ * moves them. Null if none of it is.
+ */
+export function cutAudioElement({
+	element,
+	from,
+	to,
+}: {
+	element: AudioElement;
+	from: number;
+	to: number;
+}): AudioElement | null {
+	const elementEnd = element.startTime + element.duration;
+	const start = Math.max(from, element.startTime);
+	const end = Math.min(to, elementEnd);
+	if (end <= start) return null;
+	const head = start - element.startTime;
+	const kept = end - start;
+	const sourceAt = (clipTime: number) =>
+		roundMediaTime({
+			time: getSourceSpanAtClipTime({ clipTime, retime: element.retime }),
+		});
+	const sourceHead = sourceAt(head);
+	const sourceEnd = sourceAt(head + kept);
+	const sourceTotal = sourceAt(element.duration);
+	let animations = element.animations;
+	if (head > 0) {
+		animations = splitAnimationsAtTime({
+			animations,
+			splitTime: roundMediaTime({ time: head }),
+		}).rightAnimations;
+	}
+	if (end < elementEnd) {
+		animations = splitAnimationsAtTime({
+			animations,
+			splitTime: roundMediaTime({ time: kept }),
+		}).leftAnimations;
+	}
+	return {
+		...element,
+		startTime: roundMediaTime({ time: start }),
+		duration: roundMediaTime({ time: kept }),
+		trimStart: roundMediaTime({ time: element.trimStart + sourceHead }),
+		trimEnd: roundMediaTime({
+			time: element.trimEnd + (sourceTotal - sourceEnd),
+		}),
+		animations,
+	};
+}
+
+/**
+ * The audio tracks as Fast mode's output hears them: under each clip, the
+ * part of the timeline its frames come from, moved to where the clip is in
+ * the output. Gaps closed up drop what was heard in them; a clip started at
+ * the key frame before its cut hears the timeline from as far before it.
+ */
+export function placeAudioTracks({
+	tracks,
+	placed,
+}: {
+	tracks: SceneTracks;
+	placed: PlacedClip[];
+}): AudioTrack[] {
+	const ticks = (seconds: number) => seconds * TICKS_PER_SECOND;
+	return tracks.audio
+		.filter((track) => !track.muted)
+		.map((track) => ({
+			...track,
+			elements: placed.flatMap(({ clip, start, end, outStart }, index) => {
+				const rate = clip.element.retime?.rate ?? 1;
+				// Where the piece's first frame is on the timeline.
+				const timelineStart =
+					clip.element.startTime + ticks((start - clip.from) / rate);
+				const length = ticks(end - start);
+				const shift = ticks(outStart) - timelineStart;
+				return track.elements.flatMap((element) => {
+					const part = cutAudioElement({
+						element,
+						from: timelineStart,
+						to: timelineStart + length,
+					});
+					if (!part) return [];
+					return [
+						{
+							...part,
+							id: `${element.id}:${index}`,
+							startTime: roundMediaTime({ time: part.startTime + shift }),
+						},
+					];
+				});
+			}),
+		}))
+		.filter((track) => track.elements.length > 0);
+}
+
+/**
+ * A timeline of the clips as Fast mode lays them out, for the mix when the
+ * sound isn't copied: their own sound with their volumes, and the audio
+ * tracks under them (placeAudioTracks).
  */
 export function buildFastSoundTracks({
 	tracks,
@@ -187,7 +306,7 @@ export function buildFastSoundTracks({
 		mediaTime({ ticks: Math.round(seconds * TICKS_PER_SECOND) });
 	return {
 		overlay: [],
-		audio: [],
+		audio: placeAudioTracks({ tracks, placed }),
 		main: {
 			...tracks.main,
 			transitions: [],
@@ -196,9 +315,9 @@ export function buildFastSoundTracks({
 				startTime: ticks(outStart),
 				trimStart: ticks(start),
 				duration: ticks(end - start),
+				// Its own sound only if it's still the clip's: one moved to an
+				// audio track is heard there (placeAudioTracks).
 				retime: undefined,
-				// Its own sound, even where it was moved to an audio track.
-				isSourceAudioEnabled: true,
 			})),
 		},
 	};

@@ -10,11 +10,12 @@ mod media;
 mod menu;
 mod project_file;
 mod render;
+mod speech;
 #[cfg(target_os = "linux")]
 mod webkit;
 
 use serde::Serialize;
-use tauri::webview::PageLoadEvent;
+use tauri::webview::{PageLoadEvent, PermissionKind, PermissionResponse};
 use tauri::{Emitter, Manager};
 
 /// The commands the editor calls, and any more given.
@@ -32,6 +33,11 @@ macro_rules! commands {
             export::write_export_file,
             export::close_export_file,
             export::reveal_export_file,
+            export::pick_folder,
+            export::open_folder_file,
+            export::adopt_saved_file,
+            export::recordings_folder,
+            export::proxies_folder,
             render::native_export_capabilities,
             render::native_export_probe,
             render::native_export_start,
@@ -55,6 +61,12 @@ macro_rules! commands {
             agent::agent_remove_folder,
             project_file::pick_project_file,
             project_file::save_project_file,
+            speech::speech_keys,
+            speech::set_speech_key,
+            speech::speech_voices,
+            speech::speech_models,
+            speech::speech_quota,
+            speech::speak,
             $($more),*
         ]
     };
@@ -63,6 +75,9 @@ macro_rules! commands {
 /// With MAGNETCUT_PROBE set, each page reports what the system's web view can
 /// do (src/probe.js), the report is printed as one JSON line, and the app quits.
 const PROBE_ENV: &str = "MAGNETCUT_PROBE";
+/// With this one set too, the probe records a second from the microphone: on
+/// a computer of one's own, the system may ask first.
+const PROBE_MICROPHONE_ENV: &str = "MAGNETCUT_PROBE_MICROPHONE";
 
 #[tauri::command]
 fn probe_report(app: tauri::AppHandle, report: String) {
@@ -94,6 +109,36 @@ fn probe_grant(media: tauri::State<'_, media::MediaFiles>, path: String) -> Resu
         1 => Ok(()),
         _ => Err("not a media file".into()),
     }
+}
+
+/// For the probe's checks of the editor's own code: an empty scratch folder
+/// it may write its files into, as a folder picked for converted clips.
+#[tauri::command]
+fn probe_folder(exports: tauri::State<'_, export::Exports>) -> Result<String, String> {
+    let folder = std::env::temp_dir().join("magnetcut-probe").join("files");
+    if folder.exists() {
+        std::fs::remove_dir_all(&folder).map_err(|error| error.to_string())?;
+    }
+    std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
+    let shown = folder
+        .to_str()
+        .map(str::to_owned)
+        .ok_or("not a UTF-8 path")?;
+    exports.add_folder(folder);
+    Ok(shown)
+}
+
+/// For the probe: the test films (apps/desktop/fixtures), given to the editor
+/// as if dropped. A camera's sort of film (x264, High, B-frames), a tiny one
+/// with B-frames, and one turned by its rotation.
+#[tauri::command]
+fn probe_fixtures(media: tauri::State<'_, media::MediaFiles>) -> Vec<media::DiskFileInfo> {
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
+    media.grant(vec![
+        fixtures.join("x264-320x180.mp4"),
+        fixtures.join("b-frames.mp4"),
+        fixtures.join("turned.mp4"),
+    ])
 }
 
 #[derive(Serialize)]
@@ -152,11 +197,21 @@ fn main() {
     {
         builder = builder.menu(menu::build);
     }
+    // The microphone, for recording a voice-over (docs/VOICEOVER.md), without
+    // the web view asking as well: the system asks once, on macOS with the
+    // reason in Info.plist. The window shows only the app's own pages
+    // (is_own_page). Never the camera.
+    builder = builder.on_permission_request(|_, kind| match kind {
+        PermissionKind::Microphone => PermissionResponse::Allow,
+        PermissionKind::Camera => PermissionResponse::Deny,
+        _ => PermissionResponse::Default,
+    });
     builder = builder.setup(|app| {
         app.manage(media::MediaFiles::load(app.handle()));
         app.manage(export::Exports::default());
         app.manage(render::NativeExports::default());
         app.manage(agent::Agents::load(app.handle()));
+        app.manage(speech::Speech::default());
         // For agents on their own: the app without its window.
         if std::env::args().any(|arg| arg == "--hidden")
             && let Some(window) = app.get_webview_window("main")
@@ -171,6 +226,7 @@ fn main() {
             window.with_webview(move |webview| {
                 let features = webkit::enable_needed(&webview.inner());
                 if probing {
+                    webkit::use_mock_capture_devices(&webview.inner());
                     let features = serde_json::to_string(&features).unwrap_or_default();
                     println!("MAGNETCUT_WEBKIT_FEATURES {features}");
                 }
@@ -188,11 +244,22 @@ fn main() {
     });
 
     if std::env::var_os(PROBE_ENV).is_some() {
+        let microphone = std::env::var_os(PROBE_MICROPHONE_ENV).is_some();
+        let script = format!(
+            "window.__magnetcutProbeMicrophone = {microphone};\n{}",
+            include_str!("probe.js")
+        );
         builder = builder
-            .invoke_handler(commands![probe_report, probe_export_paths, probe_grant])
-            .on_page_load(|webview, payload| {
+            .invoke_handler(commands![
+                probe_report,
+                probe_export_paths,
+                probe_grant,
+                probe_folder,
+                probe_fixtures
+            ])
+            .on_page_load(move |webview, payload| {
                 if payload.event() == PageLoadEvent::Finished
-                    && let Err(error) = webview.eval(include_str!("probe.js"))
+                    && let Err(error) = webview.eval(&script)
                 {
                     eprintln!("probe: {error}");
                 }

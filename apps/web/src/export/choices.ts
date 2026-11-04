@@ -10,6 +10,7 @@ import {
 	DEFAULT_AUDIO_KBPS,
 	FORMAT_CODECS,
 	FRAME_RATE_PRESETS,
+	LOUDNESS_TARGETS,
 	type ExportAudioCodec,
 	type ExportAudioSettings,
 	type ExportVideoCodec,
@@ -51,6 +52,8 @@ export interface ExportChoices {
 	audioCodec: ExportAudioCodec;
 	audioKbps: number;
 	channels: 1 | 2;
+	/** A `LOUDNESS_TARGETS` value in LUFS; none leaves the mix's loudness. */
+	loudness: number | null;
 	deinterlace: boolean;
 	denoise: FilterStrength;
 	sharpen: FilterStrength;
@@ -85,6 +88,7 @@ export const DEFAULT_EXPORT_CHOICES: ExportChoices = {
 	audioCodec: "aac",
 	audioKbps: 192,
 	channels: 2,
+	loudness: null,
 	deinterlace: false,
 	denoise: "off",
 	sharpen: "off",
@@ -191,7 +195,9 @@ export function getChosenAudio({
 		codec: choices.audioCodec,
 		kbps: choices.audioKbps,
 		channels: choices.channels,
-		passthrough: choices.audioPassthrough,
+		// Copied sound can't be measured and turned up or down.
+		passthrough: choices.audioPassthrough && choices.loudness === null,
+		loudness: choices.loudness,
 	};
 }
 
@@ -315,6 +321,9 @@ export function sanitizeChoices({ value }: { value: unknown }): ExportChoices {
 			oneOf({ value: audioKbps, values: AUDIO_BITRATES[audioCodec] }) ??
 			DEFAULT_AUDIO_KBPS[audioCodec],
 		channels: read("channels") === 1 ? 1 : 2,
+		loudness:
+			LOUDNESS_TARGETS.find(({ lufs }) => lufs === read("loudness"))?.lufs ??
+			null,
 		deinterlace:
 			typeof deinterlace === "boolean" ? deinterlace : defaults.deinterlace,
 		denoise:

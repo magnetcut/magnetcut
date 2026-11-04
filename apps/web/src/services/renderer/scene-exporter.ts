@@ -30,6 +30,7 @@ import {
 	type WebVideoCodec,
 } from "@/export/settings";
 import { EXPORT_SAMPLE_RATE } from "@/media/audio-mix";
+import { checkEncoderColour } from "@/media/encoder-colour";
 import { CanvasRenderer } from "./canvas-renderer";
 
 type ExportParams = {
@@ -306,6 +307,8 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 					chunkSize: FILE_CHUNK_SIZE,
 				})
 			: new BufferTarget();
+		// WebKit's H.264 says it's full range when it isn't (media/encoder-colour.ts).
+		checkEncoderColour();
 		const output = new Output({ format: outputFormat, target });
 		output.setMetadataTags(
 			getWritingAppTags({ format: this.format, writingApp }),
