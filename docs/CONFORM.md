@@ -149,7 +149,8 @@ With these changes from the design above:
 - The probe checks it by converting the camera film itself: its colours should come out within
   6 levels on average of what went in (a wrong matrix moves them 13, resizing and encoding
   again about 3). WKWebView on macOS 27: 2.75, through I420; on macOS 26: 3.65, through RGB;
-  WebView2: 3.25; Chrome: 3.08.
+  WebView2: 3.25; Chrome: 3.08; WebKitGTK: 1.89, in BT.601 (8.01 while the samples were
+  BT.709 under its BT.601 box).
 - Tried on the way: Apple's decoders don't take a join whose SPSs code the picture at different
   sizes (docs/FAST.md, Limits), which VideoToolbox's minimum of 192×96 makes of tiny films.
 - Phase 4, proxies (`media/proxy.ts`): a video's whole file, not the parts used, so a clip can

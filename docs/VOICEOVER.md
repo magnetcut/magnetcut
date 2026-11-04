@@ -158,7 +158,9 @@ computer's own voices in place of Kokoro.
   Spanish one of the system's voices speaks (English where there's none, as on GitHub's
   Windows), the original spoken with the system's voice and the translation with that one, the
   clips looked for on their two tracks at the lines' starts, and the translation spoken again,
-  from the project. In WKWebView: Alice (it-IT), "Buongiorno a tutti." and "Ci vediamo
-  domani." at 0.5 and 3.5 s on "Spoken subtitles: Subtitles (translation)", the English beside
-  them on "Spoken subtitles", both again from the project.
+  from the project. In WKWebView (this Mac and GitHub's): Alice (it-IT), "Buongiorno a tutti."
+  and "Ci vediamo domani." at 0.5 and 3.5 s on "Spoken subtitles: Subtitles (translation)",
+  the English beside them on "Spoken subtitles", both again from the project. In WebKitGTK the
+  same with espeak-ng's Italian; in WebView2, whose runner has only English voices, the
+  translation in English with David, on its own track the same.
 - Not checked yet: a real key with each provider, which only the user can type in Settings.
