@@ -1,28 +1,23 @@
 "use client";
 
-import { Button } from "../ui/button";
 import { useRef, useState } from "react";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuSeparator,
-	DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { RenameProjectDialog } from "@/project/components/rename-project-dialog";
 import { DeleteProjectDialog } from "@/project/components/delete-project-dialog";
 import { useRouter } from "next/navigation";
 import { ExportButton } from "./export-button";
 import { ThemeToggle } from "../theme-toggle";
-import { DEFAULT_LOGO_URL } from "@/site/brand";
 import { toast } from "sonner";
 import { useEditor } from "@/editor/use-editor";
 import { CommandIcon, Logout05Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ShortcutsDialog } from "@/actions/components/shortcuts-dialog";
-import { AppMenuItems } from "@/desktop/components/app-menu";
-import Image from "next/image";
-import { ChevronDown } from "lucide-react";
+import { AppMenuItems, AppMenuTrigger } from "@/desktop/components/app-menu";
 import { cn } from "@/utils/ui";
 
 export function EditorHeader() {
@@ -107,24 +102,7 @@ function ProjectDropdown() {
 	return (
 		<>
 			<DropdownMenu>
-				{/* The logo alone went unnoticed as a menu: it says so now. */}
-				<DropdownMenuTrigger asChild>
-					<Button
-						variant="outline"
-						size="sm"
-						className="h-8 gap-1.5 rounded-sm pl-1.5 pr-2 font-normal data-[state=open]:bg-accent"
-					>
-						<Image
-							src={DEFAULT_LOGO_URL}
-							alt=""
-							width={32}
-							height={32}
-							className="invert dark:invert-0 size-5"
-						/>
-						<span>Menu</span>
-						<ChevronDown className="text-muted-foreground size-3.5!" />
-					</Button>
-				</DropdownMenuTrigger>
+				<AppMenuTrigger />
 				<DropdownMenuContent align="start" className="z-100 w-44">
 					<DropdownMenuItem
 						onClick={handleExit}

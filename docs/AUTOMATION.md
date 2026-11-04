@@ -208,7 +208,7 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
   now listen and use Movies (its entitlements, and the review note in docs/RELEASING.md). Then
   `.magnetcut` project files: `project` saves the open one and opens one by its path, as a new
   project, its media found by their paths (the app lets the call open the media the file names),
-  and the user has File, Open Project… and Save Project As… (the logo's menu on Windows and
+  and the user has File, Open Project… and Save Project As… (the MagnetCut menu on Windows and
   Linux); on CI, a project saved and opened again with the same tracks, clip for clip. Left of
   phase 1: in the App Store edition, folders granted in Settings and the dialog for a path
   outside them (for now, such a path is refused, saying why).

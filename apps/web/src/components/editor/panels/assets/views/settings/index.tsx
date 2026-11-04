@@ -222,7 +222,7 @@ export function SettingsView() {
 					}}
 				>
 					<TabsList>
-						<TabsTrigger value="project-info">Format</TabsTrigger>
+						<TabsTrigger value="project-info">Size and rate</TabsTrigger>
 						<TabsTrigger value="background">Background</TabsTrigger>
 					</TabsList>
 				</Tabs>

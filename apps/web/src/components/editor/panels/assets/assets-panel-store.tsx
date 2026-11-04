@@ -8,7 +8,7 @@ import {
 	MagicWand05Icon,
 	Mic01Icon,
 	TextIcon,
-	Settings01Icon,
+	AspectRatioIcon,
 	SlidersHorizontalIcon,
 	ColorsIcon,
 } from "@hugeicons/core-free-icons";
@@ -68,9 +68,10 @@ export const tabs = {
 		label: "Adjustment",
 	},
 	settings: {
-		icon: createHugeiconsIcon({ icon: Settings01Icon }),
-		// The project's frame and background; "Settings" read as the app's.
-		label: "Project",
+		icon: createHugeiconsIcon({ icon: AspectRatioIcon }),
+		// The project's frame, frame rate and background: the gear and
+		// "Settings" are the app's alone (its menu, ⌘,).
+		label: "Format",
 	},
 } satisfies Record<
 	Tab,
