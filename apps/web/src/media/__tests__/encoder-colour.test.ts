@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { serializeAvcConfig } from "@/export/fast/h264";
-import { correctEncodedColour, readStreamColour } from "../encoder-colour";
+import {
+	correctEncodedColour,
+	readStreamColour,
+	readWrittenColour,
+} from "../encoder-colour";
 
 const hex = (text: string) =>
 	new Uint8Array(text.match(/../g)?.map((pair) => parseInt(pair, 16)) ?? []);
@@ -26,6 +30,48 @@ const webkitClaim: VideoColorSpaceInit = {
 };
 
 describe("the encoder's colour", () => {
+	test("a file says what its SPS says, else what its colour box would", () => {
+		const bt601: VideoColorSpaceInit = {
+			primaries: "smpte170m",
+			transfer: "smpte170m",
+			matrix: "smpte170m",
+			fullRange: false,
+		};
+		// WebKitGTK's: an SPS that says nothing, a config that says BT.601.
+		expect(
+			readWrittenColour({
+				config: { codec: "avc1.640014", description, colorSpace: bt601 },
+			}),
+		).toEqual(bt601);
+		// The range is the SPS's; a box that doesn't say all isn't written.
+		expect(
+			readWrittenColour({
+				config: {
+					codec: "avc1.640014",
+					description,
+					colorSpace: { ...bt601, fullRange: true },
+				},
+			}),
+		).toEqual(bt601);
+		expect(
+			readWrittenColour({
+				config: {
+					codec: "avc1.640014",
+					description,
+					colorSpace: { matrix: "smpte170m" },
+				},
+			}),
+		).toEqual({
+			primaries: null,
+			transfer: null,
+			matrix: null,
+			fullRange: false,
+		});
+		expect(
+			readWrittenColour({ config: { codec: "vp09.00.10.08" } }),
+		).toBeNull();
+	});
+
 	test("is read from the SPS: limited when it says nothing", () => {
 		expect(
 			readStreamColour({ config: { codec: "avc1.640014", description } }),

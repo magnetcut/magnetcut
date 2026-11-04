@@ -89,13 +89,11 @@ thrown away; each encoded packet carries the parameter sets it was made under.
   one coded size, but VideoToolbox codes a picture under 192×96 at 192×96 and crops it, so a
   tiny clip converted on a Mac (docs/CONFORM.md), or Smart Cut's frames there, joined with a
   tiny one from elsewhere doesn't play in those two.
-- Chromium decodes a join of H.264 from different encoders slightly wrong where the sources
-  meet: Chrome on macOS (157) and WebView2 on Windows alike. Measured on an x264 film (its PPS
-  has a chroma QP offset of -2, weighted prediction and an initial QP of 32) joined with a clip
-  from the web view's encoder (0, none, 26): in both, the film's last two frames came out 42
-  and 43 levels off when it came first; in Chrome, all of its frames 43 off when it came
-  second. ffmpeg, AVFoundation, WebKit and WebKitGTK decode the same files exactly, and Chrome
-  decodes the film joined with itself right. On macOS, Chrome and WebKit both decode with
-  VideoToolbox, but WebKit gives it the avcC's parameter sets at once, while Chrome gives it a
-  format of only those the frame uses, made anew when they change
-  (`video_toolbox_h264_accelerator.cc`).
+- Chromium (Chrome, and WebView2) labels a frame whose SPS says nothing of its colour with the
+  last colour an SPS told it, and the last frames before a source whose SPS says one, still
+  waiting to be shown, with that one. The pictures decode exactly, but they're drawn in the
+  wrong matrix or range: an x264 film that says nothing, joined with a clip that says BT.601,
+  showed its last two frames 42 and 43 levels off when it came first, and all of its frames
+  when it came second. Clips made to match leave unsaid what the film they join leaves unsaid
+  (docs/CONFORM.md), so their joins don't show it; files of their own that say different
+  things still do there.

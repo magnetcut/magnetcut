@@ -17,7 +17,7 @@ import type { ExportFormat } from "@/export";
 import { adoptSavedFile, openFolderFile } from "@/export/disk-target";
 import { createOutputFormat } from "@/export/output-format";
 import { createMediaSource, type MediaFile } from "@/media/disk-file";
-import { checkEncoderColour, readStreamColour } from "@/media/encoder-colour";
+import { checkEncoderColour, readWrittenColour } from "@/media/encoder-colour";
 import { canWriteColour, resolveVideoColour, rgbaToI420 } from "@/media/yuv";
 import { FILE_CHUNK_SIZE } from "@/services/renderer/scene-exporter";
 import type { ConformFile, ConformSound, ConformTarget } from "./conform";
@@ -164,9 +164,10 @@ export interface ColourChoice {
 	input: ColourInput;
 	/**
 	 * The colour space the I420 pictures are written in: what the frames are
-	 * tagged with, and where they leave it unsaid, what the encoder says of
-	 * them in their stream (Chromium's says BT.709), else BT.709 (WebKit's
-	 * says nothing either), as both draw a film that says nothing.
+	 * tagged with, and where they leave it unsaid, what the file will say of
+	 * them (its SPS, else its colour box: WebKitGTK's says BT.601), else
+	 * BT.709 (WebKit's and Chromium's say nothing), as both draw a film that
+	 * says nothing.
 	 */
 	samples: VideoColorSpaceInit;
 }
@@ -176,7 +177,10 @@ export interface ColourChoice {
 const CHECK_CODECS = ["avc1.420033", "avc1.4d0033", "avc1.640033"];
 const CHECK_SECONDS = 10;
 
-/** What the SPS of one frame encoded here says of its colour; null if none came out. */
+/**
+ * What a file of one frame encoded here would say of its colour, its SPS and
+ * then its colour box (`readWrittenColour`); null if none came out.
+ */
 async function encodeOneFrame({
 	frame,
 	width,
@@ -218,7 +222,7 @@ async function encodeOneFrame({
 			} finally {
 				if (encoder.state !== "closed") encoder.close();
 			}
-			if (said.config) return readStreamColour({ config: said.config });
+			if (said.config) return readWrittenColour({ config: said.config });
 		}
 		return null;
 	} finally {
@@ -230,12 +234,14 @@ const colourChoices = new Map<string, Promise<ColourChoice>>();
 
 /**
  * How this web view's H.264 encoder writes pictures in `colour`, found by
- * encoding a grey frame and reading its SPS. I420 if it keeps the range the
- * frame is tagged with, else RGB if that comes out in it: Chromium's writes
- * RGB in full range and keeps I420's; WebKit's on macOS 27 keeps I420's, but
- * on macOS 26 it marks limited I420 full range and writes RGB in limited. And
- * the matrix it says the frames are in where they don't say. I420 for VP9,
- * whose stream isn't read here, in BT.709 where `colour` says nothing.
+ * encoding a grey frame, with the conversion's check of what it says
+ * (`checkEncoderColour`), and reading what the file would say. I420 if it
+ * keeps the range the frame is tagged with, else RGB if that comes out in it:
+ * Chromium's writes RGB in full range and keeps I420's; WebKit's on macOS 27
+ * keeps I420's, but on macOS 26 it marks limited I420 full range and writes
+ * RGB in limited. And the matrix the file says the frames are in where they
+ * don't say. I420 for VP9, whose stream isn't read here, in BT.709 where
+ * `colour` says nothing.
  */
 export function chooseColourInput({
 	target,
@@ -262,6 +268,7 @@ export function chooseColourInput({
 		if (target.codec !== "avc" || typeof VideoEncoder === "undefined") {
 			return { input: "yuv", samples: usual };
 		}
+		checkEncoderColour();
 		const rgba = new Uint8ClampedArray(width * height * 4).fill(128);
 		const stream = await encodeOneFrame({
 			frame: new VideoFrame(

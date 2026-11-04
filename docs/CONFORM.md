@@ -66,8 +66,8 @@ after that is a copy. All four phases are built (Done, at the end).
 1. Replace media, from the clip's menu and by dropping a file on a clip, in one undo step;
    tested in code.
 2. The "!", the dialog, the conversion into files on disk, and the swap; Fast mode's button.
-   Checked in WKWebView, WebView2 (the probe) and Chrome: the converted files join, Fast mode
-   copies them, and the copied frames are the source's.
+   Checked in WKWebView, WebKitGTK, WebView2 (the probe) and Chrome: the converted files join,
+   Fast mode copies them, and the copied frames are the source's.
 3. Fast mode mixes the audio tracks in.
 4. Proxies (issue #4), from the same parts: each file converted small, played in the preview,
    and the originals used at export.
@@ -120,9 +120,10 @@ With these changes from the design above:
   GStreamer's bad and libav plugins: the 55 frames decoded from the join are the files' to the
   bit, AVFoundation decodes them all, and ffmpeg's are the same. With the base plugins only,
   WebKitGTK can't decode H.264, and the conversion says so. In WebView2, and in Chrome (the
-  same check, headless, with the files in memory): the converted clips' frames are the files'
-  to the bit, but the camera film's last two before them come out 42 and 43 levels off, from
-  Chromium's decoder (docs/FAST.md, Limits); ffmpeg decodes Chrome's join as the three files.
+  same check, headless, with the files in memory), the same, since the converted clips leave
+  unsaid what the camera film does (below). While they said BT.601, the film's last two frames
+  before them came out 42 and 43 levels off: Chromium draws a frame whose SPS says nothing in
+  the colour the next source's SPS says (docs/FAST.md, Limits).
 - Colour, the risk above, was real: WebKit's H.264 encoder writes limited range, under an SPS
   that says nothing of colour (so limited, in H.264), but its decoder config says full range and
   sRGB whatever frames it's given, and mediabunny writes the MP4's colour box from that config.
@@ -131,18 +132,24 @@ With these changes from the design above:
   range, for conversions, proxies and the WebCodecs export; WebKit, which goes by the stream,
   showed them right all along. Since then ffmpeg reads the converted clip's levels as the
   original's (229 for 231, after resizing), and the probe checks that box and stream agree.
-- The converted files are written in the colour space of a file that joins as it is
-  (`ConformPlan.colour`: its range and matrix; where it says nothing, BT.709 from 720 lines and
-  BT.601 below, limited). Given RGB, each web view's encoder picks its own: WebView2's wrote
-  full range, which joined with a camera's limited range would show the converted clips washed
-  out wherever the file is read in one range. So the pictures go to the encoder as I420 in that
-  colour (`media/yuv.ts`, about 10 ms for a 1080p picture), and Chromium and WebKit on macOS 27
-  keep the range they're told. WebKit on macOS 26 marks such frames full range, but writes RGB
-  in limited: a grey frame is encoded each way first (`chooseColourInput`, `convert.ts`) and
-  the way that comes out in the range wanted is used; through RGB the matrix is the encoder's
-  own (BT.709 there, tagged so), so beside a small film that says nothing, read as BT.601,
-  strong colours shift a little. Where the SPS says nothing of the matrix (WebKit's), the
-  colour box says what the frames were.
+- The converted files say of their colour what a file that joins as it is says
+  (`ConformPlan.colour`): its range (limited if unsaid), and its matrix, primaries and transfer
+  where it says them; what it leaves unsaid, they leave unsaid, so each web view draws the join
+  as it draws the files. Given RGB, each web view's encoder picks its own range: WebView2's
+  wrote full range, which joined with a camera's limited range would show the converted clips
+  washed out wherever the file is read in one range. So the pictures go to the encoder as I420
+  (`media/yuv.ts`, about 10 ms for a 1080p picture), written in the colour the file will say:
+  its SPS's, else its colour box's (WebKitGTK's encoder says BT.601 of frames that say
+  nothing), else BT.709, which WebKit and Chromium draw a film that says nothing in, at any
+  size (ffmpeg, VLC and mpv take one under 720 lines as BT.601; BT.601 there moved the colours
+  in WKWebView by 8.4 on average). Chromium and WebKit on macOS 27 keep the range they're told.
+  WebKit on macOS 26 marks such frames full range, but writes RGB in limited: a grey frame is
+  encoded each way first (`chooseColourInput`, `convert.ts`) and the way that comes out in the
+  range wanted is used, there RGB, in the encoder's BT.709.
+- The probe checks it by converting the camera film itself: its colours should come out within
+  6 levels on average of what went in (a wrong matrix moves them 13, resizing and encoding
+  again about 3). WKWebView on macOS 27: 2.75, through I420; on macOS 26: 3.65, through RGB;
+  WebView2: 3.25; Chrome: 3.08.
 - Tried on the way: Apple's decoders don't take a join whose SPSs code the picture at different
   sizes (docs/FAST.md, Limits), which VideoToolbox's minimum of 192×96 makes of tiny films.
 - Phase 4, proxies (`media/proxy.ts`): a video's whole file, not the parts used, so a clip can

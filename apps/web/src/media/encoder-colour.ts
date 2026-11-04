@@ -65,6 +65,30 @@ const isSameColour = ({
 }) => FIELDS.every((field) => (a?.[field] ?? null) === (b[field] ?? null));
 
 /**
+ * The colour a file made from an encoder's output says it's in: its SPS's,
+ * and where that says nothing, its decoder config's, which mediabunny writes
+ * in the MP4's colour box when it says all of it (WebKitGTK's says BT.601 of
+ * frames that leave it unsaid). Null if it isn't H.264.
+ */
+export function readWrittenColour({
+	config,
+}: {
+	config: VideoDecoderConfig;
+}): VideoColorSpaceInit | null {
+	const stream = readStreamColour({ config });
+	if (!stream) return null;
+	const claimed = config.colorSpace;
+	const box =
+		claimed && FIELDS.every((field) => claimed[field] != null) ? claimed : null;
+	return {
+		primaries: stream.primaries ?? box?.primaries ?? null,
+		transfer: stream.transfer ?? box?.transfer ?? null,
+		matrix: stream.matrix ?? box?.matrix ?? null,
+		fullRange: stream.fullRange,
+	};
+}
+
+/**
  * What an encoder's decoder config should say of its colour; null if it's
  * right. `written` is the colour space of the YUV frames it was given, if it
  * was: their samples are coded as they are, so they say what the stream
