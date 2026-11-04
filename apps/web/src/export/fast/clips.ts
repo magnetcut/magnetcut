@@ -1,5 +1,6 @@
 import { splitAnimationsAtTime } from "@/animation";
 import { readAudioEffects } from "@/media/audio-effects";
+import { readClipFades } from "@/timeline/audio-fades";
 import type { MediaAsset } from "@/media/types";
 import type {
 	AudioElement,
@@ -165,7 +166,8 @@ export function isSoundUnchanged({
 		!isElementMuted({ element }) &&
 		getElementVolume({ element }) === 0 &&
 		!hasAnimatedVolume({ element }) &&
-		readAudioEffects({ params: element.params }) === null
+		readAudioEffects({ params: element.params }) === null &&
+		readClipFades({ element }) === null
 	);
 }
 

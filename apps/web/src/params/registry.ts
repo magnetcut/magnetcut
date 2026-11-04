@@ -16,6 +16,7 @@ import {
 	CORNER_RADIUS_MIN,
 } from "@/text/background";
 import { AUDIO_EFFECT_PARAMS } from "@/media/audio-effects";
+import { FADE_PARAMS } from "@/timeline/audio-fades";
 
 export type ElementParamDefinition<TKey extends string = string> =
 	ParamDefinition<TKey> & {
@@ -337,6 +338,7 @@ elementParamRegistry.register({
 	definition: [
 		...visualElementParams,
 		...audioElementParams,
+		...FADE_PARAMS,
 		...AUDIO_EFFECT_PARAMS,
 	],
 });
@@ -355,7 +357,7 @@ elementParamRegistry.register({
 });
 elementParamRegistry.register({
 	key: "audio",
-	definition: [...audioElementParams, ...AUDIO_EFFECT_PARAMS],
+	definition: [...audioElementParams, ...FADE_PARAMS, ...AUDIO_EFFECT_PARAMS],
 });
 elementParamRegistry.register({ key: "effect", definition: [] });
 

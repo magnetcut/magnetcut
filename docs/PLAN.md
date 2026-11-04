@@ -157,9 +157,10 @@ was tried in the built app, through its panel.
     to match, so Fast mode copies them, and proxies for the preview (docs/CONFORM.md); a clip's
     sound cleaned up and shaped, and the export's loudness brought to a target
     (docs/AUDIO-EFFECTS.md); voice-over, recorded or the subtitles spoken, a translation
-    dubbed (docs/VOICEOVER.md).
-    Planned, not yet read: several soundtracks in one file (docs/SOUNDTRACKS.md); fades to
-    black, white or transparent on any clip (docs/FADES.md).
+    dubbed (docs/VOICEOVER.md); a clip's sound fading in and out, dragged at an audio clip's
+    ends (docs/FADES.md).
+    Planned, not yet read: several soundtracks in one file (docs/SOUNDTRACKS.md); the rest of
+    the fades, the picture to black, white or transparent on any clip (docs/FADES.md).
 
 ## Web view support
 

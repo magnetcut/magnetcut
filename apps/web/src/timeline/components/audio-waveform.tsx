@@ -12,6 +12,7 @@ import {
 import type { MediaFile } from "@/media/disk-file";
 import type { RetimeConfig } from "@/timeline";
 import { getBarFractionFromOutputAmplitude } from "@/timeline/audio-display";
+import { getFadeGain, type ClipFades } from "@/timeline/audio-fades";
 import { waveformCache } from "@/services/waveform-cache/service";
 import { findScrollParent } from "@/utils/browser";
 import { cn } from "@/utils/ui";
@@ -48,6 +49,8 @@ interface AudioWaveformProps {
 	audioUrl?: string;
 	audioBuffer?: AudioBuffer;
 	gainSamples?: number[];
+	/** The clip's fades, drawn in its bars. */
+	fades?: ClipFades | null;
 	pixelsPerSecond: number;
 	clipDurationSec: number;
 	retime?: RetimeConfig;
@@ -63,6 +66,7 @@ export function AudioWaveform({
 	audioUrl,
 	audioBuffer,
 	gainSamples,
+	fades = null,
 	pixelsPerSecond,
 	clipDurationSec,
 	retime,
@@ -76,6 +80,7 @@ export function AudioWaveform({
 	const summaryRef = useRef<SourceWaveformSummary | null>(null);
 	const waveformConfigRef = useCommittedRef({
 		gainSamples,
+		fades,
 		pixelsPerSecond,
 		clipDurationSec,
 		retime,
@@ -144,6 +149,7 @@ export function AudioWaveform({
 
 		const {
 			gainSamples: gainSamplesValue,
+			fades: fadesValue,
 			pixelsPerSecond: pixelsPerSecondValue,
 			clipDurationSec: clipDurationSecValue,
 			retime: retimeValue,
@@ -173,6 +179,7 @@ export function AudioWaveform({
 			summaryTotalSamples: summary.totalSamples,
 			summaryBucketSize: summary.bucketSize,
 			gainSamples: gainSamplesValue ?? null,
+			fades: fadesValue,
 			color: colorValue,
 			burnColor: burnColorValue,
 		});
@@ -224,13 +231,13 @@ export function AudioWaveform({
 				Math.min(clipDurationSecValue, barCenterPx / pixelsPerSecondValue),
 			);
 			const gain =
-				gainSamplesValue != null
+				(gainSamplesValue != null
 					? sampleGainAtClipTime({
 							samples: gainSamplesValue,
 							clipTimeSec: clipCenterSec,
 							clipDurationSec: clipDurationSecValue,
 						})
-					: 1;
+					: 1) * getFadeGain({ fades: fadesValue, clipTime: clipCenterSec });
 			const amplitude = Math.max(0, amplitudes[i] ?? 0);
 			const outputAmplitude = amplitude * Math.max(0, gain);
 			const fraction = getBarFractionFromOutputAmplitude({ outputAmplitude });
@@ -307,6 +314,7 @@ export function AudioWaveform({
 	}, [
 		drawVisible,
 		gainSamples,
+		fades,
 		pixelsPerSecond,
 		clipDurationSec,
 		retime,

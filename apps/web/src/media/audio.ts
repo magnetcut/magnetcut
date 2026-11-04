@@ -28,6 +28,7 @@ import {
 	getAudioCrossfades,
 	getCrossfadeGain,
 } from "@/transitions";
+import { getFadeGain, readClipFades } from "@/timeline/audio-fades";
 
 /** A clip's sound on the timeline, in seconds, as the mixer places it. */
 export interface MixedAudioClip {
@@ -489,6 +490,11 @@ export function mixAudioChannels({
 		outputStart + outputLength - outputStartSample,
 	);
 
+	const fades = readClipFades({
+		element: element.timelineElement,
+		crossfade: element.crossfade,
+	});
+	const head = element.crossfade?.head ?? 0;
 	const outputChannels = 2;
 	for (let channel = 0; channel < outputChannels; channel++) {
 		const outputData = outputBuffer.getChannelData(channel);
@@ -521,7 +527,8 @@ export function mixAudioChannels({
 				getCrossfadeGain({
 					crossfade: element.crossfade,
 					time: startTime + clipTime,
-				});
+				}) *
+				getFadeGain({ fades, clipTime: clipTime - head });
 			outputData[outputIndex] +=
 				(sourceData[lowerIndex] * (1 - fraction) +
 					sourceData[upperIndex] * fraction) *

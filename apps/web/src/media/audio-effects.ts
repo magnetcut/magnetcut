@@ -188,7 +188,7 @@ export const AUDIO_EFFECT_SECTIONS: {
 			}),
 			number({
 				key: "compressorMakeup",
-				label: "Makeup gain (dB)",
+				label: "Makeup (dB)",
 				default: 0,
 				min: -30,
 				max: 30,

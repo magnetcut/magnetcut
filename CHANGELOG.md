@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format is based on
 
 ## Unreleased
 
+### Added
+- Fades on audio clips: drag the diamond at either end of a clip along its volume line to fade
+  in or out, or down to make a one-second fade; the dot at the edge sets the level it fades
+  from or to (silence at the bottom). Double-click the diamond to take a fade off. The clip's
+  Audio tab has the same in a Fades section.
+
+### Changed
+- The Audio tab's numbers are bars you drag, filled to their value, and the equaliser is a
+  curve with its five bands as points to drag (the wheel on a mid one for its width). The
+  compressor shows its curve.
+
+### Fixed
+- Dragging an audio clip's volume line no longer clears its effects and its mute.
+- Export's "copy the source's sound" no longer copies a lone clip's sound without its effects.
+
 ## [0.1.3] - 2026-11-04
 
 ### Added

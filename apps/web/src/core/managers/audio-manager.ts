@@ -9,6 +9,11 @@ import {
 	resolveEffectiveAudioGain,
 } from "@/timeline/audio-state";
 import { getCrossfadeGain, getCrossfadeTimes } from "@/transitions";
+import {
+	getFadeGain,
+	getFadeTimes,
+	readClipFades,
+} from "@/timeline/audio-fades";
 import { createAudioMasteringChain } from "@/media/audio-mastering";
 import {
 	applyAudioEffectsToBuffer,
@@ -471,6 +476,10 @@ export class AudioManager {
 			this.hasCurveRetime({ clip }) ||
 			hasAnimatedVolume({ element: clip.timelineElement }) ||
 			clip.crossfade !== undefined ||
+			readClipFades({
+				element: clip.timelineElement,
+				crossfade: clip.crossfade,
+			}) !== null ||
 			// Effects run on the clip whole, as in the export (audio-mix.ts).
 			readAudioEffects({ params: clip.timelineElement.params }) !== null ||
 			shouldMaintainPitch({
@@ -500,8 +509,10 @@ export class AudioManager {
 	}): void {
 		const animated = hasAnimatedVolume({ element: clip.timelineElement });
 		const { crossfade } = clip;
+		const fades = readClipFades({ element: clip.timelineElement, crossfade });
 		// Local times count from the start of the clip's audio, which may begin
-		// in its head handle; the volume's keyframes count from the clip's start.
+		// in its head handle; the volume's keyframes and the fades count from
+		// the clip's start.
 		const head = crossfade?.head ?? 0;
 		const gainAt = (localTime: number) =>
 			(animated
@@ -510,12 +521,13 @@ export class AudioManager {
 						localTime: Math.max(0, localTime - head),
 					})
 				: clip.volume) *
-			getCrossfadeGain({ crossfade, time: clip.startTime + localTime });
+			getCrossfadeGain({ crossfade, time: clip.startTime + localTime }) *
+			getFadeGain({ fades, clipTime: localTime - head });
 
 		clipGain.gain.cancelScheduledValues(startTimestamp);
 		clipGain.gain.setValueAtTime(gainAt(startLocalTime), startTimestamp);
 
-		if (!animated && !crossfade) {
+		if (!animated && !crossfade && !fades) {
 			return;
 		}
 
@@ -529,14 +541,25 @@ export class AudioManager {
 				localTimes.push(localTime);
 			}
 			localTimes.push(clip.duration);
-		} else if (crossfade) {
-			const times = getCrossfadeTimes({
-				crossfade,
-				from: clip.startTime + startLocalTime,
-				to: clip.startTime + clip.duration,
-				step: GAIN_STEP_SECONDS,
-			});
-			for (const time of times) localTimes.push(time - clip.startTime);
+		} else {
+			if (crossfade) {
+				const times = getCrossfadeTimes({
+					crossfade,
+					from: clip.startTime + startLocalTime,
+					to: clip.startTime + clip.duration,
+					step: GAIN_STEP_SECONDS,
+				});
+				for (const time of times) localTimes.push(time - clip.startTime);
+			}
+			if (fades) {
+				const times = getFadeTimes({
+					fades,
+					from: startLocalTime - head,
+					to: clip.duration - head,
+					step: GAIN_STEP_SECONDS,
+				});
+				for (const time of times) localTimes.push(time + head);
+			}
 			localTimes.sort((a, b) => a - b);
 		}
 

@@ -5,6 +5,7 @@ import { useEditor } from "@/editor/use-editor";
 import { useAssetsPanelStore } from "@/components/editor/panels/assets/assets-panel-store";
 import { AudioWaveform, WAVEFORM_GAIN_SAMPLE_COUNT } from "./audio-waveform";
 import { AudioVolumeLine } from "./audio-volume-line";
+import { AudioFadeHandles } from "./audio-fade-handles";
 import { useElementPreview } from "@/timeline/hooks/use-element-preview";
 import {
 	useKeyframeDrag,
@@ -53,6 +54,7 @@ import {
 	isSourceAudioSeparated,
 } from "@/timeline/audio-separation";
 import { buildWaveformGainSamples, isElementMuted } from "@/timeline/audio-state";
+import { readClipFades } from "@/timeline/audio-fades";
 import { getTimelinePixelsPerSecond } from "@/timeline";
 import { buildWaveformSourceKey } from "@/media/waveform-summary";
 import { addMediaTime, type MediaTime, TICKS_PER_SECOND } from "@/wasm";
@@ -1063,6 +1065,7 @@ function AudioElementContent({
 			}),
 		[element],
 	);
+	const fades = useMemo(() => readClipFades({ element }), [element]);
 	if (audioBuffer || audioUrl || sourceFile) {
 		return (
 			<div className="group/audio relative size-full">
@@ -1074,6 +1077,7 @@ function AudioElementContent({
 						audioBuffer={audioBuffer}
 						audioUrl={audioUrl}
 						gainSamples={gainSamples}
+						fades={fades}
 						pixelsPerSecond={pixelsPerSecond}
 						clipDurationSec={element.duration / TICKS_PER_SECOND}
 						retime={element.retime}
@@ -1081,6 +1085,7 @@ function AudioElementContent({
 						color={TIMELINE_TRACK_THEME.audio.waveformColor}
 					/>
 					<AudioVolumeLine element={element} trackId={trackId} />
+					<AudioFadeHandles element={element} trackId={trackId} />
 				</div>
 			</div>
 		);
@@ -1094,6 +1099,7 @@ function AudioElementContent({
 				</span>
 			</div>
 			<AudioVolumeLine element={element} trackId={trackId} />
+			<AudioFadeHandles element={element} trackId={trackId} />
 		</div>
 	);
 }

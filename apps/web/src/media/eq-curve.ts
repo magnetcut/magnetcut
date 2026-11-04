@@ -6,13 +6,15 @@ import type { ParamValues } from "@/params";
  * EQ Cookbook, a low shelf, three peaks and a high shelf.
  */
 
-const BANDS = [
-	{ prefix: "eqLow", kind: "lowShelf", frequency: 100 },
-	{ prefix: "eqMid1", kind: "peak", frequency: 400 },
-	{ prefix: "eqMid2", kind: "peak", frequency: 1500 },
-	{ prefix: "eqMid3", kind: "peak", frequency: 4000 },
-	{ prefix: "eqHigh", kind: "highShelf", frequency: 10000 },
+export const EQ_BANDS = [
+	{ prefix: "eqLow", kind: "lowShelf", frequency: 100, name: "Low shelf" },
+	{ prefix: "eqMid1", kind: "peak", frequency: 400, name: "Low mids" },
+	{ prefix: "eqMid2", kind: "peak", frequency: 1500, name: "Mids" },
+	{ prefix: "eqMid3", kind: "peak", frequency: 4000, name: "High mids" },
+	{ prefix: "eqHigh", kind: "highShelf", frequency: 10000, name: "High shelf" },
 ] as const;
+
+export type EqBand = (typeof EQ_BANDS)[number];
 
 const SAMPLE_RATE = 48000;
 
@@ -44,7 +46,7 @@ function design({
 	frequency,
 	q,
 }: {
-	kind: (typeof BANDS)[number]["kind"];
+	kind: EqBand["kind"];
 	gain: number;
 	frequency: number;
 	q: number;
@@ -105,27 +107,37 @@ function gainAt({
 	return 20 * Math.log10(magnitude);
 }
 
-/** The equaliser's gain in dB at each frequency, from a clip's parameters. */
+/**
+ * The equaliser's gain in dB at each frequency, from a clip's parameters: of
+ * every band, or of the one with this prefix.
+ */
 export function getEqResponse({
 	params,
 	frequencies,
+	only,
 }: {
 	params: ParamValues;
 	frequencies: readonly number[];
+	only?: EqBand["prefix"];
 }): number[] {
-	const filters = BANDS.map(({ prefix, kind, frequency }) => ({
-		gain: read({ params, key: `${prefix}Gain`, fallback: 0 }),
-		filter: design({
-			kind,
+	const bands = only
+		? EQ_BANDS.filter(({ prefix }) => prefix === only)
+		: EQ_BANDS;
+	const filters = bands
+		.map(({ prefix, kind, frequency }) => ({
 			gain: read({ params, key: `${prefix}Gain`, fallback: 0 }),
-			frequency: read({
-				params,
-				key: `${prefix}Frequency`,
-				fallback: frequency,
+			filter: design({
+				kind,
+				gain: read({ params, key: `${prefix}Gain`, fallback: 0 }),
+				frequency: read({
+					params,
+					key: `${prefix}Frequency`,
+					fallback: frequency,
+				}),
+				q: Math.max(0.05, read({ params, key: `${prefix}Q`, fallback: 1 })),
 			}),
-			q: Math.max(0.05, read({ params, key: `${prefix}Q`, fallback: 1 })),
-		}),
-	})).filter(({ gain }) => Math.abs(gain) >= 0.01);
+		}))
+		.filter(({ gain }) => Math.abs(gain) >= 0.01);
 	return frequencies.map((frequency) =>
 		filters.reduce((sum, { filter }) => sum + gainAt({ filter, frequency }), 0),
 	);

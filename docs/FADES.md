@@ -2,7 +2,8 @@
 
 `docs/PLAN.md` step 13, with issue #1 (clip fades). A clip fading in at its start and out at its
 end, to black, white or transparent, its sound fading with it; set by dragging a handle at the
-clip's top corners, as in other editors. Nothing is built yet.
+clip's top corners, as in other editors. The sound is built, with the handles on audio clips
+(Done, at the end); the picture isn't yet.
 
 ## What's there
 
@@ -69,6 +70,31 @@ clip's top corners, as in other editors. Nothing is built yet.
    middle and end, and with effects on.
 3. The corner handles and the ramps on the timeline, and the clip's menu.
 4. Fast mode: what Smart Cut re-encodes and what No re-encoding says.
+
+## Done
+
+- The sound (phase 2) and the handles on audio clips (phase 3, without the menu), asked for on
+  audio clips: `timeline/audio-fades.ts`. `fadeIn` and `fadeOut` as above, and on top of the
+  plan `fadeInLevel` and `fadeOutLevel` (dB under the clip's volume, -60 is silence and the
+  default): the level a fade starts from or ends at, for a fade that only dips. On audio and
+  video clips; set on a video clip only by an agent for now, its Fade section coming with the
+  picture.
+- The gain: the level plus the rest of the way times the equal-power ramp, the volume and any
+  crossfade times that. The preview (`audio-manager.ts`) prepares such a clip whole and
+  schedules the gain on its node, as for keyframed volume; the export (`mixAudioChannels` in
+  `media/audio.ts`) applies it per sample. An end with a transition's crossfade has no fade of
+  its own. Neither Export's copy of the source's sound nor Fast mode's takes a clip with a fade.
+- On the timeline (`audio-fade-handles.tsx`), on the volume line at each end: a diamond dragged
+  along for the length (snapped to frames, shown while dragging), the ramp and the sound it
+  takes away drawn, the waveform's bars following. Once there's a fade, a dot at the clip's
+  edge dragged up or down for its level; a diamond with no fade dragged down makes one, a
+  second long. A double-click on the diamond takes the fade off. Each drag is one undo step.
+- In the audio clip's Audio tab, a Fades section: the two lengths and, with a fade, its level.
+- Tested (`timeline/__tests__/audio-fades.test.ts`): the gain at the fades' ends and middles,
+  with a level, the overlap shortened, the crossfaded end left out, and the export's mix.
+  Checked in Chrome: the handles, the panel's values, and the gain the preview schedules.
+- Not yet: the picture (phase 1, and `fadeSound`), the handles on video clips, snapping to the
+  playhead, the clip's menu, phase 4.
 
 ## Risks
 

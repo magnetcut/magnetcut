@@ -24,6 +24,7 @@ import {
 import { shouldMaintainPitch } from "@/retime/rate";
 import { getSourceTimeAtClipTime, renderRetimedBuffer } from "@/retime";
 import { getAudioCrossfades } from "@/transitions";
+import { readClipFades } from "@/timeline/audio-fades";
 import {
 	applyAudioEffectsToBuffer,
 	readAudioEffects,
@@ -418,7 +419,8 @@ const START_TOLERANCE = 1e-6;
 /**
  * The one clip heard on the timeline, if it plays its file's sound unchanged
  * from the start (it may stop early): no other sound, no speed change, no
- * crossfade, its volume at 0 dB and not keyframed. Export copies its sound.
+ * crossfade or fade, its volume at 0 dB and not keyframed, no effects.
+ * Export copies its sound.
  */
 export function findPassthroughClip({
 	tracks,
@@ -444,7 +446,9 @@ export function findPassthroughClip({
 		(!clip.retime || clip.retime.rate === 1) &&
 		!clip.crossfade &&
 		getElementVolume({ element }) === 0 &&
-		!hasAnimatedVolume({ element });
+		!hasAnimatedVolume({ element }) &&
+		readClipFades({ element }) === null &&
+		readAudioEffects({ params: element.params }) === null;
 	if (!clip.asset || !isUnchanged) return null;
 	return {
 		asset: clip.asset,

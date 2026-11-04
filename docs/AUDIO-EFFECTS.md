@@ -101,10 +101,21 @@ in the export, and nothing leaves the computer. All four phases are built (Done,
   its harmonics up to the fifth.
 - The settings are clip parameters (`AUDIO_EFFECT_PARAMS`), not keyframable, and left unset on
   new clips: a clip with none set plays its sound as it is (`readAudioEffects` gives null), and
-  Fast mode's sound copy (docs/CONFORM.md) only takes a clip with none.
-- The Audio tab (`audio-effects-tab.tsx`): Volume, the presets (Off, Voice, Podcast, Phone call,
-  Hall; each sets every setting, Off clears them), then a section each, and the equaliser's
-  curve (`media/eq-curve.ts`, the same cookbook formulas at 48 kHz).
+  Fast mode's sound copy (docs/CONFORM.md) and Export's copy of the source's sound
+  (`findPassthroughClip`, which used to copy a lone clip's sound without its effects) only
+  take a clip with none.
+- The Audio tab (`audio-effects-tab.tsx`, its controls in `audio-controls.tsx`): Volume, the
+  presets (Off, Voice, Podcast, Phone call, Hall; each sets every setting, Off clears them),
+  then a section each, its switch in the header. The numbers are bars filled to their value
+  (from zero where the range spans it, on a log scale where it spans more than twentyfold:
+  attack, release, delay, ratio, frequency, width), dragged sideways, Shift for finer, the
+  arrow keys a step, a double-click back to the default; Remove hum is three buttons. The
+  equaliser is drawn (`media/eq-curve.ts`, the same cookbook formulas at 48 kHz), 20 Hz to
+  20 kHz and ±24 dB, its five bands points dragged on it (Shift holds the frequency), the wheel
+  on a mid one for its width, a double-click to flatten one; under it the chosen band's bars.
+  Drawn when off too, and a point dragged turns it on. The compressor's curve beside its
+  threshold, ratio and makeup. A drag is held in the tab and written when let go: one undo
+  step, and the clip's sound worked out once.
 - Tested in the editor (`media/__tests__/audio-effects.test.ts`): settings read, presets, the
   low cut through the real chain, the noise reduction lined up, and the curve. Checked in
   Chrome: the presets, playback, and Phone call in an export (220 Hz down 9 dB from the clip).
