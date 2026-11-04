@@ -166,5 +166,6 @@ computer's own voices in place of Kokoro.
 - With a real key, typed in Settings by the user: `MAGNETCUT_PROBE_PROVIDERS=1` (never on CI)
   has the probe ask each provider with a key for its voices, models and count, and speak "MagnetCut
   speaks the subtitles." with its first voice. ElevenLabs, in WKWebView: 37 voices, ten models
-  (eleven_v4 first), the month's count read, the sentence 2.09 s at 24 kHz from Roger.
-- Not checked yet: OpenAI with a real key.
+  (eleven_v4 first), the month's count read, the sentence 2.09 s at 24 kHz from Roger. OpenAI:
+  13 voices, seven models with "tts" in their id (gpt-4o-mini-tts first, the default), the
+  sentence 3.25 s at 24 kHz from Alloy.
