@@ -139,8 +139,10 @@ With these changes from the design above:
   colour (`media/yuv.ts`, about 10 ms for a 1080p picture), and Chromium and WebKit on macOS 27
   keep the range they're told. WebKit on macOS 26 marks such frames full range, but writes RGB
   in limited: a grey frame is encoded each way first (`chooseColourInput`, `convert.ts`) and
-  the way that comes out in the range wanted is used. Where the SPS says nothing of the matrix
-  (WebKit's), the colour box says what the frames were.
+  the way that comes out in the range wanted is used; through RGB the matrix is the encoder's
+  own (BT.709 there, tagged so), so beside a small film that says nothing, read as BT.601,
+  strong colours shift a little. Where the SPS says nothing of the matrix (WebKit's), the
+  colour box says what the frames were.
 - Tried on the way: Apple's decoders don't take a join whose SPSs code the picture at different
   sizes (docs/FAST.md, Limits), which VideoToolbox's minimum of 192×96 makes of tiny films.
 - Phase 4, proxies (`media/proxy.ts`): a video's whole file, not the parts used, so a clip can
