@@ -6,6 +6,38 @@ All notable changes to this project are documented here. The format is based on
 
 ## Unreleased
 
+## [0.1.3] - 2026-11-04
+
+### Added
+- Voice-over, a tab of its own: record from the microphone into a sound file, with Isolate the
+  voice, or have the subtitles spoken, by this computer's own voices or, with your own key, by
+  ElevenLabs or OpenAI. Keys are kept in the system's keychain and sent only to their own
+  service. Speech a little longer than its cue is sped up to fit, pitch kept. A translated
+  subtitle track is spoken onto a track of its own: a dubbed version, beside the original.
+- A clip's sound cleaned up and shaped in its Audio tab: noise reduction, hum removal, low cut,
+  equaliser, compressor, echo and reverb, with presets. Export's Loudness brings the file to
+  -14, -16 or -23 LUFS.
+- Clips made to match, for Fast mode: a "!" on the clips it can't join, which converts them
+  into files that join (size, codec and frame rate of the others, in their colour). Replace
+  media, from a clip's menu or by dropping a file on it. Fast mode mixes in the audio tracks,
+  music and voice-over.
+- Proxies, from the Media panel's menu: a large video converted small for a smooth preview;
+  Export still reads the original.
+- Show in Media on a clip, and in the desktop app Show in Finder (Explorer, or the folder on
+  Linux).
+
+### Changed
+- The app's menu says MagnetCut, beside the logo, on the projects page and in the editor.
+- The project's tab in the editor is Format (its frame, frame rate and background); Settings
+  is the app's alone.
+- Transitions are drawn as a bowtie, in the tab bar, on the timeline and in the menu.
+
+### Fixed
+- Video encoded by the system's web view on a Mac looked washed out in other players: WebKit's
+  encoder writes limited range but says full range, and the file said so.
+- A picture clip could come out blank when drawn right after it was brought in.
+- A cancelled export left its partial file behind.
+
 ## [0.1.2] - 2026-11-03
 
 ### Added
@@ -147,6 +179,7 @@ account, ads or telemetry.
   editor's place, as in a browser. It's now imported, wherever it's dropped, and nothing
   dropped on the window can replace the app.
 
+[0.1.3]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.3
 [0.1.2]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.2
 [0.1.1]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.1
 [0.1.0]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.0
