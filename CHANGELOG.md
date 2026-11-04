@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## Unreleased
 
+## [0.1.4] - 2026-11-04
+
 ### Added
 - Fades on audio clips: drag the diamond at either end of a clip along its volume line to fade
   in or out, or down to make a one-second fade; the dot at the edge sets the level it fades
@@ -194,6 +196,7 @@ account, ads or telemetry.
   editor's place, as in a browser. It's now imported, wherever it's dropped, and nothing
   dropped on the window can replace the app.
 
+[0.1.4]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.4
 [0.1.3]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.3
 [0.1.2]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.2
 [0.1.1]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.1
