@@ -5,8 +5,10 @@ import {
 	type VideoCodec,
 } from "mediabunny";
 import { createMediaSource } from "@/media/disk-file";
+import { readTrackColour } from "@/media/encoder-colour";
 import type { MediaAsset } from "@/media/types";
 import type { SceneTracks } from "@/timeline";
+import { resolveVideoColour } from "@/media/yuv";
 import { TICKS_PER_SECOND } from "@/wasm";
 import { collectFastClips } from "./clips";
 
@@ -35,6 +37,8 @@ export interface FileTraits {
 	rotation: number;
 	/** The decoder configuration, which outside H.264 must be the same to join. */
 	configKey: string;
+	/** The colour space its pictures are in (limited range if unsaid). */
+	colour: VideoColorSpaceInit;
 	sound: ConformSound | null;
 	/** Seconds. */
 	duration: number;
@@ -119,6 +123,7 @@ export function readFileTraits({
 				codedHeight: video.codedHeight,
 				rotation: video.rotation,
 				configKey: describeBytes({ description: config?.description }),
+				colour: await readTrackColour({ video, config }),
 				sound: audio?.codec
 					? {
 							codec: audio.codec,
@@ -290,6 +295,12 @@ export function describeConformDifference({
 export interface ConformPlan {
 	target: ConformTarget;
 	sound: ConformSound | null;
+	/**
+	 * The colour space converted files are written in: that of a file that
+	 * joins the target as it is, so a join isn't half in one range and half
+	 * in another; where none does, the usual one for the size.
+	 */
+	colour: VideoColorSpaceInit;
 	/** The files to convert, each with how it differs. */
 	files: { file: ConformFile; difference: string }[];
 	/** Seconds of the track in them. */
@@ -321,6 +332,11 @@ export function planConform({
 	return {
 		target,
 		sound: chooseConformSound({ files }),
+		colour: resolveVideoColour({
+			colour: reference?.colour ?? null,
+			width: target.width,
+			height: target.height,
+		}),
 		files: converted,
 		seconds: converted.reduce((sum, { file }) => sum + file.seconds, 0),
 	};

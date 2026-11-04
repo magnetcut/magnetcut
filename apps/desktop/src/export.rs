@@ -132,7 +132,8 @@ pub fn write_export_file(exports: State<'_, Exports>, request: Request<'_>) -> R
 
 /// Finishes an export: kept, or deleted when it was cancelled or failed,
 /// even once kept: a muxer closes its file when it's cancelled, before the
-/// export is discarded.
+/// export is discarded. Not once the editor has taken it as media
+/// (`adopt_saved_file`): that file is the user's.
 #[tauri::command]
 pub fn close_export_file(exports: State<'_, Exports>, id: u32, keep: bool) -> Result<(), String> {
     let Some((path, file, _activity)) = lock(&exports.open).remove(&id) else {
@@ -306,10 +307,12 @@ pub fn adopt_saved_file(
     if !lock(&exports.saved).contains(&path) {
         return Err("not a file written here".into());
     }
-    media
-        .grant(vec![path])
+    let info = media
+        .grant(vec![path.clone()])
         .pop()
-        .ok_or_else(|| "not a kind of file the editor opens".into())
+        .ok_or_else(|| "not a kind of file the editor opens".to_owned())?;
+    lock(&exports.kept).retain(|_, kept| *kept != path);
+    Ok(info)
 }
 
 #[cfg(test)]

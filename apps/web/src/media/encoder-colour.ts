@@ -1,3 +1,4 @@
+import type { InputVideoTrack } from "mediabunny";
 import { parseAvcConfig, readSpsColour } from "@/export/fast/h264";
 
 /*
@@ -30,15 +31,65 @@ export function readStreamColour({
 	}
 }
 
-/** What an encoder's decoder config should say of its colour; null if it's right. */
-export function correctEncodedColour({
+/**
+ * The colour space a track's pictures are in: H.264's from its SPS, which
+ * each frame is decoded by, others' from the container. Limited range if
+ * unsaid.
+ */
+export async function readTrackColour({
+	video,
 	config,
 }: {
+	video: InputVideoTrack;
+	config: VideoDecoderConfig | null;
+}): Promise<VideoColorSpaceInit> {
+	const stream = config ? readStreamColour({ config }) : null;
+	if (stream) return stream;
+	const colour = await video.getColorSpace();
+	return {
+		primaries: colour.primaries ?? null,
+		transfer: colour.transfer ?? null,
+		matrix: colour.matrix ?? null,
+		fullRange: colour.fullRange ?? false,
+	};
+}
+
+const FIELDS = ["primaries", "transfer", "matrix", "fullRange"] as const;
+
+const isSameColour = ({
+	a,
+	b,
+}: {
+	a: VideoColorSpaceInit | undefined;
+	b: VideoColorSpaceInit;
+}) => FIELDS.every((field) => (a?.[field] ?? null) === (b[field] ?? null));
+
+/**
+ * What an encoder's decoder config should say of its colour; null if it's
+ * right. `written` is the colour space of the YUV frames it was given, if it
+ * was: their samples are coded as they are, so they say what the stream
+ * doesn't (WebKit's SPS says nothing of the matrix, and its config says
+ * BT.709 whatever the frames are).
+ */
+export function correctEncodedColour({
+	config,
+	written,
+}: {
 	config: VideoDecoderConfig;
+	written?: VideoColorSpaceInit | null;
 }): VideoColorSpaceInit | null {
 	const claimed = config.colorSpace;
-	if (!claimed || claimed.fullRange == null) return null;
 	const stream = readStreamColour({ config });
+	if (stream && written) {
+		const colour = {
+			primaries: stream.primaries ?? written.primaries ?? null,
+			transfer: stream.transfer ?? written.transfer ?? null,
+			matrix: stream.matrix ?? written.matrix ?? null,
+			fullRange: stream.fullRange ?? written.fullRange ?? null,
+		};
+		return isSameColour({ a: claimed, b: colour }) ? null : colour;
+	}
+	if (!claimed || claimed.fullRange == null) return null;
 	if (!stream || claimed.fullRange === stream.fullRange) return null;
 	return {
 		primaries: stream.primaries ?? claimed.primaries ?? null,
@@ -53,23 +104,34 @@ export function correctEncodedColour({
 	};
 }
 
+// WebCodecs' YUV formats: I420, I422, I444 and their kin, and NV12.
+const YUV_FORMAT = /^(I4|NV)/;
+
 let isChecking = false;
 
 /**
  * From now on, what the web view's video encoders say of their colour is
- * checked against their stream, and put right (above). Once is enough.
+ * checked against their stream and the frames they're given, and put right
+ * (above). Once is enough.
  */
 export function checkEncoderColour(): void {
 	if (isChecking || typeof VideoEncoder === "undefined") return;
 	isChecking = true;
 	const Encoder = VideoEncoder;
 	class CheckedEncoder extends Encoder {
+		readonly #frames: { written: VideoColorSpaceInit | null };
+
 		constructor(init: VideoEncoderInit) {
+			const frames: { written: VideoColorSpaceInit | null } = {
+				written: null,
+			};
 			super({
 				...init,
 				output: (chunk, metadata) => {
 					const config = metadata?.decoderConfig;
-					const colorSpace = config ? correctEncodedColour({ config }) : null;
+					const colorSpace = config
+						? correctEncodedColour({ config, written: frames.written })
+						: null;
 					init.output(
 						chunk,
 						config && colorSpace
@@ -78,6 +140,16 @@ export function checkEncoderColour(): void {
 					);
 				},
 			});
+			this.#frames = frames;
+		}
+
+		// eslint-disable-next-line magnetcut/prefer-object-params -- VideoEncoder's own signature.
+		override encode(frame: VideoFrame, options?: VideoEncoderEncodeOptions) {
+			this.#frames.written =
+				frame.format && YUV_FORMAT.test(frame.format)
+					? frame.colorSpace.toJSON()
+					: null;
+			super.encode(frame, options);
 		}
 	}
 	globalThis.VideoEncoder = CheckedEncoder;

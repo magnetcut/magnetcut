@@ -419,6 +419,7 @@ async function checkConform({ folder }: { folder: string }) {
 			file,
 			target,
 			sound: plan.sound,
+			colour: plan.colour,
 			fit: "contain",
 			part: null,
 			folder,
@@ -476,6 +477,7 @@ async function checkConform({ folder }: { folder: string }) {
 		expectedFrames: expected.length,
 		framesAreTheSources: difference === 0,
 		mostDifferent: difference,
+		writtenIn: describeColour(plan.colour),
 		colours,
 	};
 }

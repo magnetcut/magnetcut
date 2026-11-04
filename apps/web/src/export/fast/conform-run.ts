@@ -84,6 +84,7 @@ export async function runConform({
 					file,
 					target: plan.target,
 					sound: plan.sound,
+					colour: plan.colour,
 					fit,
 					part,
 					folder,

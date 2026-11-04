@@ -8,7 +8,9 @@ import {
 	Output,
 	QUALITY_HIGH,
 	StreamTarget,
+	VideoSample,
 	type ConversionAudioOptions,
+	type ConversionVideoOptions,
 	type Quality,
 } from "mediabunny";
 import type { ExportFormat } from "@/export";
@@ -16,12 +18,14 @@ import { adoptSavedFile, openFolderFile } from "@/export/disk-target";
 import { createOutputFormat } from "@/export/output-format";
 import { createMediaSource, type MediaFile } from "@/media/disk-file";
 import { checkEncoderColour } from "@/media/encoder-colour";
+import { canWriteColour, rgbaToI420 } from "@/media/yuv";
 import { FILE_CHUNK_SIZE } from "@/services/renderer/scene-exporter";
 import type { ConformFile, ConformSound, ConformTarget } from "./conform";
 
 /*
  * A file converted into the track's target (docs/CONFORM.md), by mediabunny:
- * decoded, scaled into the target's size, turned upright, encoded again.
+ * decoded, scaled into the target's size, turned upright, encoded again, in
+ * the colour space of the files it's joined to.
  */
 
 export const CONFORM_FITS = ["contain", "cover", "fill"] as const;
@@ -154,6 +158,47 @@ async function chooseAudio({
 }
 
 /**
+ * Each picture, already the target's size, given to the encoder as I420 in
+ * `colour` (media/yuv.ts) rather than as RGB, which each web view's encoder
+ * turns into YUV its own way: Chromium's in full range, WebKit's limited.
+ * Joined to a file in the other range, the converted clips would look washed
+ * out or too dark. Undefined, to leave it to the encoder, where `colour`
+ * can't be written (HDR, an unknown matrix).
+ */
+function makeColourProcess({
+	colour,
+	width,
+	height,
+}: {
+	colour: VideoColorSpaceInit;
+	width: number;
+	height: number;
+}): ConversionVideoOptions["process"] {
+	if (!canWriteColour({ colour })) return undefined;
+	const canvas = new OffscreenCanvas(width, height);
+	const context = canvas.getContext("2d", {
+		alpha: false,
+		willReadFrequently: true,
+	});
+	if (!context) return undefined;
+	return (sample) => {
+		// Black where a picture that's fitted in leaves bars.
+		context.fillStyle = "#000";
+		context.fillRect(0, 0, width, height);
+		sample.draw(context, 0, 0, width, height);
+		const { data } = context.getImageData(0, 0, width, height);
+		return new VideoSample(rgbaToI420({ rgba: data, width, height, colour }), {
+			format: "I420",
+			codedWidth: width,
+			codedHeight: height,
+			timestamp: sample.timestamp,
+			duration: sample.duration,
+			colorSpace: colour,
+		});
+	};
+}
+
+/**
  * Converts a file into the target: written to `folder` in the desktop app
  * and given to the editor, or kept in memory in a browser. Cancelled with
  * `signal`, leaving nothing behind.
@@ -162,6 +207,7 @@ export async function convertFile({
 	file,
 	target,
 	sound,
+	colour,
 	fit,
 	part,
 	folder,
@@ -171,6 +217,8 @@ export async function convertFile({
 	file: ConformFile;
 	target: ConformTarget;
 	sound: ConformSound | null;
+	/** The colour space to write it in: the plan's. */
+	colour: VideoColorSpaceInit;
 	fit: ConformFit;
 	part: ConvertedPart | null;
 	/** The desktop app's folder to write in; none in a browser. */
@@ -219,6 +267,11 @@ export async function convertFile({
 				bitrate: await chooseBitrate({ input, target }),
 				forceTranscode: true,
 				allowRotationMetadata: false,
+				process: makeColourProcess({
+					colour,
+					width: target.width,
+					height: target.height,
+				}),
 			},
 			audio: await chooseAudio({ sound }),
 			trim: part ? { start: part.start, end: part.end } : undefined,

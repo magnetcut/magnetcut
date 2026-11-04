@@ -76,4 +76,34 @@ describe("the encoder's colour", () => {
 			}),
 		).toBeNull();
 	});
+
+	test("says what the YUV frames given were where the stream doesn't", () => {
+		const bt601 = {
+			primaries: "smpte170m",
+			transfer: "smpte170m",
+			matrix: "smpte170m",
+			fullRange: false,
+		} as const;
+		// WebKit says BT.709 for frames in BT.601; its SPS says only the range.
+		const bt709: VideoColorSpaceInit = {
+			...webkitClaim,
+			transfer: "bt709",
+			fullRange: false,
+		};
+		const config = { codec: "avc1.640014", description, colorSpace: bt709 };
+		expect(correctEncodedColour({ config, written: bt601 })).toEqual(bt601);
+		expect(
+			correctEncodedColour({
+				config: { ...config, colorSpace: bt601 },
+				written: bt601,
+			}),
+		).toBeNull();
+		// The range is the stream's, which decoders go by.
+		expect(
+			correctEncodedColour({
+				config,
+				written: { ...bt601, fullRange: true },
+			})?.fullRange,
+		).toBe(false);
+	});
 });

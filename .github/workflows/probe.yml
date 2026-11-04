@@ -18,7 +18,7 @@ env:
   NEXT_TELEMETRY_DISABLED: 1
   TURBO_TELEMETRY_DISABLED: 1
   # A second recorded from the microphone: the web view's stand-in on Linux
-  # and Windows (below), whatever the Mac runner has.
+  # and Windows (below); the Mac runner has none, and gives silence.
   MAGNETCUT_PROBE_MICROPHONE: 1
 
 jobs:
@@ -74,6 +74,17 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # WebView2's stand-in microphone (a beep), in this build only: wry gives
+      # WebView2 its arguments itself, so WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
+      # isn't heard; the window's own replace wry's defaults, kept here. The
+      # app's permission handler still answers the request.
+      - name: Stand-in microphone (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          window=$(jq -c '.app.windows[0] + {additionalBrowserArgs: "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --use-fake-device-for-media-stream"}' apps/desktop/tauri.conf.json)
+          echo "TAURI_CONFIG={\"app\":{\"windows\":[$window]}}" >> "$GITHUB_ENV"
+
       # The editor's files embedded, as in a release, without bundling.
       - name: Build the app
         run: |
@@ -97,11 +108,8 @@ jobs:
       - name: Probe (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        # WebView2's stand-in microphone (a beep); the app's permission handler
-        # still answers the request.
         run: |
           $env:MAGNETCUT_PROBE = "1"
-          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--use-fake-device-for-media-stream"
           $app = Start-Process -FilePath target\debug\magnetcut.exe -NoNewWindow -PassThru `
             -RedirectStandardOutput probe.txt -RedirectStandardError probe-errors.txt
           if (-not $app.WaitForExit(420000)) { $app.Kill() }

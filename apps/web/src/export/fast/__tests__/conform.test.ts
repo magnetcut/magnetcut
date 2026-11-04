@@ -14,6 +14,13 @@ import {
 	PART_MARGIN,
 } from "../convert";
 
+const HD: VideoColorSpaceInit = {
+	primaries: "bt709",
+	transfer: "bt709",
+	matrix: "bt709",
+	fullRange: false,
+};
+
 function makeFile(file: Partial<ConformFile> & { id: string }): ConformFile {
 	const { id, ...rest } = file;
 	const width = rest.width ?? 1920;
@@ -33,6 +40,7 @@ function makeFile(file: Partial<ConformFile> & { id: string }): ConformFile {
 		codedHeight: height,
 		rotation: 0,
 		configKey: "a",
+		colour: { ...HD },
 		sound: { codec: "aac", sampleRate: 48000, channels: 2 },
 		duration: 60,
 		seconds: 10,
@@ -128,6 +136,29 @@ describe("the plan", () => {
 		});
 		expect(vp9.files.map(({ file }) => file.asset.id)).toEqual(["b"]);
 		expect(vp9.files[0].difference).toContain("encoded differently");
+	});
+
+	test("writes the converted files in the colour of a file that joins", () => {
+		const phone = { ...HD, fullRange: true };
+		const plan = planConform({
+			files: [
+				makeFile({ id: "small", width: 1280, height: 720 }),
+				makeFile({ id: "phone", colour: phone }),
+			],
+			target,
+		});
+		expect(plan.colour).toEqual(phone);
+		// None joins: BT.601 below 720 lines, limited range.
+		const none = planConform({
+			files: [makeFile({ id: "small", width: 1280, height: 720 })],
+			target: { codec: "avc", width: 640, height: 360 },
+		});
+		expect(none.colour).toEqual({
+			primaries: "smpte170m",
+			transfer: "smpte170m",
+			matrix: "smpte170m",
+			fullRange: false,
+		});
 	});
 });
 

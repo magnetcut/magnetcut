@@ -24,6 +24,7 @@ import {
 } from "@/export/settings";
 import { createMediaSource } from "@/media/disk-file";
 import { mixTimelineAudio } from "@/media/audio-mix";
+import { readTrackColour } from "@/media/encoder-colour";
 import type { MediaAsset } from "@/media/types";
 import type { SceneTracks } from "@/timeline";
 import {
@@ -58,7 +59,6 @@ import {
 	isIdrPacket,
 	parseAvcConfig,
 	parseSps,
-	readSpsColour,
 } from "./h264";
 
 // Fast mode's export (docs/FAST.md): the clips' packets copied into the file
@@ -159,38 +159,6 @@ function createLookup({
 	};
 }
 
-/**
- * The colour space a file's pictures are in: H.264's from its SPS, which each
- * frame is decoded by, others' from the container. Limited range if unsaid.
- */
-async function readColour({
-	video,
-	config,
-}: {
-	video: InputVideoTrack;
-	config: VideoDecoderConfig;
-}): Promise<VideoColorSpaceInit> {
-	if (video.codec === "avc" && config.description) {
-		const [sps] = parseAvcConfig({
-			data: toBytes({ source: config.description }),
-		}).sps;
-		if (sps) {
-			try {
-				return readSpsColour({ unit: sps });
-			} catch {
-				// Unreadable: as the container says.
-			}
-		}
-	}
-	const colour = await video.getColorSpace();
-	return {
-		primaries: colour.primaries ?? null,
-		transfer: colour.transfer ?? null,
-		matrix: colour.matrix ?? null,
-		fullRange: colour.fullRange ?? false,
-	};
-}
-
 async function openSource({
 	asset,
 }: {
@@ -220,7 +188,7 @@ async function openSource({
 				codec: video.codec,
 				config: videoConfig,
 			}),
-			colour: await readColour({ video, config: videoConfig }),
+			colour: await readTrackColour({ video, config: videoConfig }),
 			audio,
 			audioConfig,
 			audioSink: audio && audioConfig ? new EncodedPacketSink(audio) : null,
