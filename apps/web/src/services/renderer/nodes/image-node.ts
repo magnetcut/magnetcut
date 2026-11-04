@@ -37,6 +37,10 @@ export function loadImageSource({
 			image.onerror = () => reject(new Error("Image load failed"));
 			image.src = url;
 		});
+		// Loaded isn't decoded: WebKit can draw a picture it hasn't decoded
+		// yet as nothing, and the texture made from it is kept while the clip
+		// is drawn.
+		await image.decode().catch(() => undefined);
 
 		const naturalWidth = image.naturalWidth;
 		const naturalHeight = image.naturalHeight;
