@@ -80,35 +80,22 @@ describe("RGB to I420", () => {
 });
 
 describe("a video's colour", () => {
-	test("is BT.709 from 720 lines, BT.601 below, limited, where unsaid", () => {
+	test("is BT.709, limited, where unsaid, at any size", () => {
 		const unsaid = {
 			primaries: null,
 			transfer: null,
 			matrix: null,
 			fullRange: null,
 		};
-		expect(
-			resolveVideoColour({ colour: unsaid, width: 1920, height: 1080 }),
-		).toEqual(BT709);
-		expect(
-			resolveVideoColour({ colour: null, width: 640, height: 480 }),
-		).toEqual({
-			primaries: "smpte170m",
-			transfer: "smpte170m",
-			matrix: "smpte170m",
-			fullRange: false,
-		});
-		// Upright phone film is HD too.
-		expect(
-			resolveVideoColour({ colour: null, width: 1080, height: 1920 }).matrix,
-		).toBe("bt709");
+		expect(resolveVideoColour({ colour: unsaid })).toEqual(BT709);
+		expect(resolveVideoColour({ colour: null })).toEqual(BT709);
 	});
 
 	test("keeps what the file says", () => {
 		const said = { ...BT709, fullRange: true };
-		expect(resolveVideoColour({ colour: said, width: 64, height: 64 })).toEqual(
-			said,
-		);
+		const bt601 = { ...BT709, matrix: "smpte170m" } as const;
+		expect(resolveVideoColour({ colour: said })).toEqual(said);
+		expect(resolveVideoColour({ colour: bt601 })).toEqual(bt601);
 	});
 
 	test("can be written unless it's HDR or its matrix is unknown", () => {

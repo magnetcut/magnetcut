@@ -148,17 +148,22 @@ describe("the plan", () => {
 			target,
 		});
 		expect(plan.colour).toEqual(phone);
-		// None joins: BT.601 below 720 lines, limited range.
+		// What it leaves unsaid stays unsaid, the range limited.
+		const unsaid = { primaries: null, transfer: null, matrix: null };
+		const camera = planConform({
+			files: [
+				makeFile({ id: "small", width: 1280, height: 720 }),
+				makeFile({ id: "camera", colour: { ...unsaid, fullRange: null } }),
+			],
+			target,
+		});
+		expect(camera.colour).toEqual({ ...unsaid, fullRange: false });
+		// None joins: BT.709, limited, said.
 		const none = planConform({
 			files: [makeFile({ id: "small", width: 1280, height: 720 })],
 			target: { codec: "avc", width: 640, height: 360 },
 		});
-		expect(none.colour).toEqual({
-			primaries: "smpte170m",
-			transfer: "smpte170m",
-			matrix: "smpte170m",
-			fullRange: false,
-		});
+		expect(none.colour).toEqual(HD);
 	});
 });
 

@@ -356,6 +356,32 @@ async function readFrames({
 	}
 }
 
+/** How much two films' pictures differ on average, in each channel of each pixel. */
+function findMeanDifference({
+	a,
+	b,
+}: {
+	a: Uint8ClampedArray[];
+	b: Uint8ClampedArray[];
+}): number {
+	let sum = 0;
+	let count = 0;
+	for (let frame = 0; frame < Math.min(a.length, b.length); frame++) {
+		const [x, y] = [a[frame], b[frame]];
+		for (let index = 0; index < Math.min(x.length, y.length); index += 4) {
+			for (let channel = 0; channel < 3; channel++) {
+				sum += Math.abs(x[index + channel] - y[index + channel]);
+			}
+			count += 3;
+		}
+	}
+	return count ? Math.round((sum / count) * 100) / 100 : 255;
+}
+
+// A matrix gone wrong moves the camera film's colours by 13 on average;
+// resizing and encoding again, by about 3.
+const COLOUR_KEPT_WITHIN = 6;
+
 /** The most two pictures differ by in any channel of any pixel. */
 function findDifference({
 	a,
@@ -460,6 +486,22 @@ async function checkConform({ folder }: { folder: string }) {
 		expected.push(...(await readFrames({ file: asset.file })));
 	}
 	const copied = await readFrames({ file: exported });
+	// The camera's film, which joins as it is, converted anyway: its colours
+	// should come out as they went in, whichever way the samples are written.
+	const [camera] = files;
+	const recoded = await convertFile({
+		file: camera,
+		target,
+		sound: null,
+		colour: plan.colour,
+		fit: "contain",
+		part: null,
+		folder,
+	});
+	const colourMoved = findMeanDifference({
+		a: await readFrames({ file: recoded }),
+		b: await readFrames({ file: camera.asset.file }),
+	});
 	const differences =
 		copied.length === expected.length
 			? copied.map((frame, index) =>
@@ -474,14 +516,19 @@ async function checkConform({ folder }: { folder: string }) {
 		frames: copied.length,
 		expectedFrames: expected.length,
 		framesAreTheSources: difference === 0,
+		colourMoved,
+		colourKept: colourMoved < COLOUR_KEPT_WITHIN,
 		mostDifferent: difference,
 		// Which frames, in the join's order: the files are 15, 10 and 30 long.
 		differingFrames: differences?.flatMap((most, index) =>
 			most > 0 ? [[index, most]] : [],
 		),
 		writtenIn: describeColour(plan.colour),
-		// Given to the encoder as I420 or as RGB (export/fast/convert.ts).
-		input: await chooseColourInput({ target, colour: plan.colour }),
+		// Given to the encoder as I420 or as RGB, and in what colour space
+		// (export/fast/convert.ts).
+		...(await chooseColourInput({ target, colour: plan.colour }).then(
+			({ input, samples }) => ({ input, samples: describeColour(samples) }),
+		)),
 		colours,
 	};
 }

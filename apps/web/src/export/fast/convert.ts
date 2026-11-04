@@ -18,7 +18,7 @@ import { adoptSavedFile, openFolderFile } from "@/export/disk-target";
 import { createOutputFormat } from "@/export/output-format";
 import { createMediaSource, type MediaFile } from "@/media/disk-file";
 import { checkEncoderColour, readStreamColour } from "@/media/encoder-colour";
-import { canWriteColour, rgbaToI420 } from "@/media/yuv";
+import { canWriteColour, resolveVideoColour, rgbaToI420 } from "@/media/yuv";
 import { FILE_CHUNK_SIZE } from "@/services/renderer/scene-exporter";
 import type { ConformFile, ConformSound, ConformTarget } from "./conform";
 
@@ -160,12 +160,23 @@ async function chooseAudio({
 /** How pictures are given to the encoder: as I420 in the colour wanted, or as RGB. */
 export type ColourInput = "yuv" | "rgb";
 
+export interface ColourChoice {
+	input: ColourInput;
+	/**
+	 * The colour space the I420 pictures are written in: what the frames are
+	 * tagged with, and where they leave it unsaid, what the encoder says of
+	 * them in their stream (Chromium's says BT.709), else BT.709 (WebKit's
+	 * says nothing either), as both draw a film that says nothing.
+	 */
+	samples: VideoColorSpaceInit;
+}
+
 // Tried in turn: WebKit's encoder puts out nothing in Main and High (Smart
 // Cut's `getEncoderCodecs`); level 5.1 holds up to 4096×2304.
-const RANGE_CHECK_CODECS = ["avc1.420033", "avc1.4d0033", "avc1.640033"];
-const RANGE_CHECK_SECONDS = 10;
+const CHECK_CODECS = ["avc1.420033", "avc1.4d0033", "avc1.640033"];
+const CHECK_SECONDS = 10;
 
-/** The range the SPS of one frame encoded here says; null if none came out. */
+/** What the SPS of one frame encoded here says of its colour; null if none came out. */
 async function encodeOneFrame({
 	frame,
 	width,
@@ -174,9 +185,9 @@ async function encodeOneFrame({
 	frame: VideoFrame;
 	width: number;
 	height: number;
-}): Promise<boolean | null> {
+}): Promise<VideoColorSpaceInit | null> {
 	try {
-		for (const codec of RANGE_CHECK_CODECS) {
+		for (const codec of CHECK_CODECS) {
 			const config: VideoEncoderConfig = {
 				codec,
 				width,
@@ -200,18 +211,14 @@ async function encodeOneFrame({
 				encoder.encode(frame, { keyFrame: true });
 				await Promise.race([
 					encoder.flush(),
-					new Promise((resolve) =>
-						setTimeout(resolve, RANGE_CHECK_SECONDS * 1000),
-					),
+					new Promise((resolve) => setTimeout(resolve, CHECK_SECONDS * 1000)),
 				]);
 			} catch {
 				// This one didn't take it: the next.
 			} finally {
 				if (encoder.state !== "closed") encoder.close();
 			}
-			if (said.config) {
-				return readStreamColour({ config: said.config })?.fullRange ?? null;
-			}
+			if (said.config) return readStreamColour({ config: said.config });
 		}
 		return null;
 	} finally {
@@ -219,15 +226,16 @@ async function encodeOneFrame({
 	}
 }
 
-const colourInputs = new Map<string, Promise<ColourInput>>();
+const colourChoices = new Map<string, Promise<ColourChoice>>();
 
 /**
- * Which way this web view's H.264 encoder writes pictures in `colour`'s
- * range, found by encoding a grey frame each way and reading the SPS: I420
- * if it keeps the range the frame is tagged with, else RGB if that comes out
- * in it. Chromium's writes RGB in full range and keeps I420's; WebKit's on
- * macOS 27 keeps I420's, but on macOS 26 it marks limited I420 full range
- * and writes RGB in limited. I420 for VP9, whose stream isn't read here.
+ * How this web view's H.264 encoder writes pictures in `colour`, found by
+ * encoding a grey frame and reading its SPS. I420 if it keeps the range the
+ * frame is tagged with, else RGB if that comes out in it: Chromium's writes
+ * RGB in full range and keeps I420's; WebKit's on macOS 27 keeps I420's, but
+ * on macOS 26 it marks limited I420 full range and writes RGB in limited. And
+ * the matrix it says the frames are in where they don't say. I420 for VP9,
+ * whose stream isn't read here, in BT.709 where `colour` says nothing.
  */
 export function chooseColourInput({
 	target,
@@ -235,32 +243,52 @@ export function chooseColourInput({
 }: {
 	target: ConformTarget;
 	colour: VideoColorSpaceInit;
-}): Promise<ColourInput> {
-	const wanted = colour.fullRange ?? false;
-	const key = `${target.codec} ${target.width}x${target.height} ${wanted}`;
-	const known = colourInputs.get(key);
-	if (known) return known;
+}): Promise<ColourChoice> {
 	const { width, height } = target;
-	const chosen = (async (): Promise<ColourInput> => {
+	const wanted = colour.fullRange ?? false;
+	const key = [
+		target.codec,
+		width,
+		height,
+		colour.primaries,
+		colour.transfer,
+		colour.matrix,
+		wanted,
+	].join(" ");
+	const known = colourChoices.get(key);
+	if (known) return known;
+	const usual = resolveVideoColour({ colour });
+	const chosen = (async (): Promise<ColourChoice> => {
 		if (target.codec !== "avc" || typeof VideoEncoder === "undefined") {
-			return "yuv";
+			return { input: "yuv", samples: usual };
 		}
 		const rgba = new Uint8ClampedArray(width * height * 4).fill(128);
-		const yuv = await encodeOneFrame({
-			frame: new VideoFrame(rgbaToI420({ rgba, width, height, colour }), {
-				format: "I420",
-				codedWidth: width,
-				codedHeight: height,
-				timestamp: 0,
-				colorSpace: colour,
-			}),
+		const stream = await encodeOneFrame({
+			frame: new VideoFrame(
+				rgbaToI420({ rgba, width, height, colour: usual }),
+				{
+					format: "I420",
+					codedWidth: width,
+					codedHeight: height,
+					timestamp: 0,
+					colorSpace: colour,
+				},
+			),
 			width,
 			height,
 		});
-		if (yuv === null || yuv === wanted) return "yuv";
+		const samples = {
+			primaries: colour.primaries ?? stream?.primaries ?? usual.primaries,
+			transfer: colour.transfer ?? stream?.transfer ?? usual.transfer,
+			matrix: colour.matrix ?? stream?.matrix ?? usual.matrix,
+			fullRange: wanted,
+		};
+		if (!stream || stream.fullRange === wanted) {
+			return { input: "yuv", samples };
+		}
 		const canvas = new OffscreenCanvas(width, height);
 		const context = canvas.getContext("2d");
-		if (!context) return "yuv";
+		if (!context) return { input: "yuv", samples };
 		context.fillStyle = "#808080";
 		context.fillRect(0, 0, width, height);
 		const rgb = await encodeOneFrame({
@@ -268,30 +296,33 @@ export function chooseColourInput({
 			width,
 			height,
 		});
-		return rgb === wanted ? "rgb" : "yuv";
-	})().catch((): ColourInput => "yuv");
-	colourInputs.set(key, chosen);
+		return { input: rgb?.fullRange === wanted ? "rgb" : "yuv", samples };
+	})().catch((): ColourChoice => ({ input: "yuv", samples: usual }));
+	colourChoices.set(key, chosen);
 	return chosen;
 }
 
 /**
- * Each picture, already the target's size, given to the encoder as I420 in
- * `colour` (media/yuv.ts) rather than as RGB, which each web view's encoder
- * turns into YUV its own way (chooseColourInput). Joined to a file in the
- * other range, the converted clips would look washed out or too dark.
- * Undefined, to leave it to the encoder, where `colour` can't be written
- * (HDR, an unknown matrix).
+ * Each picture, already the target's size, given to the encoder as I420
+ * rather than as RGB, which each web view's encoder turns into YUV its own
+ * way (chooseColourInput). Joined to a file in the other range, the
+ * converted clips would look washed out or too dark. The frames are tagged
+ * with `colour` as it is, what it leaves unsaid unsaid, and written in
+ * `samples` (media/yuv.ts). Undefined, to leave it to the encoder, where
+ * that can't be written (HDR, an unknown matrix).
  */
 function makeColourProcess({
 	colour,
+	samples,
 	width,
 	height,
 }: {
 	colour: VideoColorSpaceInit;
+	samples: VideoColorSpaceInit;
 	width: number;
 	height: number;
 }): ConversionVideoOptions["process"] {
-	if (!canWriteColour({ colour })) return undefined;
+	if (!canWriteColour({ colour: samples })) return undefined;
 	const canvas = new OffscreenCanvas(width, height);
 	const context = canvas.getContext("2d", {
 		alpha: false,
@@ -304,7 +335,8 @@ function makeColourProcess({
 		context.fillRect(0, 0, width, height);
 		sample.draw(context, 0, 0, width, height);
 		const { data } = context.getImageData(0, 0, width, height);
-		return new VideoSample(rgbaToI420({ rgba: data, width, height, colour }), {
+		const yuv = rgbaToI420({ rgba: data, width, height, colour: samples });
+		return new VideoSample(yuv, {
 			format: "I420",
 			codedWidth: width,
 			codedHeight: height,
@@ -373,6 +405,7 @@ export async function convertFile({
 			format: createOutputFormat({ format, isStreamed: !!writer }),
 			target: destination,
 		});
+		const choice = await chooseColourInput({ target, colour });
 		const conversion = await Conversion.init({
 			input,
 			output,
@@ -385,9 +418,10 @@ export async function convertFile({
 				forceTranscode: true,
 				allowRotationMetadata: false,
 				process:
-					(await chooseColourInput({ target, colour })) === "yuv"
+					choice.input === "yuv"
 						? makeColourProcess({
 								colour,
+								samples: choice.samples,
 								width: target.width,
 								height: target.height,
 							})

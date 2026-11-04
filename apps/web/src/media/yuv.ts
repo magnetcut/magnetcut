@@ -19,23 +19,19 @@ const MATRIX_WEIGHTS: Partial<Record<string, { red: number; blue: number }>> = {
 const SDR_TRANSFERS = new Set<string>(["bt709", "smpte170m", "iec61966-2-1"]);
 
 /**
- * The colour space a video of this size is taken to be in where its file
- * doesn't say: BT.709 from 720 lines up, BT.601 below, limited range.
+ * The colour space a video is taken to be in where its file doesn't say:
+ * BT.709, limited range, at any size, as WebKit and Chromium draw such a
+ * film (where ffmpeg, VLC and mpv take one under 720 lines as BT.601).
  */
 export function resolveVideoColour({
 	colour,
-	width,
-	height,
 }: {
 	colour: VideoColorSpaceInit | null;
-	width: number;
-	height: number;
 }): VideoColorSpaceInit {
-	const usual = Math.min(width, height) >= 720 ? "bt709" : "smpte170m";
 	return {
-		primaries: colour?.primaries ?? usual,
-		transfer: colour?.transfer ?? usual,
-		matrix: colour?.matrix ?? usual,
+		primaries: colour?.primaries ?? "bt709",
+		transfer: colour?.transfer ?? "bt709",
+		matrix: colour?.matrix ?? "bt709",
 		fullRange: colour?.fullRange ?? false,
 	};
 }

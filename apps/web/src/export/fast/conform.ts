@@ -296,9 +296,15 @@ export interface ConformPlan {
 	target: ConformTarget;
 	sound: ConformSound | null;
 	/**
-	 * The colour space converted files are written in: that of a file that
-	 * joins the target as it is, so a join isn't half in one range and half
-	 * in another; where none does, the usual one for the size.
+	 * The colour space converted files are written in, as a file that joins
+	 * the target as it is says it, so a join isn't half in one range and half
+	 * in another. What that file leaves unsaid the converted files leave
+	 * unsaid too, and a player takes both the same way: Chromium labels a
+	 * frame whose stream says nothing with the last colour it was told, so a
+	 * converted clip that said BT.601 beside a film that says nothing would
+	 * have the film's frames after it drawn as BT.601. (Their samples are
+	 * written in BT.709 where it says no matrix, `resolveVideoColour`.) Where
+	 * no file joins, BT.709, limited, said.
 	 */
 	colour: VideoColorSpaceInit;
 	/** The files to convert, each with how it differs. */
@@ -332,11 +338,9 @@ export function planConform({
 	return {
 		target,
 		sound: chooseConformSound({ files }),
-		colour: resolveVideoColour({
-			colour: reference?.colour ?? null,
-			width: target.width,
-			height: target.height,
-		}),
+		colour: reference
+			? { ...reference.colour, fullRange: reference.colour.fullRange ?? false }
+			: resolveVideoColour({ colour: null }),
 		files: converted,
 		seconds: converted.reduce((sum, { file }) => sum + file.seconds, 0),
 	};
