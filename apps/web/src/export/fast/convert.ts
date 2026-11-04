@@ -17,7 +17,7 @@ import type { ExportFormat } from "@/export";
 import { adoptSavedFile, openFolderFile } from "@/export/disk-target";
 import { createOutputFormat } from "@/export/output-format";
 import { createMediaSource, type MediaFile } from "@/media/disk-file";
-import { checkEncoderColour } from "@/media/encoder-colour";
+import { checkEncoderColour, readStreamColour } from "@/media/encoder-colour";
 import { canWriteColour, rgbaToI420 } from "@/media/yuv";
 import { FILE_CHUNK_SIZE } from "@/services/renderer/scene-exporter";
 import type { ConformFile, ConformSound, ConformTarget } from "./conform";
@@ -157,13 +157,130 @@ async function chooseAudio({
 	};
 }
 
+/** How pictures are given to the encoder: as I420 in the colour wanted, or as RGB. */
+export type ColourInput = "yuv" | "rgb";
+
+// Tried in turn: WebKit's encoder puts out nothing in Main and High (Smart
+// Cut's `getEncoderCodecs`); level 5.1 holds up to 4096×2304.
+const RANGE_CHECK_CODECS = ["avc1.420033", "avc1.4d0033", "avc1.640033"];
+const RANGE_CHECK_SECONDS = 10;
+
+/** The range the SPS of one frame encoded here says; null if none came out. */
+async function encodeOneFrame({
+	frame,
+	width,
+	height,
+}: {
+	frame: VideoFrame;
+	width: number;
+	height: number;
+}): Promise<boolean | null> {
+	try {
+		for (const codec of RANGE_CHECK_CODECS) {
+			const config: VideoEncoderConfig = {
+				codec,
+				width,
+				height,
+				bitrate: 1_000_000,
+				avc: { format: "avc" },
+			};
+			const support = await VideoEncoder.isConfigSupported(config).catch(
+				() => null,
+			);
+			if (!support?.supported) continue;
+			const said: { config?: VideoDecoderConfig } = {};
+			const encoder = new VideoEncoder({
+				output: (_, metadata) => {
+					said.config ??= metadata?.decoderConfig;
+				},
+				error: () => {},
+			});
+			try {
+				encoder.configure(config);
+				encoder.encode(frame, { keyFrame: true });
+				await Promise.race([
+					encoder.flush(),
+					new Promise((resolve) =>
+						setTimeout(resolve, RANGE_CHECK_SECONDS * 1000),
+					),
+				]);
+			} catch {
+				// This one didn't take it: the next.
+			} finally {
+				if (encoder.state !== "closed") encoder.close();
+			}
+			if (said.config) {
+				return readStreamColour({ config: said.config })?.fullRange ?? null;
+			}
+		}
+		return null;
+	} finally {
+		frame.close();
+	}
+}
+
+const colourInputs = new Map<string, Promise<ColourInput>>();
+
+/**
+ * Which way this web view's H.264 encoder writes pictures in `colour`'s
+ * range, found by encoding a grey frame each way and reading the SPS: I420
+ * if it keeps the range the frame is tagged with, else RGB if that comes out
+ * in it. Chromium's writes RGB in full range and keeps I420's; WebKit's on
+ * macOS 27 keeps I420's, but on macOS 15 it marks limited I420 full range
+ * and writes RGB in limited. I420 for VP9, whose stream isn't read here.
+ */
+export function chooseColourInput({
+	target,
+	colour,
+}: {
+	target: ConformTarget;
+	colour: VideoColorSpaceInit;
+}): Promise<ColourInput> {
+	const wanted = colour.fullRange ?? false;
+	const key = `${target.codec} ${target.width}x${target.height} ${wanted}`;
+	const known = colourInputs.get(key);
+	if (known) return known;
+	const { width, height } = target;
+	const chosen = (async (): Promise<ColourInput> => {
+		if (target.codec !== "avc" || typeof VideoEncoder === "undefined") {
+			return "yuv";
+		}
+		const rgba = new Uint8ClampedArray(width * height * 4).fill(128);
+		const yuv = await encodeOneFrame({
+			frame: new VideoFrame(rgbaToI420({ rgba, width, height, colour }), {
+				format: "I420",
+				codedWidth: width,
+				codedHeight: height,
+				timestamp: 0,
+				colorSpace: colour,
+			}),
+			width,
+			height,
+		});
+		if (yuv === null || yuv === wanted) return "yuv";
+		const canvas = new OffscreenCanvas(width, height);
+		const context = canvas.getContext("2d");
+		if (!context) return "yuv";
+		context.fillStyle = "#808080";
+		context.fillRect(0, 0, width, height);
+		const rgb = await encodeOneFrame({
+			frame: new VideoFrame(canvas, { timestamp: 0 }),
+			width,
+			height,
+		});
+		return rgb === wanted ? "rgb" : "yuv";
+	})().catch((): ColourInput => "yuv");
+	colourInputs.set(key, chosen);
+	return chosen;
+}
+
 /**
  * Each picture, already the target's size, given to the encoder as I420 in
  * `colour` (media/yuv.ts) rather than as RGB, which each web view's encoder
- * turns into YUV its own way: Chromium's in full range, WebKit's limited.
- * Joined to a file in the other range, the converted clips would look washed
- * out or too dark. Undefined, to leave it to the encoder, where `colour`
- * can't be written (HDR, an unknown matrix).
+ * turns into YUV its own way (chooseColourInput). Joined to a file in the
+ * other range, the converted clips would look washed out or too dark.
+ * Undefined, to leave it to the encoder, where `colour` can't be written
+ * (HDR, an unknown matrix).
  */
 function makeColourProcess({
 	colour,
@@ -267,11 +384,14 @@ export async function convertFile({
 				bitrate: await chooseBitrate({ input, target }),
 				forceTranscode: true,
 				allowRotationMetadata: false,
-				process: makeColourProcess({
-					colour,
-					width: target.width,
-					height: target.height,
-				}),
+				process:
+					(await chooseColourInput({ target, colour })) === "yuv"
+						? makeColourProcess({
+								colour,
+								width: target.width,
+								height: target.height,
+							})
+						: undefined,
 			},
 			audio: await chooseAudio({ sound }),
 			trim: part ? { start: part.start, end: part.end } : undefined,

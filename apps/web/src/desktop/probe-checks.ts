@@ -16,7 +16,7 @@ import {
 	readFileTraits,
 	type ConformFile,
 } from "@/export/fast/conform";
-import { convertFile } from "@/export/fast/convert";
+import { chooseColourInput, convertFile } from "@/export/fast/convert";
 import { exportFast } from "@/export/fast/exporter";
 import { createOutputFormat } from "@/export/output-format";
 import {
@@ -460,15 +460,13 @@ async function checkConform({ folder }: { folder: string }) {
 		expected.push(...(await readFrames({ file: asset.file })));
 	}
 	const copied = await readFrames({ file: exported });
-	const difference =
+	const differences =
 		copied.length === expected.length
-			? Math.max(
-					0,
-					...copied.map((frame, index) =>
-						findDifference({ a: frame, b: expected[index] }),
-					),
+			? copied.map((frame, index) =>
+					findDifference({ a: frame, b: expected[index] }),
 				)
 			: null;
+	const difference = differences ? Math.max(0, ...differences) : null;
 	return {
 		codec,
 		converted: plan.files.map(({ difference }) => difference),
@@ -477,7 +475,13 @@ async function checkConform({ folder }: { folder: string }) {
 		expectedFrames: expected.length,
 		framesAreTheSources: difference === 0,
 		mostDifferent: difference,
+		// Which frames, in the join's order: the files are 15, 10 and 30 long.
+		differingFrames: differences?.flatMap((most, index) =>
+			most > 0 ? [[index, most]] : [],
+		),
 		writtenIn: describeColour(plan.colour),
+		// Given to the encoder as I420 or as RGB (export/fast/convert.ts).
+		input: await chooseColourInput({ target, colour: plan.colour }),
 		colours,
 	};
 }

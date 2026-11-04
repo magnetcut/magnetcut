@@ -135,5 +135,15 @@ computer's own voices in place of Kokoro; dubbing a translated track isn't.
   microphone (on GitHub, WebView2's and WebKitGTK's stand-in devices, still asked for through the
   app's permission handler), and speaks a sentence with the system's voice (espeak-ng installed
   on Linux). In WKWebView: the take 1 s at 48 kHz from the tone, 180 voices, the sentence 2.6 s.
-- Not checked yet: the real microphone on a Mac, the probe in WebView2 and WebKitGTK (it runs on
-  GitHub), a real key with each provider, and dubbing a translated track.
+  From the Mac's own microphone, in the bundled app (opened with `open --env`, so that macOS
+  asks for MagnetCut): a take with the room's noise in it. Run from a terminal, macOS goes by
+  the terminal's permission and gives silence, with no error.
+- On GitHub: in WebKitGTK the take from the tone (1 s at 44.1 kHz) and from the stand-in
+  microphone (WebKit's mock capture device, `webkit.rs`), granted by the app's permission
+  handler; espeak-ng's 130 voices, the sentence 2.3 s. In WebView2 the take from the tone and
+  the system's 3 voices (David, Mark, Zira), the sentence 2.8 s. WebView2 is given Chromium's
+  stand-in microphone by a flag in the window's `additionalBrowserArgs` (`TAURI_CONFIG`, in the
+  workflow: wry sets the web view's arguments itself, so `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`
+  is ignored): with it, a take of 1 s of its beep, asked for through the app's permission
+  handler. The macOS runner has no microphone: its take is silence.
+- Not checked yet: a real key with each provider, and dubbing a translated track.

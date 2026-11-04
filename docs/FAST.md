@@ -89,3 +89,11 @@ thrown away; each encoded packet carries the parameter sets it was made under.
   one coded size, but VideoToolbox codes a picture under 192×96 at 192×96 and crops it, so a
   tiny clip converted on a Mac (docs/CONFORM.md), or Smart Cut's frames there, joined with a
   tiny one from elsewhere doesn't play in those two.
+- Chrome on macOS (157) decodes a join of H.264 from different encoders slightly wrong where
+  the sources meet. Both it and WebKit decode with VideoToolbox, but WebKit gives it the avcC's
+  parameter sets at once, while Chrome gives it a format of only those the frame uses, made
+  anew when they change (`video_toolbox_h264_accelerator.cc`). Measured on an x264 film (its PPS
+  has a chroma QP offset of -2, weighted prediction and an initial QP of 32) joined with a clip
+  WebKit encoded (0, none, 26): the film's last two frames came out 42 levels off when it came
+  first, and all of its frames 43 off when it came second. ffmpeg, AVFoundation and WebKit
+  decode the same file exactly, and Chrome decodes the film joined with itself right.
