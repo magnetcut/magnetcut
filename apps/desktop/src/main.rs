@@ -35,6 +35,7 @@ macro_rules! commands {
             export::open_export_file,
             export::write_export_file,
             export::close_export_file,
+            export::commit_export_file,
             export::reveal_export_file,
             export::pick_folder,
             export::open_folder_file,

@@ -123,7 +123,10 @@ pub fn detect(text: &str, name: Option<&str>) -> Option<Format> {
     if first_line.starts_with("WEBVTT") {
         return Some(Format::Vtt);
     }
-    if start.len() >= 13 && start[..13].eq_ignore_ascii_case("[script info]") {
+    if start
+        .get(.."[script info]".len())
+        .is_some_and(|head| head.eq_ignore_ascii_case("[script info]"))
+    {
         let is_ssa = text.lines().any(|line| {
             let line = line.trim();
             line.eq_ignore_ascii_case("[v4 styles]")
@@ -195,6 +198,12 @@ mod tests {
         }
         assert_eq!(detect("nonsense", Some("film.srt")), Some(Format::Srt));
         assert_eq!(detect("nonsense", None), None);
+        // Thirteen bytes in, inside a character: not a script, and no panic.
+        assert_eq!(
+            detect("[Script Infoé]", Some("film.ass")),
+            Some(Format::Ass)
+        );
+        assert_eq!(detect("こんにちは、世界", None), None);
     }
 
     #[test]

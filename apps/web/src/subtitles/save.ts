@@ -54,5 +54,6 @@ export async function saveSubtitleFile({
 		await file.discard();
 		throw error;
 	}
+	await file.commit();
 	return true;
 }

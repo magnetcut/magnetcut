@@ -57,6 +57,7 @@ import { useExportChoicesStore } from "@/export/choices-store";
 import { openAudioPassthrough } from "@/export/passthrough";
 import {
 	getRevealLabel,
+	isSamePath,
 	pickExportFile,
 	revealExportFile,
 } from "@/export/disk-target";
@@ -721,13 +722,24 @@ function ExportPopover({
 		let path: string | undefined;
 		if (canReadDiskFiles()) {
 			// Beside the footage, as HandBrake does.
-			const footage = editor.media.getAssets().find((asset) => asset.path);
+			const assets = editor.media.getAssets();
+			const footage = assets.find((asset) => asset.path);
 			const picked = await pickExportFile({
 				name: activeProject.metadata.name,
 				extension: format,
 				besidePath: footage?.path,
 			});
 			if (!picked) return;
+			// The export reads the project's files: it can't take one's place.
+			const isProjectFile = assets.some(
+				(asset) => asset.path && isSamePath({ a: asset.path, b: picked }),
+			);
+			if (isProjectFile) {
+				toast.error("That file is in this project", {
+					description: "Export to another name, or another folder.",
+				});
+				return;
+			}
 			path = picked;
 		}
 

@@ -407,6 +407,8 @@ export class RendererManager {
 				clearInterval(cancelInterval);
 
 				if (cancelled) {
+					// Finished as it was cancelled: the file picked stays as it was.
+					if (output && "file" in output) await output.file.discard();
 					return { success: false, cancelled: true };
 				}
 
@@ -414,9 +416,9 @@ export class RendererManager {
 					return { success: false, error: "Export failed to produce buffer" };
 				}
 
-				return "buffer" in output
-					? { success: true, buffer: output.buffer }
-					: { success: true, path };
+				if ("buffer" in output) return { success: true, buffer: output.buffer };
+				await output.file.commit();
+				return { success: true, path };
 			} finally {
 				clearInterval(cancelInterval);
 			}
@@ -458,9 +460,9 @@ export class RendererManager {
 				isCancelled: () => !!onCancel?.(),
 			});
 			if (!output) return { success: false, cancelled: true };
-			return "buffer" in output
-				? { success: true, buffer: output.buffer }
-				: { success: true, path };
+			if ("buffer" in output) return { success: true, buffer: output.buffer };
+			await output.file.commit();
+			return { success: true, path };
 		} catch (error) {
 			console.error("Fast export failed:", error);
 			return {

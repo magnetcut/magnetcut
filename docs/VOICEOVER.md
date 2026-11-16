@@ -26,7 +26,8 @@ computer's own voices in place of Kokoro.
 - Captured as samples (getUserMedia into an AudioWorklet), and written as it's recorded into a
   WAV file by the desktop app: a command that writes a recording and gives it to the app as an
   imported file is. The folder is picked once (Music/MagnetCut by default). A crash leaves what
-  was recorded.
+  was recorded, and so does a disk that fills: the take stops where a write failed, and is kept
+  with what came before.
 - The web view's echo cancellation, gain control and noise suppression: off by default, since
   they colour the voice; a switch turns them on.
 - Each take is its own file. A new take over a clip replaces it, and the earlier take's file
@@ -98,8 +99,9 @@ computer's own voices in place of Kokoro.
   AudioWorklet made from a Blob URL that posts each block while recording, mono 16-bit WAV
   (`voiceover/wav.ts`). The worklet has a silent output to the speakers, since a node nothing
   pulls on isn't run in every web view. In the desktop app the take is a file from its first
-  block (`open_folder_file`, the export's positional writes), the header brought up to date
-  every second, and Stop adopts it as media (`adopt_saved_file`); in a browser it's kept in
+  block (`open_folder_file`, the export's positional writes, by hand rather than through a stream
+  a failed write would close), the header brought up to date every second (`TakeWriter`), and
+  Stop adopts it as media (`adopt_saved_file`); in a browser it's kept in
   memory and added to the project at Stop. The state is a store, so a take goes on while
   another tab is shown; the microphone is let go when the tab closes otherwise.
 - The folder: Music/MagnetCut (`recordings_folder` in `apps/desktop/src/export.rs`, made if

@@ -21,19 +21,90 @@ use crate::media::{DiskFileInfo, MediaFiles};
 #[derive(Default)]
 pub struct Exports {
     picked: Mutex<HashSet<PathBuf>>,
-    open: Mutex<HashMap<u32, (PathBuf, File, Activity)>>,
+    open: Mutex<HashMap<u32, Writing>>,
     saved: Mutex<HashSet<PathBuf>>,
     /// The files closed and kept, by the id they were written under: a
     /// cancelled export may still be discarded after its muxer closed it.
     kept: Mutex<HashMap<u32, PathBuf>>,
+    /// Exports closed but not yet put in place (`commit_export_file`): where
+    /// each was written, and the file it's to replace, untouched until then.
+    closed: Mutex<HashMap<u32, (PathBuf, PathBuf)>>,
     /// Folders picked for the files the editor makes itself (clips converted,
     /// recordings, speech), written into without asking for each file.
     folders: Mutex<HashSet<PathBuf>>,
     next_id: AtomicU32,
 }
 
+/// A file being written: where, and for an export, the file it's to replace
+/// once it's finished.
+struct Writing {
+    path: PathBuf,
+    replaces: Option<PathBuf>,
+    file: File,
+    _activity: Activity,
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// An export's name until it's finished: "film (exporting).mp4".
+fn partial_name(target: &Path) -> Result<String, String> {
+    let name = target
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("not a UTF-8 path")?;
+    Ok(match name.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() => format!("{stem} (exporting).{extension}"),
+        _ => format!("{name} (exporting)"),
+    })
+}
+
+/// Where an export is written until it's finished: beside the file it's to
+/// replace, so that one rename puts it there, under a name that's not in use.
+pub fn partial_path(target: &Path) -> Result<PathBuf, String> {
+    let folder = target.parent().ok_or("not a file's path")?;
+    Ok(unused_path(folder, &partial_name(target)?))
+}
+
+/// Starts the file an export is written to until it's finished (see
+/// `partial_path`); in the temporary folder where the app may not make one
+/// beside it (the App Store edition may write only the file picked). The file
+/// picked stays as it was until the export is put in its place: if it's
+/// cancelled or fails, that file is never touched.
+pub fn create_partial(target: &Path) -> Result<(PathBuf, File), String> {
+    let beside = partial_path(target)?;
+    match File::create_new(&beside) {
+        Ok(file) => Ok((beside, file)),
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            let folder = std::env::temp_dir().join("MagnetCut exports");
+            fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
+            let path = unused_path(&folder, &partial_name(target)?);
+            let file = File::create_new(&path).map_err(|error| error.to_string())?;
+            Ok((path, file))
+        }
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// Puts a finished export in the place of the file it replaces: renamed, or
+/// copied where it can't be (from another disk, or in the App Store edition,
+/// which may write that file but not its folder). If neither works (the file
+/// is open in another app, on Windows), the export stays where it was
+/// written, and the error says where.
+pub fn put_in_place(partial: &Path, target: &Path) -> Result<(), String> {
+    if fs::rename(partial, target).is_ok() {
+        return Ok(());
+    }
+    fs::copy(partial, target).map_err(|error| {
+        format!(
+            "couldn't replace {}: {error}; the export is in {}",
+            target.display(),
+            partial.display()
+        )
+    })?;
+    let _ = fs::remove_file(partial);
+    Ok(())
 }
 
 impl Exports {
@@ -58,6 +129,71 @@ impl Exports {
     /// A folder the editor may write its own files into, as one picked.
     pub fn add_folder(&self, folder: PathBuf) {
         lock(&self.folders).insert(folder);
+    }
+
+    fn begin(&self, writing: Writing) -> u32 {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        lock(&self.open).insert(id, writing);
+        id
+    }
+
+    /// Starts an export to a file picked in the save dialog, written beside
+    /// it (`create_partial`) until `commit` puts it there.
+    fn open_export(&self, target: PathBuf) -> Result<u32, String> {
+        self.take_pick(&target)?;
+        let (path, file) = create_partial(&target)?;
+        Ok(self.begin(Writing {
+            path,
+            replaces: Some(target),
+            file,
+            _activity: Activity::begin("Exporting a film"),
+        }))
+    }
+
+    fn close(&self, id: u32, keep: bool) -> Result<(), String> {
+        let Some(writing) = lock(&self.open).remove(&id) else {
+            if keep {
+                return Err("no such export".into());
+            }
+            // Closed already: an export not yet put in place loses only what
+            // it wrote; a file written in a folder, itself.
+            if let Some((path, _)) = lock(&self.closed).remove(&id) {
+                return fs::remove_file(&path).map_err(|error| error.to_string());
+            }
+            let path = lock(&self.kept).remove(&id).ok_or("no such export")?;
+            lock(&self.saved).remove(&path);
+            return fs::remove_file(&path).map_err(|error| error.to_string());
+        };
+        if !keep {
+            let Writing { path, file, .. } = writing;
+            drop(file);
+            return fs::remove_file(&path).map_err(|error| error.to_string());
+        }
+        if let Err(error) = writing.file.sync_all() {
+            // Still open, so that discarding it deletes it.
+            lock(&self.open).insert(id, writing);
+            return Err(error.to_string());
+        }
+        let Writing { path, replaces, .. } = writing;
+        match replaces {
+            Some(target) => {
+                lock(&self.closed).insert(id, (path, target));
+            }
+            None => {
+                lock(&self.kept).insert(id, path.clone());
+                self.add_saved(path);
+            }
+        }
+        Ok(())
+    }
+
+    fn commit(&self, id: u32) -> Result<(), String> {
+        let (path, target) = lock(&self.closed)
+            .remove(&id)
+            .ok_or("no such export, or not closed")?;
+        put_in_place(&path, &target)?;
+        self.add_saved(target);
+        Ok(())
     }
 }
 
@@ -93,17 +229,12 @@ pub async fn pick_export_file(
     Ok(Some(shown))
 }
 
-/// Starts writing an export to a file picked in the save dialog, replacing
-/// what was there. A pick is used up: another export asks again.
+/// Starts writing an export for a file picked in the save dialog: beside it,
+/// until `commit_export_file` puts it in its place, replacing what was there.
+/// A pick is used up: another export asks again.
 #[tauri::command]
 pub fn open_export_file(exports: State<'_, Exports>, path: String) -> Result<u32, String> {
-    let path = PathBuf::from(path);
-    exports.take_pick(&path)?;
-    let file = File::create(&path).map_err(|error| error.to_string())?;
-    let id = exports.next_id.fetch_add(1, Ordering::Relaxed);
-    let activity = Activity::begin("Exporting a film");
-    lock(&exports.open).insert(id, (path, file, activity));
-    Ok(id)
+    exports.open_export(PathBuf::from(path))
 }
 
 /// Writes a chunk at its position: the body is the bytes, the `export-id` and
@@ -124,34 +255,26 @@ pub fn write_export_file(exports: State<'_, Exports>, request: Request<'_>) -> R
         return Err("the chunk isn't raw bytes".into());
     };
     let mut open = lock(&exports.open);
-    let (_, file, _) = open.get_mut(&id).ok_or("no such export")?;
+    let file = &mut open.get_mut(&id).ok_or("no such export")?.file;
     file.seek(SeekFrom::Start(position))
         .and_then(|_| file.write_all(bytes))
         .map_err(|error| error.to_string())
 }
 
-/// Finishes an export: kept, or deleted when it was cancelled or failed,
-/// even once kept: a muxer closes its file when it's cancelled, before the
-/// export is discarded. Not once the editor has taken it as media
-/// (`adopt_saved_file`): that file is the user's.
+/// Closes a file: kept, or deleted when it was cancelled or failed, even once
+/// kept: a muxer closes its file when it's cancelled, before the export is
+/// discarded. Not once the editor has taken it as media (`adopt_saved_file`):
+/// that file is the user's. An export kept is put in place only by
+/// `commit_export_file`, as a cancelled export is closed too.
 #[tauri::command]
 pub fn close_export_file(exports: State<'_, Exports>, id: u32, keep: bool) -> Result<(), String> {
-    let Some((path, file, _activity)) = lock(&exports.open).remove(&id) else {
-        if keep {
-            return Err("no such export".into());
-        }
-        let path = lock(&exports.kept).remove(&id).ok_or("no such export")?;
-        lock(&exports.saved).remove(&path);
-        return fs::remove_file(&path).map_err(|error| error.to_string());
-    };
-    if keep {
-        file.sync_all().map_err(|error| error.to_string())?;
-        lock(&exports.kept).insert(id, path.clone());
-        exports.add_saved(path);
-        return Ok(());
-    }
-    drop(file);
-    fs::remove_file(&path).map_err(|error| error.to_string())
+    exports.close(id, keep)
+}
+
+/// Puts an export that finished in the place of the file picked for it.
+#[tauri::command]
+pub fn commit_export_file(exports: State<'_, Exports>, id: u32) -> Result<(), String> {
+    exports.commit(id)
 }
 
 /// Shows a finished export in Finder, Explorer or the file manager.
@@ -289,9 +412,12 @@ pub fn open_folder_file(
     let path = unused_path(&folder, name);
     let shown = path.to_str().map(str::to_owned).ok_or("not a UTF-8 path")?;
     let file = File::create_new(&path).map_err(|error| error.to_string())?;
-    let id = exports.next_id.fetch_add(1, Ordering::Relaxed);
-    let activity = Activity::begin("Writing a file");
-    lock(&exports.open).insert(id, (path, file, activity));
+    let id = exports.begin(Writing {
+        path,
+        replaces: None,
+        file,
+        _activity: Activity::begin("Writing a file"),
+    });
     Ok(FolderFile { id, path: shown })
 }
 
@@ -337,6 +463,137 @@ mod tests {
         assert_eq!(unused_path(&folder, "a.wav"), folder.join("a 3.wav"));
         File::create(folder.join("b")).unwrap();
         assert_eq!(unused_path(&folder, "b"), folder.join("b 2"));
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    /// An empty folder of the test's own, with a film the user has in it.
+    fn folder_with_a_film(name: &str) -> (PathBuf, PathBuf) {
+        let folder =
+            std::env::temp_dir().join(format!("magnetcut-export-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&folder);
+        fs::create_dir_all(&folder).unwrap();
+        let film = folder.join("film.mp4");
+        fs::write(&film, b"the user's film").unwrap();
+        (folder, film)
+    }
+
+    fn write(exports: &Exports, id: u32, bytes: &[u8]) {
+        lock(&exports.open)
+            .get_mut(&id)
+            .unwrap()
+            .file
+            .write_all(bytes)
+            .unwrap();
+    }
+
+    #[test]
+    fn an_export_is_written_beside_the_file_it_replaces_under_a_name_not_in_use() {
+        let (folder, film) = folder_with_a_film("partial");
+        let partial = folder.join("film (exporting).mp4");
+        assert_eq!(partial_path(&film).unwrap(), partial);
+        File::create(&partial).unwrap();
+        assert_eq!(
+            partial_path(&film).unwrap(),
+            folder.join("film (exporting) 2.mp4")
+        );
+        assert_eq!(
+            partial_path(&folder.join("film")).unwrap(),
+            folder.join("film (exporting)")
+        );
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn an_export_replaces_the_file_picked_only_once_committed() {
+        let (folder, film) = folder_with_a_film("commit");
+        let exports = Exports::default();
+        exports.add_pick(film.clone());
+        let id = exports.open_export(film.clone()).unwrap();
+        write(&exports, id, b"the export");
+        exports.close(id, true).unwrap();
+        assert_eq!(fs::read(&film).unwrap(), b"the user's film");
+        assert!(!lock(&exports.saved).contains(&film));
+        exports.commit(id).unwrap();
+        assert_eq!(fs::read(&film).unwrap(), b"the export");
+        assert!(lock(&exports.saved).contains(&film));
+        assert_eq!(
+            fs::read_dir(&folder).unwrap().count(),
+            1,
+            "the partial file is gone"
+        );
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn a_cancelled_or_failed_export_leaves_the_file_picked_as_it_was() {
+        // Discarded while open (failed), and once closed (a muxer closes its
+        // file when it's cancelled).
+        for closed_first in [false, true] {
+            let (folder, film) = folder_with_a_film(&format!("cancel-{closed_first}"));
+            let exports = Exports::default();
+            exports.add_pick(film.clone());
+            let id = exports.open_export(film.clone()).unwrap();
+            write(&exports, id, b"half an export");
+            if closed_first {
+                exports.close(id, true).unwrap();
+            }
+            exports.close(id, false).unwrap();
+            assert_eq!(fs::read(&film).unwrap(), b"the user's film");
+            assert_eq!(
+                fs::read_dir(&folder).unwrap().count(),
+                1,
+                "the partial file is gone"
+            );
+            assert!(exports.commit(id).is_err());
+            assert_eq!(fs::read(&film).unwrap(), b"the user's film");
+            fs::remove_dir_all(&folder).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_file_in_a_folder_is_kept_where_it_was_written() {
+        let (folder, _) = folder_with_a_film("folder");
+        let exports = Exports::default();
+        let path = folder.join("take.wav");
+        let id = exports.begin(Writing {
+            path: path.clone(),
+            replaces: None,
+            file: File::create_new(&path).unwrap(),
+            _activity: Activity::begin("Writing a file"),
+        });
+        write(&exports, id, b"a take");
+        exports.close(id, true).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"a take");
+        assert!(lock(&exports.saved).contains(&path));
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    /// As in the App Store edition, which may write the file picked but not
+    /// make another beside it.
+    #[cfg(unix)]
+    #[test]
+    fn where_no_file_can_be_made_beside_it_the_export_is_written_elsewhere() {
+        use std::os::unix::fs::PermissionsExt;
+        let (folder, film) = folder_with_a_film("locked");
+        fs::set_permissions(&folder, fs::Permissions::from_mode(0o555)).unwrap();
+        let exports = Exports::default();
+        exports.add_pick(film.clone());
+        let opened = exports.open_export(film.clone());
+        let partial = opened
+            .as_ref()
+            .ok()
+            .and_then(|id| lock(&exports.open).get(id).map(|w| w.path.clone()));
+        let result = opened.and_then(|id| {
+            write(&exports, id, b"the export");
+            exports.close(id, true)?;
+            exports.commit(id)
+        });
+        fs::set_permissions(&folder, fs::Permissions::from_mode(0o755)).unwrap();
+        result.unwrap();
+        let partial = partial.unwrap();
+        assert!(!partial.starts_with(&folder), "{}", partial.display());
+        assert!(!partial.exists(), "the copy written elsewhere is gone");
+        assert_eq!(fs::read(&film).unwrap(), b"the export");
         fs::remove_dir_all(&folder).unwrap();
     }
 }

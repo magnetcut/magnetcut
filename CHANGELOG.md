@@ -14,6 +14,14 @@ All notable changes to this project are documented here. The format is based on
 ### Fixed
 - On Linux, MagnetCut starts where the system has OpenSSL 4 (Ubuntu 26.10): it no longer looks
   for libssl.so.3, since OpenSSL is now built into the app.
+- Exporting over a file that's there no longer deletes it when the export is cancelled or fails:
+  the export is written beside it and takes its place only once finished. Export won't write
+  over one of the project's own files.
+- A voice-over take is kept when the disk fills while recording: it stops there, with what came
+  before, and says so. Before, the whole take was deleted.
+- ASS and SSA subtitles whose lines start with a letter English doesn't have, or have one right
+  after a tag ("¿Qué?", "{\i1}Привет", "日本語"), open: they crashed the subtitle reader. So do
+  other subtitle files that start with such letters.
 
 ## [0.1.4] - 2026-11-04
 

@@ -44,7 +44,7 @@ export async function listInputs(): Promise<MediaDeviceInfo[]> {
 }
 
 /** Where a recording goes as it's made. */
-interface RecordingSink {
+export interface RecordingSink {
 	write({
 		bytes,
 		position,
@@ -69,18 +69,15 @@ async function openDiskSink({
 			folder,
 			name,
 		});
-	const writer = file.writable.getWriter();
+	// Written by hand, not through a stream, which a failed write would close:
+	// what's on disk can still be kept.
 	return {
-		write: ({ bytes, position }) =>
-			writer.write({ type: "write", data: bytes, position }),
+		write: ({ bytes, position }) => file.write({ data: bytes, position }),
 		finish: async () => {
-			await writer.close();
+			await file.keep();
 			return adoptSavedFile({ path });
 		},
-		discard: async () => {
-			writer.releaseLock();
-			await file.discard();
-		},
+		discard: () => file.discard(),
 	};
 }
 
@@ -109,6 +106,123 @@ export function nameTake({ date }: { date: Date }): string {
 	return `Voice-over ${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}.${pad(date.getMinutes())}.${pad(date.getSeconds())}.wav`;
 }
 
+/**
+ * A take as it's written: a WAV header, then each block of sound after the
+ * one before it, the header brought up to date every second. If a write
+ * fails (the disk is full), nothing more is written: the take is what was
+ * written before, and `onFailure` is told.
+ */
+export class TakeWriter {
+	private readonly sink: RecordingSink;
+	private readonly sampleRate: number;
+	private onFailure: ((error: unknown) => void) | null;
+	/** The take's sound, in bytes: given to the sink. */
+	private written = 0;
+	/** Of those, the bytes written, each block after the one before it. */
+	private durable = 0;
+	private sinceHeader = 0;
+	/** The writes, one after another; it never rejects. */
+	private pending: Promise<void> = Promise.resolve();
+	/** Why the take stopped being written, if it did. */
+	private failure: unknown = null;
+
+	constructor({
+		sink,
+		sampleRate,
+		onFailure,
+	}: {
+		sink: RecordingSink;
+		sampleRate: number;
+		onFailure?: (error: unknown) => void;
+	}) {
+		this.sink = sink;
+		this.sampleRate = sampleRate;
+		this.onFailure = onFailure ?? null;
+		this.queue({
+			write: () =>
+				sink.write({ bytes: this.header({ dataBytes: 0 }), position: 0 }),
+		});
+	}
+
+	/** Mono samples, -1 to 1. */
+	add({ samples }: { samples: Float32Array }): void {
+		if (this.failure) return;
+		const bytes = floatsToPcm16({ channels: [samples] });
+		const position = WAV_HEADER_BYTES + this.written;
+		this.written += bytes.length;
+		this.sinceHeader += samples.length;
+		const writeHeader =
+			this.sinceHeader >= this.sampleRate * HEADER_EVERY_SECONDS;
+		if (writeHeader) this.sinceHeader = 0;
+		this.queue({
+			write: async () => {
+				await this.sink.write({ bytes, position });
+				this.durable = position + bytes.length - WAV_HEADER_BYTES;
+				if (!writeHeader) return;
+				const header = this.header({ dataBytes: this.durable });
+				await this.sink.write({ bytes: header, position: 0 });
+			},
+		});
+	}
+
+	/**
+	 * The take, its header's sizes filled in. If a write failed, it's what
+	 * was written before, and `error` says why; with nothing written, none.
+	 */
+	async finish(): Promise<{ file: MediaFile; error: unknown }> {
+		this.onFailure = null;
+		await this.pending;
+		let failure = this.failure;
+		try {
+			if (failure && this.durable === 0) throw failure;
+			try {
+				const header = this.header({ dataBytes: this.durable });
+				await this.sink.write({ bytes: header, position: 0 });
+			} catch (error) {
+				// Kept all the same: the header written each second says less.
+				if (this.durable === 0) throw error;
+				failure ??= error;
+			}
+			return { file: await this.sink.finish(), error: failure };
+		} catch (error) {
+			await this.sink.discard().catch(() => undefined);
+			throw error;
+		}
+	}
+
+	/** Nothing kept. */
+	async discard(): Promise<void> {
+		this.onFailure = null;
+		await this.pending;
+		await this.sink.discard();
+	}
+
+	private header({
+		dataBytes,
+	}: {
+		dataBytes: number;
+	}): Uint8Array<ArrayBuffer> {
+		return buildWavHeader({
+			sampleRate: this.sampleRate,
+			channels: 1,
+			dataBytes,
+		});
+	}
+
+	/** A write after those before it, unless one of them failed. */
+	private queue({ write }: { write: () => Promise<void> }) {
+		this.pending = this.pending.then(async () => {
+			if (this.failure) return;
+			try {
+				await write();
+			} catch (error) {
+				this.failure = error;
+				this.onFailure?.(error);
+			}
+		});
+	}
+}
+
 /** The microphone, open: its level shown, and recorded when asked. */
 export class VoiceRecorder {
 	private readonly stream: MediaStream;
@@ -116,11 +230,7 @@ export class VoiceRecorder {
 	private readonly node: AudioWorkletNode;
 	private readonly analyser: AnalyserNode;
 	private readonly levels: Float32Array<ArrayBuffer>;
-	private sink: RecordingSink | null = null;
-	private written = 0;
-	private sinceHeader = 0;
-	private pending: Promise<void> = Promise.resolve();
-	private failure: unknown = null;
+	private take: TakeWriter | null = null;
 
 	private constructor({
 		stream,
@@ -199,7 +309,7 @@ export class VoiceRecorder {
 	}
 
 	get isRecording(): boolean {
-		return this.sink !== null;
+		return this.take !== null;
 	}
 
 	/** The loudest sample just now, 0 to 1, for the meter. */
@@ -210,72 +320,64 @@ export class VoiceRecorder {
 		return Math.min(1, peak);
 	}
 
-	/** Starts writing: to `folder` in the desktop app, in memory without one. */
+	/**
+	 * Starts writing: to `folder` in the desktop app, in memory without one.
+	 * If a write fails (the disk is full), nothing more is written, and
+	 * `onFailure` is told: Stop still gives what was written before.
+	 */
 	async start({
 		folder,
 		name,
+		onFailure,
 	}: {
 		folder: string | null;
 		name: string;
+		onFailure?: (error: unknown) => void;
 	}): Promise<void> {
-		if (this.sink) throw new Error("Already recording");
+		if (this.take) throw new Error("Already recording");
 		const sink = folder
 			? await openDiskSink({ folder, name })
 			: openMemorySink({ name });
-		this.written = 0;
-		this.sinceHeader = 0;
-		this.failure = null;
-		this.pending = sink.write({ bytes: this.header(), position: 0 });
-		this.sink = sink;
+		this.take = new TakeWriter({
+			sink,
+			sampleRate: this.context.sampleRate,
+			onFailure,
+		});
 		await this.context.resume();
 		this.node.port.postMessage("start");
 	}
 
-	/** Stops and gives the take, the header's sizes filled in. */
-	async stop(): Promise<MediaFile> {
-		const sink = this.sink;
-		if (!sink) throw new Error("Not recording");
+	/**
+	 * Stops and gives the take, the header's sizes filled in. If a write
+	 * failed, the take is what was written before it, and `error` says why.
+	 */
+	async stop(): Promise<{ file: MediaFile; error: unknown }> {
+		const take = this.take;
+		if (!take) throw new Error("Not recording");
 		this.node.port.postMessage("stop");
-		this.sink = null;
-		try {
-			await this.pending;
-			if (this.failure) throw this.failure;
-			await sink.write({ bytes: this.header(), position: 0 });
-			return await sink.finish();
-		} catch (error) {
-			await sink.discard().catch(() => undefined);
-			throw error;
-		}
+		this.take = null;
+		return take.finish();
 	}
 
 	/** Stops without keeping anything. */
 	async cancel(): Promise<void> {
-		const sink = this.sink;
+		const take = this.take;
 		this.node.port.postMessage("stop");
-		this.sink = null;
-		await this.pending.catch(() => undefined);
-		await sink?.discard();
+		this.take = null;
+		await take?.discard();
 	}
 
 	/** Lets the microphone go. */
 	async close(): Promise<void> {
-		if (this.sink) await this.cancel();
+		if (this.take) await this.cancel();
 		for (const track of this.stream.getTracks()) track.stop();
 		await this.context.close();
 	}
 
-	private header(): Uint8Array<ArrayBuffer> {
-		return buildWavHeader({
-			sampleRate: this.context.sampleRate,
-			channels: 1,
-			dataBytes: this.written,
-		});
-	}
-
 	private receive({ channels }: { channels: Float32Array[] }) {
-		const sink = this.sink;
+		const take = this.take;
 		const [first] = channels;
-		if (!sink || !first) return;
+		if (!take || !first) return;
 		// Mono: a microphone that gives two channels is mixed down.
 		const mono =
 			channels.length === 1
@@ -287,21 +389,6 @@ export class VoiceRecorder {
 								0,
 							) / channels.length,
 					);
-		const bytes = floatsToPcm16({ channels: [mono] });
-		const position = WAV_HEADER_BYTES + this.written;
-		this.written += bytes.length;
-		this.sinceHeader += mono.length;
-		const writeHeader =
-			this.sinceHeader >= this.sampleRate * HEADER_EVERY_SECONDS;
-		if (writeHeader) this.sinceHeader = 0;
-		const header = writeHeader ? this.header() : null;
-		this.pending = this.pending
-			.then(async () => {
-				await sink.write({ bytes, position });
-				if (header) await sink.write({ bytes: header, position: 0 });
-			})
-			.catch((error: unknown) => {
-				this.failure ??= error;
-			});
+		take.add({ samples: mono });
 	}
 }

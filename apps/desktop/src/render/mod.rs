@@ -61,7 +61,7 @@ use tauri::State;
 use tauri::ipc::{InvokeBody, Request};
 
 use crate::activity::Activity;
-use crate::export::Exports;
+use crate::export::{self, Exports};
 use crate::media::MediaFiles;
 use decode::VideoReader;
 use encode::Writer;
@@ -214,6 +214,9 @@ pub async fn native_export_start(
     }
     let path = PathBuf::from(&options.path);
     exports.take_pick(&path)?;
+    // The file picked stays as it was until the export has finished. The
+    // encoders make the file again where they write it.
+    let (partial, _) = export::create_partial(&path)?;
     let (sender, receiver) = mpsc::sync_channel(QUEUE);
     let (ready_sender, ready) = mpsc::channel();
     let failure = Arc::new(Mutex::new(None));
@@ -222,7 +225,16 @@ pub async fn native_export_start(
         let path = path.clone();
         thread::Builder::new()
             .name("export".into())
-            .spawn(move || run(&path, &options, &receiver, &ready_sender, &failure))
+            .spawn(move || {
+                run(
+                    &partial,
+                    &path,
+                    &options,
+                    &receiver,
+                    &ready_sender,
+                    &failure,
+                );
+            })
             .map_err(|error| error.to_string())?
     };
     let started = tauri::async_runtime::spawn_blocking(move || ready.recv())
@@ -435,16 +447,20 @@ async fn send(native: &NativeExports, session: u32, message: Message) -> Result<
 }
 
 /// The export's thread: the GPU, the decoders and the encoder are all its own.
+/// It writes `partial`, which takes the place of `target` once it's finished.
 fn run(
-    path: &Path,
+    partial: &Path,
+    target: &Path,
     options: &StartOptions,
     receiver: &Receiver<Message>,
     ready: &mpsc::Sender<Result<(), String>>,
     failure: &Mutex<Option<String>>,
 ) {
-    let mut worker = match Worker::new(path, options) {
+    let mut worker = match Worker::new(partial, options) {
         Ok(worker) => worker,
         Err(error) => {
+            // An encoder may have made the file before it failed.
+            let _ = std::fs::remove_file(partial);
             let _ = ready.send(Err(error));
             return;
         }
@@ -453,10 +469,15 @@ fn run(
     for message in receiver {
         let result = match message {
             Message::Finish(reply) => {
-                let result = worker.finish();
+                let result = match worker.finish() {
+                    Ok(()) => export::put_in_place(partial, target),
+                    Err(error) => {
+                        let _ = std::fs::remove_file(partial);
+                        Err(error)
+                    }
+                };
                 if let Err(error) = &result {
                     *lock(failure) = Some(error.clone());
-                    let _ = std::fs::remove_file(path);
                 }
                 let _ = reply.send(result);
                 return;
@@ -470,7 +491,7 @@ fn run(
     }
     // Cancelled, or stopped by an error: nothing's kept.
     worker.cancel();
-    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_file(partial);
 }
 
 struct Worker {

@@ -94,9 +94,14 @@ and give it constant quality and the encoders the web views lack.
 - mediabunny writes through a `StreamTarget` in 16 MB chunks (`export/disk-target.ts`), each
   sent to Rust as the raw body of an IPC call with its position in a header; Rust
   (`apps/desktop/src/export.rs`) writes it there, and only to a file picked in the dialog. MP4
-  puts its index at the end (`fastStart: false`), so nothing is held back. A cancelled or failed
-  export deletes its file; a finished one gets a toast with Show in Finder. The web build keeps
-  `BufferTarget` and the download.
+  puts its index at the end (`fastStart: false`), so nothing is held back. The export is written
+  beside the file picked, as "<name> (exporting).<extension>", and only once it has finished
+  does it take that file's place, in one rename (`commit_export_file`; the native export does the
+  same in its own thread): a cancelled or failed export deletes only what it wrote, and a file
+  that was there stays as it was. Where the app may not make a file beside it (the App Store
+  edition may write only the file picked), the export is written in the temporary folder and
+  copied over the file once finished. One of the project's own files can't be picked. A finished
+  export gets a toast with Show in Finder. The web build keeps `BufferTarget` and the download.
 - H.264 in WebKit (macOS, and Safari) is Baseline. Measured in the app's web view: in the
   High and Main profiles, which mediabunny asks for, the encoder puts out nothing, even when
   flushed, so every MP4 export stopped after a few frames, 0.1.0's too; in real time it

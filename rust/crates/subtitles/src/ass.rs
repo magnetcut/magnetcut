@@ -180,7 +180,12 @@ fn from_ass(text: &str) -> String {
             result.push('\u{a0}');
             rest = after;
         } else {
-            let next = rest[1..].find(['{', '\\']).map_or(rest.len(), |at| at + 1);
+            // Text up to the next tag or escape, from the character after
+            // the first, which is text even if it's a brace or a backslash.
+            let first = rest.chars().next().map_or(0, char::len_utf8);
+            let next = rest[first..]
+                .find(['{', '\\'])
+                .map_or(rest.len(), |at| at + first);
             result.push_str(&rest[..next]);
             rest = &rest[next..];
         }
@@ -372,6 +377,22 @@ Dialogue: 0,0:00:04.00,0:00:05.00,Sign,,0,0,0,,{\\b700}Exit{\\b0}
         ));
         assert!(text.contains(",Sign,,0,0,0,,{\\b1}Exit{\\b0}"));
         assert_eq!(read(&text).cues, parsed.cues);
+    }
+
+    #[test]
+    fn reads_text_in_any_script() {
+        let cases = [
+            ("Él dijo", "Él dijo"),
+            ("{\\i1}Привет{\\i0}", "<i>Привет</i>"),
+            ("日本語\\Nです", "日本語\nです"),
+            ("😀{\\b1}ok", "😀<b>ok</b>"),
+            ("à\\hé", "à\u{a0}é"),
+        ];
+        for (text, expected) in cases {
+            assert_eq!(from_ass(text), expected, "{text:?}");
+        }
+        let script = SCRIPT.replace("there\\Nfriend", "Ünïcödé\\Nmünchen");
+        assert_eq!(read(&script).cues[0].text, "<i>Hello,</i> Ünïcödé\nmünchen");
     }
 
     #[test]

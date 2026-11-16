@@ -463,8 +463,10 @@ fn says_what_wrote_the_film() {
 }
 
 #[test]
-fn a_cancelled_export_leaves_no_file() {
+fn a_cancelled_export_leaves_no_file_and_the_one_it_was_to_replace() {
     let path = temporary("cancelled.mp4");
+    std::fs::write(&path, b"a film the user has").unwrap();
+    let partial = crate::export::partial_path(&path).unwrap();
     let options = StartOptions {
         path: path.to_str().unwrap().to_owned(),
         format: Container::Mp4,
@@ -484,17 +486,29 @@ fn a_cancelled_export_leaves_no_file() {
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     let (ready_sender, ready) = std::sync::mpsc::channel();
     let failure = std::sync::Mutex::new(None);
-    let (worker_path, options, failure) = (path.clone(), &options, &failure);
+    let (worker_partial, worker_path) = (partial.clone(), path.clone());
+    let (options, failure) = (&options, &failure);
     std::thread::scope(|scope| {
-        scope.spawn(move || super::run(&worker_path, options, &receiver, &ready_sender, failure));
+        scope.spawn(move || {
+            super::run(
+                &worker_partial,
+                &worker_path,
+                options,
+                &receiver,
+                &ready_sender,
+                failure,
+            );
+        });
         if ready.recv().unwrap().is_err() {
             eprintln!("No GPU: skipped");
             return;
         }
-        assert!(path.exists());
+        assert!(partial.exists());
+        assert_eq!(std::fs::read(&path).unwrap(), b"a film the user has");
         drop(sender);
     });
-    assert!(!path.exists());
+    assert!(!partial.exists());
+    assert_eq!(std::fs::read(&path).unwrap(), b"a film the user has");
 }
 
 #[cfg(target_os = "macos")]

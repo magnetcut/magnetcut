@@ -147,7 +147,12 @@ export async function startTake({
 			if (get().status !== "counting") return;
 		}
 		const startTime = editor.playback.getCurrentTime();
-		await recorder.start({ folder, name: nameTake({ date: new Date() }) });
+		await recorder.start({
+			folder,
+			name: nameTake({ date: new Date() }),
+			// The disk full, say: the take stops there, kept as far as it got.
+			onFailure: () => void stopTake({ editor }),
+		});
 		const wasMuted = editor.playback.isMuted();
 		if (get().monitor === "muted") editor.playback.mute();
 		editor.playback.play();
@@ -180,7 +185,7 @@ export async function stopTake({
 	if (!wasMuted) editor.playback.unmute();
 	set({ status: "saving" });
 	try {
-		const file = await recorder.stop();
+		const { file, error: cutShort } = await recorder.stop();
 		const asset = await addMediaFile({ editor, file });
 		if (!asset) throw new Error(`"${file.name}" couldn't be added.`);
 		placeSounds({
@@ -194,7 +199,13 @@ export async function stopTake({
 				},
 			],
 		});
-		toast.success(`Take added: ${asset.name}`);
+		if (cutShort) {
+			toast.warning(`Take cut short: ${asset.name}`, {
+				description: `Recording stopped where it couldn't be written (${String(cutShort)}); the take has what came before.`,
+			});
+		} else {
+			toast.success(`Take added: ${asset.name}`);
+		}
 	} catch (error) {
 		toast.error("The take couldn't be kept", { description: String(error) });
 	} finally {

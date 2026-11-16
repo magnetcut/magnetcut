@@ -193,7 +193,8 @@ async function recordSecond({ folder }: { folder: string }) {
 	try {
 		await recorder.start({ folder, name: "probe take.wav" });
 		await wait({ ms: 1000 });
-		const take = await recorder.stop();
+		const { file: take, error } = await recorder.stop();
+		if (error) throw error;
 		const bytes = new Uint8Array(await take.arrayBuffer());
 		return {
 			onDisk: take instanceof DiskFile,
