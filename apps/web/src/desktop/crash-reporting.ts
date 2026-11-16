@@ -3,6 +3,7 @@ import * as Sentry from "@sentry/nextjs";
 
 export type CrashReportingStatus = {
 	enabled: boolean;
+	decided: boolean;
 	configured: boolean;
 	active: boolean;
 };
@@ -13,8 +14,10 @@ let enabled = false;
 
 export async function getCrashReportingStatus(): Promise<CrashReportingStatus> {
 	if (isTauri()) return invoke("crash_reporting_status");
+	const preference = localStorage.getItem(preferenceKey);
 	return {
-		enabled: localStorage.getItem(preferenceKey) === "enabled",
+		enabled: preference === "enabled",
+		decided: preference === "enabled" || preference === "disabled",
 		configured: Boolean(process.env.NEXT_PUBLIC_SENTRY_DSN),
 		active: initialized,
 	};

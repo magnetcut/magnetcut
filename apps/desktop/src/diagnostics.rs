@@ -13,6 +13,7 @@ pub struct Diagnostics {
 #[derive(Serialize)]
 pub struct Status {
     enabled: bool,
+    decided: bool,
     configured: bool,
     active: bool,
 }
@@ -93,6 +94,10 @@ impl Diagnostics {
     fn status(&self) -> Status {
         Status {
             enabled: self.preference.as_deref().is_some_and(enabled),
+            decided: self.preference.as_deref().is_some_and(|path| {
+                std::fs::read_to_string(path)
+                    .is_ok_and(|value| matches!(value.as_str(), "enabled\n" | "disabled\n"))
+            }),
             configured: self.configured,
             active: self.active,
         }
@@ -147,13 +152,21 @@ mod tests {
     #[test]
     fn preference_fails_closed() {
         let path = std::env::temp_dir().join(format!("magnetcut-consent-{}", std::process::id()));
+        let diagnostics = Diagnostics {
+            preference: Some(path.clone()),
+            configured: true,
+            active: false,
+        };
         std::fs::write(&path, "enabled\n").unwrap();
         assert!(enabled(&path));
+        assert!(diagnostics.status().decided);
         for value in ["disabled\n", "", "enabled", "invalid"] {
             std::fs::write(&path, value).unwrap();
             assert!(!enabled(&path));
+            assert_eq!(diagnostics.status().decided, value == "disabled\n");
         }
         std::fs::remove_file(&path).unwrap();
         assert!(!enabled(&path));
+        assert!(!diagnostics.status().decided);
     }
 }
