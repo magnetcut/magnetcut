@@ -1,8 +1,8 @@
 // WebVTT: "WEBVTT", then blocks, each an optional name, a timing line with
 // optional settings, and the lines; notes, styles and regions aside.
 
-use crate::markup::keep_simple_tags;
-use crate::srt::blocks;
+use crate::markup::{escape, keep_simple_tags};
+use crate::srt::{blocks, folded};
 use crate::{Cue, Parsed, times};
 
 fn decode_entities(text: &str) -> String {
@@ -81,7 +81,7 @@ pub fn write(cues: &[Cue]) -> String {
             "{} --> {}\n{}\n\n",
             times::format(cue.start, '.', 3, 2),
             times::format(cue.end, '.', 3, 2),
-            cue.text.replace('&', "&amp;")
+            escape(&folded(&cue.text))
         ));
     }
     text
@@ -103,7 +103,7 @@ mod tests {
     }
 
     #[test]
-    fn writes_the_header_and_escapes_ampersands() {
+    fn writes_the_header_and_escapes_what_isnt_markup() {
         let cues = [Cue {
             start: 1.0,
             end: 2.0,
@@ -114,5 +114,12 @@ mod tests {
             write(&cues),
             "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nTom &amp; <i>Jerry</i>\n\n"
         );
+        let cues = [Cue {
+            text: "5 < 6 and 7 > 3".into(),
+            ..cues[0].clone()
+        }];
+        let text = write(&cues);
+        assert!(text.contains("5 &lt; 6 and 7 &gt; 3"), "{text}");
+        assert_eq!(read(&text).cues, cues);
     }
 }

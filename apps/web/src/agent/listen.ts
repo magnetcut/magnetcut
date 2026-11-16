@@ -27,7 +27,12 @@ import {
 	type Stretch,
 } from "./sound";
 import { formatTime, parseTime } from "./time";
-import { ToolError, type Tool, type ToolContext } from "./tools-base";
+import {
+	needProject,
+	ToolError,
+	type Tool,
+	type ToolContext,
+} from "./tools-base";
 
 // Hearing and finding, for an agent (docs/AUTOMATION.md): the timeline's
 // words, silences and loudness as text it can cut by, and the faces, plates
@@ -37,14 +42,6 @@ import { ToolError, type Tool, type ToolContext } from "./tools-base";
 // The rate the timeline's sound is measured at.
 const SOUND_RATE = 48_000;
 
-function needOpen({ editor }: { editor: ToolContext["editor"] }) {
-	const project = editor.project.getActiveOrNull();
-	if (!project || location.pathname !== "/editor") {
-		throw new ToolError("No project is open: `project` first");
-	}
-	return project;
-}
-
 /** The span asked for, in seconds: the whole timeline by default. */
 function span({
 	args,
@@ -53,7 +50,7 @@ function span({
 	args: Record<string, unknown>;
 	editor: ToolContext["editor"];
 }): Stretch {
-	const project = needOpen({ editor });
+	const project = needProject({ editor });
 	const fps = frameRateToFloat(project.settings.fps);
 	const end = editor.timeline.getTotalDuration();
 	const from =
@@ -279,7 +276,7 @@ export const findTool: Tool = {
 	},
 	run: async ({ args, context }) => {
 		const { editor, agent, progress, isStopped } = context;
-		needOpen({ editor });
+		needProject({ editor });
 		if (args.what === "blackbars") {
 			const crop = await editor.renderer.detectBlackBars();
 			const project = editor.project.getActive();

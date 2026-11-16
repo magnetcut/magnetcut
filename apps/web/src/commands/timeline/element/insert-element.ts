@@ -1,4 +1,5 @@
 import { Command, type CommandResult } from "@/commands/base-command";
+import { UpdateProjectSettingsCommand } from "@/commands/project/update-project-settings";
 import { EditorCore } from "@/core";
 import type {
 	CreateTimelineElement,
@@ -9,6 +10,7 @@ import type {
 import { generateUUID } from "@/utils/id";
 import { requiresMediaId } from "@/timeline/element-utils";
 import type { MediaAsset } from "@/media/types";
+import type { TProjectSettings } from "@/project/types";
 import { DEFAULT_NEW_ELEMENT_DURATION } from "@/timeline/creation";
 import { floatToFrameRate } from "@/fps/utils";
 import { graphicsRegistry, registerDefaultGraphics } from "@/graphics";
@@ -31,12 +33,16 @@ export interface InsertElementParams {
 
 export class InsertElementCommand extends Command {
 	private elementId: string;
+	private newTrackId: string;
 	private savedState: SceneTracks | null = null;
 	private targetTrackId: string | null = null;
+	// The first clip's size and rate given to the project, undone with it.
+	private settingsCommand: UpdateProjectSettingsCommand | null = null;
 
 	constructor({ element, placement }: InsertElementParams) {
 		super();
 		this.elementId = generateUUID();
+		this.newTrackId = generateUUID();
 		this.element = element;
 		this.placement = placement;
 	}
@@ -47,6 +53,7 @@ export class InsertElementCommand extends Command {
 	execute(): CommandResult | undefined {
 		const editor = EditorCore.getInstance();
 		this.savedState = editor.scenes.getActiveScene().tracks;
+		this.settingsCommand = null;
 
 		if (!this.validateElementBasics({ element: this.element })) {
 			return;
@@ -86,27 +93,23 @@ export class InsertElementCommand extends Command {
 			const asset = mediaAssets.find(
 				(item: MediaAsset) => item.id === newElement.mediaId,
 			);
+			const settings: Partial<TProjectSettings> = {};
 
 			if (asset?.width && asset?.height) {
 				const nextCanvasSize = { width: asset.width, height: asset.height };
-				const shouldSetOriginalCanvasSize =
-					!activeProject?.settings.originalCanvasSize;
-				editor.project.updateSettings({
-					settings: {
-						canvasSize: nextCanvasSize,
-						...(shouldSetOriginalCanvasSize
-							? { originalCanvasSize: nextCanvasSize }
-							: {}),
-					},
-					pushHistory: false,
-				});
+				settings.canvasSize = nextCanvasSize;
+				if (!activeProject?.settings.originalCanvasSize) {
+					settings.originalCanvasSize = nextCanvasSize;
+				}
 			}
 
 			if (asset?.type === "video" && asset?.fps) {
-				editor.project.updateSettings({
-					settings: { fps: floatToFrameRate(asset.fps) },
-					pushHistory: false,
-				});
+				settings.fps = floatToFrameRate(asset.fps);
+			}
+
+			if (Object.keys(settings).length > 0) {
+				this.settingsCommand = new UpdateProjectSettingsCommand(settings);
+				this.settingsCommand.execute();
 			}
 		}
 
@@ -120,6 +123,7 @@ export class InsertElementCommand extends Command {
 				selectedKeyframes: [],
 				keyframeSelectionAnchor: null,
 				selectedMaskPoints: null,
+				selectedTransition: null,
 			},
 		};
 	}
@@ -129,6 +133,7 @@ export class InsertElementCommand extends Command {
 			const editor = EditorCore.getInstance();
 			editor.timeline.updateTracks(this.savedState);
 		}
+		this.settingsCommand?.undo();
 	}
 
 	getElementId(): string {
@@ -284,6 +289,7 @@ export class InsertElementCommand extends Command {
 				placement.mode === "auto" && typeof placement.insertIndex === "number"
 					? placement.insertIndex
 					: undefined,
+			newTrackId: this.newTrackId,
 		});
 		if (!appliedPlacement) {
 			return null;

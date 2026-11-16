@@ -288,6 +288,7 @@ export class RendererManager {
 							videoCodec,
 							audioCodec: passthrough?.codec ?? audio?.codec ?? null,
 							copiesSound: !!passthrough,
+							copiesFromNativeFormat: passthrough?.isNativeCopy,
 							hasSubtitleTracks: subtitleTracks.length > 0,
 						});
 			if (path && "sources" in native) {

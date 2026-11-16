@@ -8,8 +8,10 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { useReducer, useRef, useState } from "react";
+import type { AssScriptData } from "magnetcut-wasm";
 import { extractTimelineAudio } from "@/media/mediabunny";
 import { useEditor } from "@/editor/use-editor";
+import { frameRateToFloat } from "@/fps/utils";
 import { TRANSCRIPTION_DIAGNOSTICS_SCOPE } from "@/transcription/diagnostics";
 import { DEFAULT_TRANSCRIPTION_SAMPLE_RATE } from "@/transcription/audio";
 import { TRANSCRIPTION_LANGUAGES } from "@/transcription/supported-languages";
@@ -115,10 +117,16 @@ export function Captions() {
 
 	const insertCaptions = ({
 		captions,
+		assScript,
 	}: {
 		captions: CaptionChunk[];
+		assScript?: AssScriptData;
 	}): boolean => {
-		const trackId = insertCaptionChunksAsTextTrack({ editor, captions });
+		const trackId = insertCaptionChunksAsTextTrack({
+			editor,
+			captions,
+			assScript,
+		});
 		return trackId !== null;
 	};
 
@@ -218,7 +226,11 @@ export function Captions() {
 	const handleImportFile = async ({ file }: { file: File }) => {
 		dispatch({ type: "start", step: "Reading subtitle file..." });
 		try {
-			const result = await openSubtitleFile({ file });
+			// MicroDVD counts frames: at the project's rate, unless the file says.
+			const result = await openSubtitleFile({
+				file,
+				frameRate: frameRateToFloat(editor.project.getActive().settings.fps),
+			});
 
 			if (result.captions.length === 0) {
 				dispatch({
@@ -230,7 +242,12 @@ export function Captions() {
 
 			dispatch({ type: "update_step", step: "Importing subtitles..." });
 
-			if (!insertCaptions({ captions: result.captions })) {
+			if (
+				!insertCaptions({
+					captions: result.captions,
+					assScript: result.assScript,
+				})
+			) {
 				dispatch({ type: "fail", error: "No captions were generated" });
 				return;
 			}

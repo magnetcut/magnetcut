@@ -119,6 +119,9 @@ interface Transition {
 - Defaults: 0.5 s, centred, audio crossfade on. Too little handle: the duration is clamped to
   what's there, and the inspector says so. (Freezing the edge frame, as other editors offer, can
   come later.)
+- Two transitions at a clip's ends share it: each keeps what the other leaves, or half the clip
+  when both want more, so their windows never overlap (`fromTaken`/`toTaken` in the timing
+  crate).
 - The timing (window, progress, each side's source time, handle checks) is a new Rust crate,
   `rust/crates/transitions`, exported like `time`: business logic in `rust/`, where the native
   pipeline can use it too.
@@ -129,17 +132,18 @@ interface Transition {
    through it.
 2. `resolve.ts` resolves both at their handle times (A past its end, B before its start) with the
    timing crate; outside windows nothing changes.
-3. `frame-descriptor.ts` emits `{ type: "transition", from, to, transition, params, progress,
-   blendMode }` (`transition` is the gl-transitions name), and Rust's frame enum
+3. `frame-descriptor.ts` emits `{ type: "transition", from, to, transition, params, progress }`
+   (`transition` is the gl-transitions name), and Rust's frame enum
    (`rust/crates/compositor/src/frame.rs`) has the same variant.
 4. The compositor shares one item loop between `render_frame` and `render_frame_to_texture`. For
    a transition it renders both layers (each with its own transform, effects and mask), runs a
    new `TransitionPipeline` (the gl-transitions bindings, the bottom-left uv vertex shader,
-   uniforms padded to 16 bytes for WebGL), then blends the result into the scene. Layers have
-   straight alpha, so both sides are premultiplied first and the result unpremultiplied after:
-   transparent areas don't darken. A missing side is transparent; an unknown transition, or one
-   needing extra textures, dissolves. Pipelines are compiled on first use and cached, not all 125
-   at start.
+   uniforms padded to 16 bytes for WebGL), then blends the result into the scene with the clips'
+   blend mode; clips with different modes are blended with each and faded from one to the other,
+   so neither edge of the window jumps. Layers have straight alpha, so both sides are
+   premultiplied first and the result unpremultiplied after: transparent areas don't darken. A
+   missing side is transparent; an unknown transition, or one needing extra textures, dissolves.
+   Pipelines are compiled on first use and cached, not all 125 at start.
 5. Decoding: the clips in a transition decode on a stream of their own
    (`transition-0`/`transition-1`, alternating along the track; the video cache keys its sinks
    `mediaId#stream`), so two halves of one file each get their frames without seeking. Still to
@@ -157,6 +161,9 @@ interface Transition {
 - Export multiplies the gain in per sample (`mixAudioChannels`). In preview, clips under a
   crossfade take the prepared-buffer path, and their gain automation follows the curve. Volume
   keyframes still count from the clip's start.
+- Extract audio: the audio clip reaches into the handle across the window and fades there with
+  the same curve (`buildSeparatedAudioElement`), so it sounds as it did; two clips extracted at
+  one cut overlap there, on two audio tracks.
 
 ### Edits
 - Commands to add, update and remove a transition (`commands/timeline/transition/`), on
@@ -174,7 +181,10 @@ interface Transition {
 - Split: a transition at the split clip's end moves to the half that now ends there
   (`followSplitEnds`, from the split command); one at its start stays with the left half, which
   keeps the id. With `retainSide` "left" or "right", the side cut away loses its transition
-  through the reactor.
+  through the reactor. An agent's `remove` cuts a clip in two the same way (`agent/ranges.ts`).
+- Speed: a clip slowed down stops where the next clip on its track starts, the rest of its
+  media past its end (`timeline/update-pipeline.ts`), so a transition there stays. One sped up
+  leaves a gap with ripple off, and its transition there goes, as after a trim.
 - Later: resize limits that keep the transition's handle.
 
 ### Interface

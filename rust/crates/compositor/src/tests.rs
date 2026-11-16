@@ -89,7 +89,6 @@ fn transition(name: &str, progress: f32) -> TransitionDescriptor {
         transition: name.to_owned(),
         params: HashMap::new(),
         progress,
-        blend_mode: BlendMode::Normal,
     }
 }
 
@@ -246,6 +245,43 @@ fn an_unknown_transition_dissolves() {
     };
     let pixels = render(&context, &mut compositor, transition("NoSuch", 0.5));
     assert_all_near(&pixels, [128, 0, 128, 255], "halfway");
+}
+
+#[test]
+fn a_transition_blends_its_clips_as_they_are_outside_it() {
+    let Some((context, mut compositor)) = gpu() else {
+        return;
+    };
+    let screened = |texture_id: &str| LayerDescriptor {
+        blend_mode: BlendMode::Screen,
+        ..layer(texture_id)
+    };
+    let mut over_blue = |transition: TransitionDescriptor| {
+        render_items(
+            &context,
+            &mut compositor,
+            vec![
+                FrameItemDescriptor::Layer(layer("blue")),
+                FrameItemDescriptor::Transition(transition),
+            ],
+        )
+    };
+    // Red screened over blue is magenta, laid over it red.
+    let magenta = [255, 0, 255, 255];
+    for (progress, expected) in [(0.0, magenta), (1.0, BLUE)] {
+        let mut both = transition("Fade", progress);
+        both.from = Some(screened("red"));
+        both.to = Some(screened("blue"));
+        let what = format!("both screened, at {progress}");
+        assert_all_near(&over_blue(both), expected, &what);
+    }
+    for (progress, expected) in [(0.0, magenta), (0.5, [255, 0, 128, 255]), (1.0, RED)] {
+        let mut one = transition("Fade", progress);
+        one.from = Some(screened("red"));
+        one.to = Some(layer("red"));
+        let what = format!("one screened, at {progress}");
+        assert_all_near(&over_blue(one), expected, &what);
+    }
 }
 
 #[test]

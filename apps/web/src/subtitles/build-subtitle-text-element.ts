@@ -26,6 +26,8 @@ function quoteFontFamily({ fontFamily }: { fontFamily: string }): string {
 }
 
 function createMeasurementContext(): CanvasRenderingContext2D | null {
+	// None outside a page (a test): the text is placed unmeasured.
+	if (typeof document === "undefined") return null;
 	const canvas = document.createElement("canvas");
 	canvas.width = MEASUREMENT_CANVAS_SIZE;
 	canvas.height = MEASUREMENT_CANVAS_SIZE;
@@ -317,6 +319,7 @@ export function buildSubtitleTextElement({
 		name: `Caption ${index + 1}`,
 		duration: mediaTimeFromSeconds({ seconds: caption.duration }),
 		startTime: mediaTimeFromSeconds({ seconds: caption.startTime }),
+		...(caption.assStyle ? { assStyle: caption.assStyle } : {}),
 		params: {
 			...DEFAULTS.text.element.params,
 			content,

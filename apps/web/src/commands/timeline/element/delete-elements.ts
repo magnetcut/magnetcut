@@ -59,6 +59,7 @@ export class DeleteElementsCommand extends Command {
 				selectedKeyframes: [],
 				keyframeSelectionAnchor: null,
 				selectedMaskPoints: null,
+				selectedTransition: null,
 			},
 		};
 	}

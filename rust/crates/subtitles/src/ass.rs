@@ -148,8 +148,11 @@ fn from_ass(text: &str) -> String {
     let mut rest = text;
     while !rest.is_empty() {
         if let Some(block) = rest.strip_prefix('{') {
+            // A brace never closed is text, as libass reads it.
             let Some((tags, after)) = block.split_once('}') else {
-                break;
+                result.push('{');
+                rest = block;
+                continue;
             };
             for tag in tags.split('\\').filter(|tag| !tag.is_empty()) {
                 for (index, name) in ["i", "b", "u"].iter().enumerate() {
@@ -179,6 +182,13 @@ fn from_ass(text: &str) -> String {
         } else if let Some(after) = rest.strip_prefix("\\h") {
             result.push('\u{a0}');
             rest = after;
+        } else if let Some(after) = rest.strip_prefix("\\{") {
+            // A brace that's text, as libass reads it.
+            result.push('{');
+            rest = after;
+        } else if let Some(after) = rest.strip_prefix("\\}") {
+            result.push('}');
+            rest = after;
         } else {
             // Text up to the next tag or escape, from the character after
             // the first, which is text even if it's a brace or a backslash.
@@ -199,7 +209,9 @@ fn from_ass(text: &str) -> String {
 }
 
 fn to_ass(text: &str) -> String {
-    text.replace("<i>", "{\\i1}")
+    // A brace in the text would start override tags, and hide what follows.
+    text.replace('{', "\\{")
+        .replace("<i>", "{\\i1}")
         .replace("</i>", "{\\i0}")
         .replace("<b>", "{\\b1}")
         .replace("</b>", "{\\b0}")
@@ -387,12 +399,27 @@ Dialogue: 0,0:00:04.00,0:00:05.00,Sign,,0,0,0,,{\\b700}Exit{\\b0}
             ("日本語\\Nです", "日本語\nです"),
             ("😀{\\b1}ok", "😀<b>ok</b>"),
             ("à\\hé", "à\u{a0}é"),
+            ("a \\{note\\} b", "a {note} b"),
+            ("{\\i1}a { b\\Nc {", "<i>a { b\nc {</i>"),
         ];
         for (text, expected) in cases {
             assert_eq!(from_ass(text), expected, "{text:?}");
         }
         let script = SCRIPT.replace("there\\Nfriend", "Ünïcödé\\Nmünchen");
         assert_eq!(read(&script).cues[0].text, "<i>Hello,</i> Ünïcödé\nmünchen");
+    }
+
+    #[test]
+    fn writes_braces_in_the_text_as_text() {
+        let cues = vec![Cue {
+            start: 1.0,
+            end: 2.0,
+            text: "<i>{note}</i> 5 < 6".into(),
+            style: None,
+        }];
+        let text = write(&cues, None, false);
+        assert!(text.ends_with(",,{\\i1}\\{note}{\\i0} 5 < 6\n"), "{text}");
+        assert_eq!(read(&text).cues[0].text, cues[0].text);
     }
 
     #[test]

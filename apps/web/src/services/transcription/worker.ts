@@ -124,15 +124,15 @@ async function handleInit({ modelId }: { modelId: string }) {
 	}
 }
 
-/** Each word's time, where the model has what it takes to time words:
- * none otherwise, or if it fails. */
+/** The text and each word's time, where the model has what it takes to
+ * time words: none otherwise, or if it fails. */
 async function transcribeWords({
 	audio,
 	language,
 }: {
 	audio: Float32Array;
 	language: string;
-}): Promise<TranscriptionSegment[] | null> {
+}): Promise<{ text: string; words: TranscriptionSegment[] } | null> {
 	if (!transcriber) return null;
 	try {
 		const rawResult = await transcriber(audio, {
@@ -154,7 +154,7 @@ async function transcribeWords({
 				});
 			}
 		}
-		return words.length > 0 ? words : null;
+		return words.length > 0 ? { text: result.text, words } : null;
 	} catch (error) {
 		console.warn("Whisper couldn't time words, using its segments:", error);
 		return null;
@@ -180,8 +180,19 @@ async function handleTranscribe({
 
 	cancelled = false;
 
-	const words = wantsWords ? await transcribeWords({ audio, language }) : null;
+	const timed = wantsWords ? await transcribeWords({ audio, language }) : null;
 	if (cancelled) return;
+	// The words timed, Whisper isn't run again for its segments: each word
+	// is one.
+	if (timed) {
+		self.postMessage({
+			type: "transcribe-complete",
+			text: timed.text,
+			segments: timed.words,
+			words: timed.words,
+		} satisfies WorkerResponse);
+		return;
+	}
 
 	try {
 		const rawResult = await transcriber(audio, {
@@ -215,7 +226,6 @@ async function handleTranscribe({
 			type: "transcribe-complete",
 			text: result.text,
 			segments,
-			...(words ? { words } : {}),
 		} satisfies WorkerResponse);
 	} catch (error) {
 		if (cancelled) return;

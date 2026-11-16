@@ -2,13 +2,17 @@ import { describe, expect, test } from "bun:test";
 import {
 	fitSpeech,
 	hashSpeech,
+	isSpokenFile,
+	listCuesToSend,
 	MAX_SPEED_UP,
 	nameSpokenFile,
 	SPOKEN_TRACK_NAME,
 	spokenTrackName,
 	toSpokenText,
+	type CueToSpeak,
 	type SpeechChoice,
 } from "../speech";
+import type { MediaAsset } from "@/media/types";
 import type { TextTrack } from "@/timeline";
 
 const CHOICE: SpeechChoice = {
@@ -51,6 +55,42 @@ describe("speaking the subtitles", () => {
 		expect(nameSpokenFile({ text: "???", hash: "0123456789abcdef" })).toBe(
 			"Cue · 0123456789abcdef.wav",
 		);
+		expect(
+			nameSpokenFile({ text: "Bell\u0007 rings", hash: "0123456789abcdef" }),
+		).toBe("Bell  rings · 0123456789abcdef.wav");
+	});
+
+	test("a spoken cue is found by its key, also where its file got a number", () => {
+		const hash = "0123456789abcdef";
+		expect(isSpokenFile({ name: `Hello · ${hash}.wav`, hash })).toBe(true);
+		expect(isSpokenFile({ name: `Hello · ${hash} 2.wav`, hash })).toBe(true);
+		expect(isSpokenFile({ name: `Hello · ${hash}2.wav`, hash })).toBe(false);
+		expect(isSpokenFile({ name: "Hello · fedcba9876543210.wav", hash })).toBe(
+			false,
+		);
+	});
+
+	test("each text is sent once, and none spoken before", () => {
+		const cue = ({ text, asset }: { text: string; asset?: MediaAsset }) =>
+			({
+				start: 0,
+				end: 1,
+				nextStart: null,
+				text,
+				hash: hashSpeech({ choice: CHOICE, text }),
+				asset: asset ?? null,
+			}) satisfies CueToSpeak;
+		// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- a stand-in: only whether there is one counts.
+		const spoken = { id: "a" } as MediaAsset;
+		const sent = listCuesToSend({
+			cues: [
+				cue({ text: "Yes." }),
+				cue({ text: "No." }),
+				cue({ text: "Yes." }),
+				cue({ text: "Maybe.", asset: spoken }),
+			],
+		});
+		expect(sent.map(({ text }) => text)).toEqual(["Yes.", "No."]);
 	});
 
 	test("speech that fits plays as it is", () => {

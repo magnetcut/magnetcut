@@ -1,5 +1,4 @@
 import { ThemeProvider } from "next-themes";
-import Script from "next/script";
 import "./globals.css";
 import { Toaster } from "../components/ui/sonner";
 import { TooltipProvider } from "../components/ui/tooltip";
@@ -18,17 +17,6 @@ export default function RootLayout({
 }>) {
 	return (
 		<html lang="en" suppressHydrationWarning>
-			<head>
-				{process.env.NODE_ENV === "development" && (
-					<>
-						<Script
-							src="//unpkg.com/react-scan/dist/auto.global.js"
-							crossOrigin="anonymous"
-							strategy="beforeInteractive"
-						/>
-					</>
-				)}
-			</head>
 			<body className={`${siteFont.className} font-sans antialiased`}>
 				<ThemeProvider
 					attribute="class"

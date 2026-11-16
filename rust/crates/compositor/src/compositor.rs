@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use bytemuck::{Pod, Zeroable};
 use effects::{ApplyEffectsOptions, EffectPass, EffectPipeline, UniformValue};
+use gl_transitions::ParamValues;
 use gpu::{FULLSCREEN_SHADER_SOURCE, GpuContext, wgpu};
 use masks::{ApplyMaskFeatherOptions, MaskFeatherPipeline};
 use thiserror::Error;
@@ -421,16 +424,7 @@ impl Compositor {
                     };
                 }
                 FrameItemDescriptor::Transition(transition) => {
-                    let texture = self.render_transition(context, encoder, frame, transition)?;
-                    scene = self.blend_texture(
-                        context,
-                        encoder,
-                        &scene,
-                        &texture,
-                        transition.blend_mode,
-                        frame.width,
-                        frame.height,
-                    )?;
+                    scene = self.render_transition(context, encoder, frame, &scene, transition)?;
                 }
             }
         }
@@ -438,13 +432,16 @@ impl Compositor {
     }
 
     /// Both layers, each with its own transform, effects and mask, drawn into
-    /// one by the transition: on premultiplied colours, so that transparent
-    /// areas don't darken what's around them.
+    /// one by the transition, then blended into the scene with their blend
+    /// mode, as each is outside the transition. Layers with different modes:
+    /// blended with each, the scene going from the outgoing one's to the
+    /// incoming one's.
     fn render_transition(
         &mut self,
         context: &GpuContext,
         encoder: &mut wgpu::CommandEncoder,
         frame: &FrameDescriptor,
+        scene: &wgpu::Texture,
         transition: &TransitionDescriptor,
     ) -> Result<wgpu::Texture, CompositorError> {
         let mut side = |layer: Option<&LayerDescriptor>| match layer {
@@ -459,7 +456,44 @@ impl Compositor {
         };
         let from = side(transition.from.as_ref())?;
         let to = side(transition.to.as_ref())?;
+        let params = transition_params(find_transition(&transition.transition), &transition.params);
+        let progress = transition.progress.clamp(0.0, 1.0);
+        let mixed = self.mix_textures(context, encoder, &from, &to, &params, progress);
         let (width, height) = (frame.width, frame.height);
+        let mode = |layer: &Option<LayerDescriptor>| layer.as_ref().map(|layer| layer.blend_mode);
+        match (mode(&transition.from), mode(&transition.to)) {
+            (Some(outgoing), Some(incoming)) if outgoing != incoming => {
+                let outgoing =
+                    self.blend_texture(context, encoder, scene, &mixed, outgoing, width, height)?;
+                let incoming =
+                    self.blend_texture(context, encoder, scene, &mixed, incoming, width, height)?;
+                let fade = transition_params(find_transition("Fade"), &HashMap::new());
+                Ok(self.mix_textures(context, encoder, &outgoing, &incoming, &fade, progress))
+            }
+            (outgoing, incoming) => self.blend_texture(
+                context,
+                encoder,
+                scene,
+                &mixed,
+                outgoing.or(incoming).unwrap_or(BlendMode::Normal),
+                width,
+                height,
+            ),
+        }
+    }
+
+    /// From one picture to the other by a transition: on premultiplied
+    /// colours, so that transparent areas don't darken what's around them.
+    fn mix_textures(
+        &mut self,
+        context: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        from: &wgpu::Texture,
+        to: &wgpu::Texture,
+        params: &ParamValues,
+        progress: f32,
+    ) -> wgpu::Texture {
+        let (width, height) = (from.width(), from.height());
         let mut convert = |source: &wgpu::Texture, alpha: Alpha| {
             let target = self
                 .texture_pool
@@ -468,12 +502,11 @@ impl Compositor {
                 .convert_alpha_with_encoder(context, encoder, source, &target, alpha);
             target
         };
-        let from = convert(&from, Alpha::Premultiply);
-        let to = convert(&to, Alpha::Premultiply);
+        let from = convert(from, Alpha::Premultiply);
+        let to = convert(to, Alpha::Premultiply);
         let mixed = self
             .texture_pool
             .acquire(context, width, height, "compositor-transition");
-        let params = transition_params(find_transition(&transition.transition), &transition.params);
         self.transitions.apply_with_encoder(
             context,
             encoder,
@@ -481,8 +514,8 @@ impl Compositor {
                 from: &from,
                 to: &to,
                 target: &mixed,
-                params: &params,
-                progress: transition.progress.clamp(0.0, 1.0),
+                params,
+                progress,
                 width,
                 height,
             },
@@ -497,7 +530,7 @@ impl Compositor {
             &target,
             Alpha::Unpremultiply,
         );
-        Ok(target)
+        target
     }
 
     fn render_layer(

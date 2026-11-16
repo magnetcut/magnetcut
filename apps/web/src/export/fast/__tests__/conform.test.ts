@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { mediaTime, TICKS_PER_SECOND } from "@/wasm";
 import {
 	chooseConformSound,
 	chooseConformTarget,
@@ -10,6 +11,7 @@ import {
 import {
 	chooseConvertedFormat,
 	getConvertedPart,
+	isInConvertedPart,
 	nameConvertedFile,
 	PART_MARGIN,
 } from "../convert";
@@ -175,6 +177,37 @@ describe("a converted file", () => {
 		expect(
 			getConvertedPart({ file: { usedFrom: 2, usedTo: 57, duration: 60 } }),
 		).toBeNull();
+	});
+
+	test("takes the place only of clips within the part", () => {
+		const part = { start: 95, end: 205 };
+		const clip = ({
+			from,
+			seconds,
+			rate,
+		}: {
+			from: number;
+			seconds: number;
+			rate?: number;
+		}) => ({
+			trimStart: mediaTime({ ticks: from * TICKS_PER_SECOND }),
+			duration: mediaTime({ ticks: seconds * TICKS_PER_SECOND }),
+			...(rate && { retime: { rate } }),
+		});
+		expect(
+			isInConvertedPart({ element: clip({ from: 100, seconds: 50 }), part }),
+		).toBe(true);
+		// A hidden clip, which the part wasn't made for, further on.
+		expect(
+			isInConvertedPart({ element: clip({ from: 400, seconds: 10 }), part }),
+		).toBe(false);
+		// 60 s at twice the speed is 120 s of the file: past the part's end.
+		expect(
+			isInConvertedPart({
+				element: clip({ from: 100, seconds: 60, rate: 2 }),
+				part,
+			}),
+		).toBe(false);
 	});
 
 	test("is named for its size and part", () => {

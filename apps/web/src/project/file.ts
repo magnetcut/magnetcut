@@ -1,5 +1,10 @@
 import type { MediaAsset } from "@/media/types";
 import {
+	CURRENT_PROJECT_VERSION,
+	migrateProject,
+	migrations,
+} from "@/services/storage/migrations";
+import {
 	deserializeProject,
 	serializeProject,
 } from "@/services/storage/service";
@@ -73,8 +78,20 @@ function isSerializedProject(value: unknown): value is SerializedProject {
 		typeof value.metadata === "object" &&
 		value.metadata !== null &&
 		"scenes" in value &&
-		Array.isArray(value.scenes)
+		Array.isArray(value.scenes) &&
+		value.scenes.length > 0 &&
+		"settings" in value &&
+		typeof value.settings === "object" &&
+		value.settings !== null &&
+		"version" in value &&
+		typeof value.version === "number"
 	);
+}
+
+function projectVersion({ project }: { project: unknown }): unknown {
+	return typeof project === "object" && project !== null && "version" in project
+		? project.version
+		: undefined;
 }
 
 function isMedium(value: unknown): value is ProjectFileMedium {
@@ -90,11 +107,21 @@ function isMedium(value: unknown): value is ProjectFileMedium {
 	);
 }
 
-/** A project file's project and media; throws, saying why, if it isn't one. */
-export function parseProjectFile({ text }: { text: string }): {
+/**
+ * A project file's project and media; throws, saying why, if it isn't one.
+ * One from an older MagnetCut is brought up to date, as stored projects are,
+ * as the project `projectId` it's to be.
+ */
+export async function parseProjectFile({
+	text,
+	projectId,
+}: {
+	text: string;
+	projectId: string;
+}): Promise<{
 	project: TProject;
 	media: ProjectFileMedium[];
-} {
+}> {
 	let value: unknown;
 	try {
 		value = JSON.parse(text);
@@ -114,12 +141,26 @@ export function parseProjectFile({ text }: { text: string }): {
 			`It's a MagnetCut project of another version (${String(value.magnetcut)})`,
 		);
 	}
+	const version = projectVersion({ project: value.project });
+	if (typeof version === "number" && version > CURRENT_PROJECT_VERSION) {
+		throw new Error(
+			`It's from a newer MagnetCut (project version ${version}): update this one to open it`,
+		);
+	}
 	if (!isSerializedProject(value.project)) {
+		throw new Error("The project in it is damaged");
+	}
+	const migrated = await migrateProject({
+		projectId,
+		project: value.project,
+		migrations,
+	});
+	if (!isSerializedProject(migrated)) {
 		throw new Error("The project in it is damaged");
 	}
 	const media =
 		"media" in value && Array.isArray(value.media)
 			? value.media.filter(isMedium)
 			: [];
-	return { project: deserializeProject({ serialized: value.project }), media };
+	return { project: deserializeProject({ serialized: migrated }), media };
 }

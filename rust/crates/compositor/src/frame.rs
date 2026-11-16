@@ -41,7 +41,8 @@ pub enum FrameItemDescriptor {
     Transition(TransitionDescriptor),
 }
 
-/// Two layers, drawn into one by a transition, then blended into the scene.
+/// Two layers, drawn into one by a transition, then blended into the scene
+/// with their blend modes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransitionDescriptor {
@@ -56,7 +57,6 @@ pub struct TransitionDescriptor {
     pub params: HashMap<String, TransitionParamValue>,
     /// From 0, the outgoing clip, to 1, the incoming one.
     pub progress: f32,
-    pub blend_mode: BlendMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

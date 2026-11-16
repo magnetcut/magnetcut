@@ -22,6 +22,75 @@ All notable changes to this project are documented here. The format is based on
 - ASS and SSA subtitles whose lines start with a letter English doesn't have, or have one right
   after a tag ("¿Qué?", "{\i1}Привет", "日本語"), open: they crashed the subtitle reader. So do
   other subtitle files that start with such letters.
+- Record, cancelled during the 3-2-1 and pressed again, records one take: before, the first
+  count-in carried on, and a take could go on recording while the panel showed it as stopped.
+- Speak the subtitles sends a line once when several cues say it. A cue whose file was saved as
+  "… 2.wav", because the first was taken out of the project, is found again: before, it was sent
+  to the provider on every run. A cue with a control character in it no longer stops the run
+  after the provider has been paid for it.
+- A spoken cue sped up to fit plays all its speech when set back to normal speed: the last part
+  was cut off, and the clip couldn't be made longer.
+
+Projects and saving:
+- The last changes are saved before another project opens, when the window closes and on Quit:
+  up to a second of edits could be lost. A save that fails now says so and is tried again, and
+  the project stays open rather than closing without it.
+- Undo after opening another project no longer brings back the previous project's clips.
+- Deleting the open project while it was being saved could bring it back. A duplicated project
+  keeps the media whose files are missing.
+- A video with no sound no longer shows the Audio tab after reopening the project.
+- A project file that's damaged, or from a newer MagnetCut, is refused with a message instead of
+  opening empty.
+- The once-a-day update check no longer asks GitHub every hour when it fails.
+
+Editing:
+- Splitting a clip with a fade no longer fades both halves at the cut, and a cut made by an agent
+  keeps the clip's keyframes, so a Hide region still follows the face after it, its fades and
+  its transition.
+- Redo after a split, paste or duplicate brings back the same clips, so the redos after it work.
+- Slowing a clip down no longer runs it over the next one.
+- Two transitions on a clip too short for both no longer overlap: they share it.
+- A transition on a clip blended with Screen, Multiply or another mode keeps that mode, instead
+  of jumping to Normal for the transition.
+- Extract audio keeps the clip's audio effects, fades and transition crossfade.
+- Undo of the first clip put on the timeline also puts back the canvas size and frame rate.
+- A transition that's gone is no longer left selected, where Delete did nothing.
+
+Export:
+- Fast mode lists Hide regions first among what it leaves out, since what they hide shows, and
+  says when the file's size or shape isn't the canvas's.
+- Fast mode's conversion changes only the clips in the part converted.
+- Copying the sound of an MKV or MPEG-TS file no longer fails part way: those are exported by
+  the web view, which copies from any container.
+- Reloading the window during an export stops it, deletes the half-written file and lets the
+  computer sleep again.
+- While Track, Find or a snapshot runs, the preview no longer flashes the frames it draws for
+  them, where a hidden face showed.
+
+Subtitles:
+- Saved subtitles keep italic, bold, underline and ASS styles, and text such as "5 < 6" or
+  "{note}" is kept as text rather than taken for markup.
+- MicroDVD files are saved with their frame rate, so they reopen in time; one without a rate
+  opens at the project's.
+- SRT cues with no blank line between them, files with old Mac line endings, and UTF-16 with no
+  byte order mark open properly.
+- Changing a line's text in the line editor after a Shift no longer undoes the shift.
+- Lining up the script works where the audio has stretches of digital silence, and in Chinese,
+  Japanese, Thai, Lao, Khmer and Burmese. Lines are never timed to nothing, and two-point sync
+  refuses marks that cross.
+- Time the script runs Whisper once rather than twice.
+
+Agents:
+- A revoked agent, or agent mode switched off, ends the calls that were on their way, and those
+  calls can no longer write files.
+- Starting an agent while MagnetCut is open no longer opens a second copy of the app.
+- A call made as the editor loads, or that timed out, no longer hangs or runs late; Stop after a
+  tool finished reports what it did.
+- Agents can't make clips overlap, put a clip on the wrong kind of track, or edit while a project
+  is opening; a dry run leaves Redo and the canvas as they were; failed imports and unknown
+  transitions are reported.
+- The server answers only `127.0.0.1` and anything without the token with 401, and reads the
+  `Bearer` scheme in any case.
 
 ## [0.1.4] - 2026-11-04
 

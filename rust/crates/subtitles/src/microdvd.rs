@@ -114,17 +114,32 @@ pub fn read(text_in: &str, frame_rate: Option<f64>) -> Parsed {
 }
 
 pub fn write(cues: &[Cue], frame_rate: f64) -> String {
-    let mut text = String::new();
+    // The frame rate first, "{1}{1}25", for it to open at the rate it was
+    // saved at.
+    let rate = format!("{frame_rate:.3}");
+    let mut text = format!(
+        "{{1}}{{1}}{}\n",
+        rate.trim_end_matches('0').trim_end_matches('.')
+    );
     for cue in cues {
+        // A code styles a whole line: each style on in any of it, from a tag
+        // in it or one still open from the line before.
+        let mut open = [false; 3];
         let lines: Vec<String> = cue
             .text
             .lines()
             .map(|line| {
-                let codes: String = ["i", "b", "u"]
-                    .iter()
-                    .filter(|style| line.contains(&format!("<{style}>")))
-                    .map(|style| format!("{{y:{style}}}"))
-                    .collect();
+                let mut codes = String::new();
+                for (style, is_open) in ["i", "b", "u"].iter().zip(&mut open) {
+                    let opened = line.rfind(&format!("<{style}>"));
+                    let closed = line.rfind(&format!("</{style}>"));
+                    if *is_open || opened.is_some() {
+                        codes.push_str(&format!("{{y:{style}}}"));
+                    }
+                    if opened.is_some() || closed.is_some() {
+                        *is_open = opened > closed;
+                    }
+                }
                 format!("{codes}{}", plain(line))
             })
             .collect();
@@ -154,6 +169,22 @@ mod tests {
         assert_eq!((parsed.cues[0].start, parsed.cues[0].end), (1.0, 2.0));
         assert_eq!(parsed.cues[0].text, "<i>Hello</i>\nthere");
         assert_eq!(parsed.cues[1].text, "<b>One</b>\n<b>Two</b>");
+    }
+
+    #[test]
+    fn writes_the_frame_rate_and_styles_across_lines() {
+        let cues = [Cue {
+            start: 1.0,
+            end: 2.0,
+            text: "<i>One\nTwo</i>\n5 < 6".into(),
+            style: None,
+        }];
+        let text = write(&cues, 25.0);
+        assert_eq!(text, "{1}{1}25\n{25}{50}{y:i}One|{y:i}Two|5 < 6\n");
+        let parsed = read(&text, None);
+        assert!(parsed.warnings.is_empty());
+        assert_eq!((parsed.cues[0].start, parsed.cues[0].end), (1.0, 2.0));
+        assert!(write(&cues, 24000.0 / 1001.0).starts_with("{1}{1}23.976\n"));
     }
 
     #[test]

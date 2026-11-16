@@ -18,6 +18,7 @@ import type {
 	RenderedTextureDescriptor,
 	TextureUploadDescriptor,
 } from "./types";
+import { OutputHold } from "./output-hold";
 
 /**
  * One slot in the derived-texture cache. The OffscreenCanvas is persistent —
@@ -44,12 +45,17 @@ class WasmCompositor {
 	private canvas: HTMLCanvasElement | null = null;
 	private initializedSize: { width: number; height: number } | null = null;
 	private cache = new Map<string, RenderedCacheEntry | ExternalCacheEntry>();
+	private hold = new OutputHold({
+		createCanvas: () => document.createElement("canvas"),
+	});
 
 	ensureInitialized({ width, height }: { width: number; height: number }) {
 		if (!this.canvas) {
 			initCompositor(width, height);
 			this.canvas = getCompositorCanvas();
 			this.initializedSize = { width, height };
+			// Made for a frame drawn for someone else: hidden too.
+			if (this.hold.isHeld()) this.hold.hold({ output: this.canvas });
 			return;
 		}
 
@@ -68,6 +74,26 @@ class WasmCompositor {
 			throw new Error("Compositor is not initialized");
 		}
 		return this.canvas;
+	}
+
+	/** Laid over the canvas while frames are drawn for someone else (OutputHold). */
+	getHoldCover(): HTMLCanvasElement {
+		return this.hold.getCover();
+	}
+
+	/** Before a frame for someone else: before a resize, which clears the canvas. */
+	holdOutput() {
+		this.hold.hold({ output: this.canvas });
+	}
+
+	/** After the preview has drawn its own frame. */
+	releaseOutput() {
+		this.hold.release({ output: this.canvas });
+	}
+
+	/** Whether the preview should draw its frame again, to be shown again. */
+	isHoldSettled(): boolean {
+		return this.hold.isSettled();
 	}
 
 	syncTextures(textures: TextureUploadDescriptor[]) {

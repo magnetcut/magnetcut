@@ -45,6 +45,7 @@ import {
 	MAX_SPEED_UP,
 	SPEECH_PROVIDERS,
 	SPOKEN_TRACK_NAME,
+	listCuesToSend,
 	listCuesToSpeak,
 	speakCues,
 	speechApi,
@@ -549,7 +550,7 @@ function SpeakFields() {
 				: [],
 		[track, choice, assets],
 	);
-	const toSend = cues.filter(({ asset }) => asset === null);
+	const toSend = listCuesToSend({ cues });
 	const characters = toSend.reduce((sum, { text }) => sum + text.length, 0);
 	const providerName =
 		SPEECH_PROVIDERS.find(({ value }) => value === provider)?.label ?? provider;

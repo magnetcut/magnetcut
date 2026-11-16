@@ -2,9 +2,11 @@ import {
 	ALL_FORMATS,
 	EncodedPacketSink,
 	Input,
+	IsobmffInputFormat,
 	type AudioCodec,
 	type EncodedPacket,
 	type InputAudioTrack,
+	type InputFormat,
 } from "mediabunny";
 import type { SceneTracks } from "@/timeline";
 import type { MediaAsset } from "@/media/types";
@@ -35,7 +37,23 @@ export interface AudioPassthrough {
 	/** Its packets in order, up to where the timeline stops hearing it. */
 	packets: () => AsyncGenerator<EncodedPacket, void, unknown>;
 	decoderConfig: AudioDecoderConfig;
+	/** Whether the desktop app's own export can copy it (isNativeCopyFormat). */
+	isNativeCopy: boolean;
 	close: () => void;
+}
+
+/**
+ * Whether the desktop app's own export copies sound from a file in this
+ * format: MP4 or QuickTime only, the files it reads sound from on every
+ * system (Linux's demuxer reads no other). From another, the web view's
+ * export copies it.
+ */
+export function isNativeCopyFormat({
+	format,
+}: {
+	format: InputFormat;
+}): boolean {
+	return format instanceof IsobmffInputFormat;
 }
 
 /**
@@ -85,6 +103,7 @@ export async function openAudioPassthrough({
 			sampleRate: track.sampleRate,
 			bitrate: stats.averageBitrate,
 			decoderConfig,
+			isNativeCopy: isNativeCopyFormat({ format: await input.getFormat() }),
 			packets: async function* () {
 				for await (const packet of sink.packets()) {
 					// Through the packet the clip or the timeline ends in.

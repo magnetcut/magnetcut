@@ -8,6 +8,7 @@ import type {
 import {
 	getFittingAlignment,
 	getTransitionProgress,
+	getTransitionWindow,
 	resolveTrackTransitions,
 } from "@/transitions";
 import { mediaTime, TICKS_PER_SECOND } from "@/wasm";
@@ -204,6 +205,46 @@ describe("transitions on a track", () => {
 			transitions: [dissolve()],
 		});
 		expect(windowOf({ transitionTrack: hidden })).toBeNull();
+	});
+
+	test("two at the ends of a short clip share it", () => {
+		// 0.5 s centred at both ends of a 0.3 s clip: each would take 0.25 s
+		// of it, so each gets half.
+		const b = image({ id: "b", start: 5, duration: 0.3 });
+		const c = image({ id: "c", start: 5.3, duration: 5 });
+		const next = {
+			...dissolve({ duration: 0.5 }),
+			id: "u",
+			fromElementId: "b",
+			toElementId: "c",
+		};
+		const transitionTrack = track({
+			elements: [image({ id: "a", start: 0, duration: 5 }), b, c],
+			transitions: [dissolve({ duration: 0.5 }), next],
+		});
+		const [first, second] = resolveTrackTransitions({
+			track: transitionTrack,
+		}).map(({ window }) => window);
+		const middle = b.startTime + Math.floor(b.duration / 2);
+		expect(first).toEqual({
+			start: b.startTime - (middle - b.startTime),
+			end: middle,
+			clamped: true,
+		});
+		expect(second?.start).toBe(middle);
+		expect(second?.clamped).toBe(true);
+		// The inspector says the same, given the track.
+		expect(
+			getTransitionWindow({
+				transition: next,
+				from: b,
+				to: c,
+				track: transitionTrack,
+			}),
+		).toEqual(second ?? null);
+		expect(
+			getTransitionWindow({ transition: next, from: b, to: c })?.clamped,
+		).toBe(false);
 	});
 
 	test("progress across the window", () => {

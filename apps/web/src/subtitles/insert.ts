@@ -1,3 +1,4 @@
+import type { AssScriptData } from "magnetcut-wasm";
 import type { EditorCore } from "@/core";
 import {
 	AddTrackCommand,
@@ -11,9 +12,12 @@ import type { SubtitleCue } from "./types";
 export function insertCaptionChunksAsTextTrack({
 	editor,
 	captions,
+	assScript,
 }: {
 	editor: EditorCore;
 	captions: SubtitleCue[];
+	/** The ASS or SSA file they were opened from, to save them back in. */
+	assScript?: AssScriptData;
 }): string | null {
 	if (captions.length === 0) {
 		return null;
@@ -23,6 +27,7 @@ export function insertCaptionChunksAsTextTrack({
 		type: "text",
 		index: 0,
 		subtitles: true,
+		assScript,
 	});
 	const trackId = addTrackCommand.getTrackId();
 	const canvasSize = editor.project.getActive().settings.canvasSize;
@@ -62,6 +67,7 @@ export function addTranslationTrack({
 		subtitles: true,
 		name: `${track.name} (translation)`,
 		translationOf: track.id,
+		assScript: track.assScript,
 	});
 	const trackId = addTrack.getTrackId();
 	const inserts = track.elements.map(

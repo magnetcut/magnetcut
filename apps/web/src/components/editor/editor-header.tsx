@@ -40,6 +40,7 @@ function ProjectDropdown() {
 		"delete" | "rename" | "shortcuts" | null
 	>(null);
 	const [isExiting, setIsExiting] = useState(false);
+	const exitWarned = useRef(false);
 	const router = useRouter();
 	const editor = useEditor();
 	const activeProject = useEditor((e) => e.project.getActive());
@@ -50,13 +51,20 @@ function ProjectDropdown() {
 
 		try {
 			await editor.project.prepareExit();
-			editor.project.closeProject();
 		} catch (error) {
-			console.error("Failed to prepare project exit:", error);
-		} finally {
-			editor.project.closeProject();
-			router.push("/projects");
+			// Not saved: the project stays open, once, to say so; leaving again
+			// leaves without the latest changes.
+			if (!exitWarned.current) {
+				exitWarned.current = true;
+				setIsExiting(false);
+				toast.error("Couldn't save the project", {
+					description: `Leave again to leave without the latest changes. ${error instanceof Error ? error.message : String(error)}`,
+				});
+				return;
+			}
 		}
+		editor.project.closeProject();
+		router.push("/projects");
 	};
 
 	const handleSaveProjectName = async (newName: string) => {

@@ -1,4 +1,5 @@
 import type { EditorCore } from "@/core";
+import type { TProject } from "@/project/types";
 
 // What every agent tool is (docs/AUTOMATION.md): its name, a short
 // description, its arguments' schema, and its work, with what it may use.
@@ -38,6 +39,28 @@ export interface Tool {
 
 /** A failure the agent reads and can act on. */
 export class ToolError extends Error {}
+
+/** The project open in the editor, once it's loaded: its scenes, media and
+ * fonts in. Until then a tool would see it half there. */
+export function needProject({ editor }: { editor: EditorCore }): TProject {
+	const project = editor.project.getActiveOrNull();
+	if (
+		!project ||
+		typeof location === "undefined" ||
+		location.pathname !== "/editor"
+	) {
+		throw new ToolError(
+			"No project is open: `project` with action open or new first",
+		);
+	}
+	if (
+		editor.project.getLoadedProjectId() !== project.metadata.id ||
+		!editor.scenes.getActiveSceneOrNull()
+	) {
+		throw new ToolError("The project is still opening: try again in a moment");
+	}
+	return project;
+}
 
 /** A short fingerprint of the timeline: it changes when anything on it does. */
 export function revisionOf({ value }: { value: unknown }): string {

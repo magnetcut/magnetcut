@@ -109,35 +109,40 @@ export function mapAssStyle({
 }
 
 const TAGS = ["i", "b", "u"] as const;
+type Tag = (typeof TAGS)[number];
 
 /** A cue's text without markup, and which of italic, bold and underline
- * cover all of it: a caption is styled as a whole. */
+ * cover all of it (in one tag, or in one on each line): a caption is styled
+ * as a whole. */
 function splitMarkup({ text }: { text: string }): {
 	text: string;
-	whole: Set<(typeof TAGS)[number]>;
+	whole: Set<Tag>;
 	isPartlyStyled: boolean;
 } {
-	const whole = new Set<(typeof TAGS)[number]>();
-	let rest = text.trim();
-	let isStripping = true;
-	while (isStripping) {
-		isStripping = false;
-		for (const tag of TAGS) {
-			const [open, close] = [`<${tag}>`, `</${tag}>`];
-			const inner = rest.slice(open.length, -close.length);
-			if (
-				rest.startsWith(open) &&
-				rest.endsWith(close) &&
-				!inner.includes(close)
-			) {
-				whole.add(tag);
-				rest = inner.trim();
-				isStripping = true;
-			}
+	const open = new Set<Tag>();
+	const used = new Set<Tag>();
+	const covering = new Set<Tag>(TAGS);
+	let plain = "";
+	for (const part of text.split(/(<\/?[ibu]>)/)) {
+		const match = /^<(\/?)([ibu])>$/.exec(part);
+		const tag = match && TAGS.find((candidate) => candidate === match[2]);
+		if (match && tag) {
+			if (match[1]) open.delete(tag);
+			else open.add(tag);
+			continue;
+		}
+		plain += part;
+		if (!part.trim()) continue;
+		for (const candidate of TAGS) {
+			if (open.has(candidate)) used.add(candidate);
+			else covering.delete(candidate);
 		}
 	}
-	const plain = rest.replace(/<\/?[ibu]>/g, "");
-	return { text: plain, whole, isPartlyStyled: plain !== rest };
+	return {
+		text: plain.trim(),
+		whole: new Set(TAGS.filter((tag) => used.has(tag) && covering.has(tag))),
+		isPartlyStyled: [...used].some((tag) => !covering.has(tag)),
+	};
 }
 
 /** What was opened, as the editor's captions. */
@@ -161,15 +166,22 @@ export function toCaptions({
 	let skippedCueCount = opened.skipped;
 	let partlyStyled = 0;
 	const captions: SubtitleCue[] = [];
-	for (const cue of opened.subtitles.cues) {
+	const cues = opened.subtitles.cues.map((cue) => ({
+		cue,
+		...splitMarkup({ text: cue.text }),
+	}));
+	// Subtitles are bold unless a file says otherwise: where it makes some
+	// lines bold, the rest aren't, and stay apart from them when saved.
+	const hasBoldLines = cues.some(({ whole }) => whole.has("b"));
+	for (const { cue, text, whole, isPartlyStyled } of cues) {
 		const duration = cue.end - cue.start;
 		if (!(duration > 0)) {
 			skippedCueCount += 1;
 			continue;
 		}
-		const { text, whole, isPartlyStyled } = splitMarkup({ text: cue.text });
 		if (isPartlyStyled) partlyStyled += 1;
 		const style: SubtitleStyleOverrides = {
+			...(hasBoldLines ? { fontWeight: "normal" } : {}),
 			...(cue.style ? styles.get(cue.style)?.style : undefined),
 			...(whole.has("i") ? { fontStyle: "italic" } : {}),
 			...(whole.has("b") ? { fontWeight: "bold" } : {}),
@@ -180,6 +192,7 @@ export function toCaptions({
 			startTime: cue.start,
 			duration,
 			...(Object.keys(style).length > 0 ? { style } : {}),
+			...(ass && cue.style ? { assStyle: cue.style } : {}),
 		});
 	}
 	if ([...styles.values()].some((style) => style.hasUnsupportedFeatures)) {
@@ -192,7 +205,12 @@ export function toCaptions({
 			`Italics or bold in part of ${partlyStyled} subtitle(s) were left out: a caption is styled as a whole.`,
 		);
 	}
-	return { captions, skippedCueCount, warnings };
+	return {
+		captions,
+		skippedCueCount,
+		warnings,
+		...(ass ? { assScript: ass } : {}),
+	};
 }
 
 /** A subtitle file opened as captions. MicroDVD counts frames: at

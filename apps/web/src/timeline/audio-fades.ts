@@ -1,3 +1,4 @@
+import type { ParamValues } from "@/params";
 import type { ElementParamDefinition } from "@/params/registry";
 import type { AudioCrossfade } from "@/transitions";
 import { TICKS_PER_SECOND } from "@/wasm";
@@ -60,6 +61,21 @@ export const FADE_PARAMS: ElementParamDefinition[] = [
 	length({ key: "fadeOut", label: "Fade out" }),
 	level({ key: "fadeOutLevel", label: "To" }),
 ];
+
+/**
+ * A clip cut in two's params, for each piece: the fade in stays at the first
+ * one's start and the fade out at the second one's end, so neither dips at
+ * the cut.
+ */
+export function splitFadeParams({ params }: { params: ParamValues }): {
+	left: ParamValues;
+	right: ParamValues;
+} {
+	return {
+		left: "fadeOut" in params ? { ...params, fadeOut: 0 } : params,
+		right: "fadeIn" in params ? { ...params, fadeIn: 0 } : params,
+	};
+}
 
 /** A clip's fades, in seconds of the clip. */
 export interface ClipFades {

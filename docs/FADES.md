@@ -90,6 +90,9 @@ clip's top corners, as in other editors. The sound is built, with the handles on
   edge dragged up or down for its level; a diamond with no fade dragged down makes one, a
   second long. A double-click on the diamond takes the fade off. Each drag is one undo step.
 - In the audio clip's Audio tab, a Fades section: the two lengths and, with a fade, its level.
+- A clip split in two (or cut in two by an agent's `remove`) keeps its fade in on the first
+  piece and its fade out on the second (`splitFadeParams`), so neither dips at the cut. Extract
+  audio takes the video clip's fades and effects to its audio clip.
 - Tested (`timeline/__tests__/audio-fades.test.ts`): the gain at the fades' ends and middles,
   with a level, the overlap shortened, the crossfaded end left out, and the export's mix.
   Checked in Chrome: the handles, the panel's values, and the gain the preview schedules.

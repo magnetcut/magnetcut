@@ -10,6 +10,7 @@ import {
 	resolveTrackPlacement,
 } from "@/timeline/placement";
 import { updateElementInSceneTracks } from "@/timeline/track-element-update";
+import { getAudioCrossfades } from "@/transitions";
 import type {
 	SceneTracks,
 	TimelineElement,
@@ -19,6 +20,9 @@ import { generateUUID } from "@/utils/id";
 
 export class ToggleSourceAudioSeparationCommand extends Command {
 	private savedState: SceneTracks | null = null;
+	// The audio clip's id and its track's, if it needs one: the same on redo.
+	private readonly audioElementId = generateUUID();
+	private readonly audioTrackId = generateUUID();
 
 	constructor(
 		private readonly params: {
@@ -74,8 +78,11 @@ export class ToggleSourceAudioSeparationCommand extends Command {
 		const separatedAudioElement = {
 			...buildSeparatedAudioElement({
 				sourceElement: videoElement,
+				crossfade: getAudioCrossfades({ tracks: this.savedState }).get(
+					videoElement.id,
+				),
 			}),
-			id: generateUUID(),
+			id: this.audioElementId,
 		};
 		const placementResult = resolveTrackPlacement({
 			tracks: this.savedState,
@@ -95,6 +102,7 @@ export class ToggleSourceAudioSeparationCommand extends Command {
 			tracks: this.savedState,
 			placementResult,
 			elements: [separatedAudioElement],
+			newTrackId: this.audioTrackId,
 		});
 		if (!appliedPlacement) {
 			return;

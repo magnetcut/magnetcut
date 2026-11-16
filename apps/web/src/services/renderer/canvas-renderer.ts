@@ -15,6 +15,8 @@ export type CanvasRendererParams = {
 	width: number;
 	height: number;
 	fps: FrameRate;
+	/** The preview's: what it draws is shown, also after frames drawn for others. */
+	isPreview?: boolean;
 };
 
 export class CanvasRenderer {
@@ -23,11 +25,13 @@ export class CanvasRenderer {
 	width: number;
 	height: number;
 	fps: FrameRate;
+	readonly isPreview: boolean;
 
-	constructor({ width, height, fps }: CanvasRendererParams) {
+	constructor({ width, height, fps, isPreview = false }: CanvasRendererParams) {
 		this.width = width;
 		this.height = height;
 		this.fps = fps;
+		this.isPreview = isPreview;
 
 		const surface = createCanvasSurface({ width, height });
 		this.canvas = surface.canvas;
@@ -40,6 +44,16 @@ export class CanvasRenderer {
 			height: this.height,
 		});
 		return wasmCompositor.getCanvas();
+	}
+
+	/** Shown over the output canvas while it holds frames drawn for others. */
+	getHoldCover(): HTMLCanvasElement {
+		return wasmCompositor.getHoldCover();
+	}
+
+	/** Whether the preview should draw its frame again: frames drawn for others have stopped. */
+	shouldRedrawHeld(): boolean {
+		return wasmCompositor.isHoldSettled();
 	}
 
 	setSize({ width, height }: { width: number; height: number }) {
@@ -55,11 +69,14 @@ export class CanvasRenderer {
 		node,
 		time,
 		filters,
+		isForOthers = false,
 	}: {
 		node: AnyBaseNode;
 		time: number;
 		/** Export's, on each video and on the frame. */
 		filters?: FilterPasses;
+		/** Not to be seen in the preview, which holds its own frame meanwhile. */
+		isForOthers?: boolean;
 	}) {
 		await measureSpanAsync({
 			name: "resolve",
@@ -69,6 +86,9 @@ export class CanvasRenderer {
 			name: "buildFrame",
 			fn: () => buildFrameDescriptor({ node, renderer: this, filters }),
 		});
+		// From here to the frame drawn, nothing waits: the preview's canvas is
+		// hidden, or shown again, along with what's drawn into it.
+		if (isForOthers) wasmCompositor.holdOutput();
 		wasmCompositor.ensureInitialized({
 			width: this.width,
 			height: this.height,
@@ -81,6 +101,7 @@ export class CanvasRenderer {
 			name: "renderFrame",
 			fn: () => wasmCompositor.render(frame),
 		});
+		if (this.isPreview) wasmCompositor.releaseOutput();
 	}
 
 	async renderToCanvas({
@@ -92,7 +113,7 @@ export class CanvasRenderer {
 		time: number;
 		targetCanvas: HTMLCanvasElement;
 	}) {
-		await this.render({ node, time });
+		await this.render({ node, time, isForOthers: true });
 
 		const ctx = targetCanvas.getContext("2d");
 		if (!ctx) {

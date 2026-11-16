@@ -17,6 +17,7 @@ interface DuplicateElementsParams {
 export class DuplicateElementsCommand extends Command {
 	private duplicatedElements: { trackId: string; elementId: string }[] = [];
 	private savedState: SceneTracks | null = null;
+	private madeState: SceneTracks | null = null;
 	private elements: DuplicateElementsParams["elements"];
 
 	constructor({ elements }: DuplicateElementsParams) {
@@ -93,12 +94,9 @@ export class DuplicateElementsCommand extends Command {
 			}
 		}
 
+		this.madeState = updatedTracks;
 		editor.timeline.updateTracks(updatedTracks);
-
-		if (this.duplicatedElements.length > 0) {
-			return createElementSelectionResult(this.duplicatedElements);
-		}
-		return undefined;
+		return this.getSelectionResult();
 	}
 
 	undo(): void {
@@ -106,6 +104,27 @@ export class DuplicateElementsCommand extends Command {
 			const editor = EditorCore.getInstance();
 			editor.timeline.updateTracks(this.savedState);
 		}
+	}
+
+	/** The copies as the first run made them: the steps after it in the
+	 * history refer to their ids. */
+	redo(): CommandResult | undefined {
+		const editor = EditorCore.getInstance();
+		if (
+			!this.madeState ||
+			editor.scenes.getActiveScene().tracks !== this.savedState
+		) {
+			return this.execute();
+		}
+		editor.timeline.updateTracks(this.madeState);
+		return this.getSelectionResult();
+	}
+
+	private getSelectionResult(): CommandResult | undefined {
+		if (this.duplicatedElements.length > 0) {
+			return createElementSelectionResult(this.duplicatedElements);
+		}
+		return undefined;
 	}
 
 	getDuplicatedElements(): { trackId: string; elementId: string }[] {

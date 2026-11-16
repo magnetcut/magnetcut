@@ -1,6 +1,7 @@
 import { buildDefaultMaskInstance } from "@/masks";
 import type { Mask } from "@/masks/types";
 import type { ParamValues } from "@/params";
+import type { TimelineElement } from "@/timeline";
 
 // Hide regions (docs/HIDE.md): an adjustment layer over a face or a plate,
 // its effect applied only within its mask.
@@ -24,6 +25,15 @@ export const HIDE_LOOKS = [
 	name: string;
 	params: ParamValues;
 }>;
+
+/** Whether it's a Hide region: an adjustment layer with a mask. */
+export function isHideRegion({
+	element,
+}: {
+	element: TimelineElement;
+}): boolean {
+	return element.type === "effect" && (element.masks?.length ?? 0) > 0;
+}
 
 /** A region in the middle of the picture: an upright oval for a face, a
  * plate's wide rectangle. Sizes are shares of the canvas, which a Hide

@@ -6,7 +6,8 @@ import {
 } from "@/retime";
 import type { RetimeConfig, SceneTracks, TimelineElement } from "@/timeline";
 import { isRetimableElement } from "@/timeline";
-import { ZERO_MEDIA_TIME, roundMediaTime } from "@/wasm";
+import { findTrackInSceneTracks } from "@/timeline/track-element-update";
+import { ZERO_MEDIA_TIME, mediaTime, roundMediaTime } from "@/wasm";
 
 type ElementUpdateField = keyof TimelineElement | string;
 
@@ -35,7 +36,7 @@ interface ElementUpdateRule {
 const deriveRules: ElementUpdateRule[] = [
 	{
 		triggers: ["retime"],
-		apply: ({ element, originalElement, patch }) => {
+		apply: ({ element, originalElement, patch, context }) => {
 			if (!("retime" in patch) || !isRetimableElement(element)) {
 				return { element };
 			}
@@ -68,6 +69,32 @@ const deriveRules: ElementUpdateRule[] = [
 					retime: nextRetime,
 				}),
 			});
+
+			// Slowed down, it stops where the next clip on its track starts,
+			// the rest of its media past its end, as a trim leaves it.
+			const room = getRoomOnTrack({ element: originalElement, context });
+			if (nextDuration > room) {
+				const shownSourceSpan = roundMediaTime({
+					time: getSourceSpanAtClipTime({
+						clipTime: room,
+						retime: nextRetime,
+					}),
+				});
+				return {
+					element: {
+						...element,
+						retime: nextRetime,
+						duration: mediaTime({ ticks: room }),
+						trimEnd: mediaTime({
+							ticks: Math.max(
+								0,
+								sourceDuration - element.trimStart - shownSourceSpan,
+							),
+						}),
+					},
+					changedFields: ["retime", "duration", "trimEnd"],
+				};
+			}
 
 			return {
 				element: {
@@ -194,6 +221,30 @@ function shouldApplyRule({
 	changedFields: Set<ElementUpdateField>;
 }): boolean {
 	return rule.triggers.some((trigger) => changedFields.has(trigger));
+}
+
+/** How long an element may last before it runs into the next one on its
+ * track. */
+function getRoomOnTrack({
+	element,
+	context,
+}: {
+	element: TimelineElement;
+	context: ElementUpdateContext;
+}): number {
+	const track = findTrackInSceneTracks({
+		tracks: context.tracks,
+		trackId: context.trackId,
+	});
+	const end = element.startTime + element.duration;
+	const nextStart = (track?.elements ?? []).reduce(
+		(earliest, other) =>
+			other.id !== element.id && other.startTime >= end
+				? Math.min(earliest, other.startTime)
+				: earliest,
+		Number.POSITIVE_INFINITY,
+	);
+	return nextStart - element.startTime;
 }
 
 function getSourceDuration({

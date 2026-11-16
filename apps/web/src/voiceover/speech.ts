@@ -106,10 +106,26 @@ export function nameSpokenFile({
 	hash: string;
 }): string {
 	const words = text
+		// Control characters too: the desktop app refuses a name with one.
+		.replace(/\p{Cc}/gu, " ")
 		.replace(/[\\/:*?"<>|]/g, "")
 		.slice(0, 32)
 		.trim();
 	return `${words || "Cue"} · ${hash}.wav`;
+}
+
+/**
+ * Whether a media file is the cue spoken as `hash`: "… · <hash>.wav", or
+ * "… · <hash> 2.wav" where that name was taken in the folder.
+ */
+export function isSpokenFile({
+	name,
+	hash,
+}: {
+	name: string;
+	hash: string;
+}): boolean {
+	return new RegExp(` · ${hash}( \\d+)?\\.wav$`).test(name);
 }
 
 /** Sped up by at most this, its pitch kept, to fit a cue. */
@@ -173,9 +189,21 @@ export function listCuesToSpeak({
 			text: cue.text,
 			hash,
 			asset:
-				mediaAssets.find((asset) => asset.name.endsWith(` · ${hash}.wav`)) ??
-				null,
+				mediaAssets.find(({ name }) => isSpokenFile({ name, hash })) ?? null,
 		};
+	});
+}
+
+/**
+ * The cues Speak sends to the provider: those not spoken before, each text
+ * once, however many cues say it.
+ */
+export function listCuesToSend({ cues }: { cues: CueToSpeak[] }): CueToSpeak[] {
+	const seen = new Set<string>();
+	return cues.filter(({ asset, hash }) => {
+		if (asset || seen.has(hash)) return false;
+		seen.add(hash);
+		return true;
 	});
 }
 
@@ -273,6 +301,8 @@ export async function speakCues({
 	onProgress: (progress: SpeakProgress) => void;
 }): Promise<SpeakResult> {
 	const sounds: PlacedSound[] = [];
+	// A cue that says what an earlier one does is sent once.
+	const spokenHere = new Map<string, MediaAsset>();
 	const result: SpeakResult = {
 		spoken: 0,
 		reused: 0,
@@ -286,9 +316,10 @@ export async function speakCues({
 				break;
 			}
 			onProgress({ index, count: cues.length });
-			const asset =
-				cue.asset ?? (await speakCue({ editor, cue, choice, folder }));
-			if (cue.asset) result.reused += 1;
+			const before = cue.asset ?? spokenHere.get(cue.hash);
+			const asset = before ?? (await speakCue({ editor, cue, choice, folder }));
+			spokenHere.set(cue.hash, asset);
+			if (before) result.reused += 1;
 			else result.spoken += 1;
 			const fit = fitSpeech({
 				speech: asset.duration ?? 0,

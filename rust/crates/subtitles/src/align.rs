@@ -33,13 +33,45 @@ fn normalize(word: &str) -> String {
         .collect()
 }
 
-fn words_of(text: &str) -> impl Iterator<Item = String> + '_ {
-    crate::markup::plain(text)
+/// Whether a character is of a script written without spaces between words
+/// (Chinese, Japanese, Thai, Lao, Burmese, Khmer): each is compared as a word.
+fn is_unspaced(character: char) -> bool {
+    matches!(
+        u32::from(character),
+        0x0E00..=0x0EFF // Thai, Lao
+            | 0x1000..=0x109F // Myanmar
+            | 0x1780..=0x17FF // Khmer
+            | 0x3040..=0x30FF // Hiragana, Katakana
+            | 0x31F0..=0x31FF
+            | 0x3400..=0x4DBF // Han
+            | 0x4E00..=0x9FFF
+            | 0xF900..=0xFAFF
+            | 0xFF66..=0xFF9F // Katakana, half width
+            | 0x20000..=0x3134F
+    )
+}
+
+fn words_of(text: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    for piece in crate::markup::plain(text)
         .split(|character: char| character.is_whitespace() || character == '-' || character == '—')
-        .map(normalize)
+    {
+        let mut word = String::new();
+        for character in piece.chars() {
+            if is_unspaced(character) {
+                words.push(std::mem::take(&mut word));
+                words.push(character.to_string());
+            } else {
+                word.push(character);
+            }
+        }
+        words.push(word);
+    }
+    words
+        .iter()
+        .map(|word| normalize(word))
         .filter(|word| !word.is_empty())
-        .collect::<Vec<_>>()
-        .into_iter()
+        .collect()
 }
 
 /// How alike two words are: 2 the same, 1 nearly (a letter or so apart, as a
@@ -199,9 +231,13 @@ fn align_stretch(
     }
 }
 
+// The shortest a line is timed: long enough to be seen and picked.
+const SHORTEST_LINE: f64 = 0.5;
+
 /// Lines of text timed to the words heard: each from its first word heard to
 /// its last; a line none of whose words were heard placed between its
-/// neighbours, in proportion to its length. None if no word was matched.
+/// neighbours, in proportion to its length. None lasts less than
+/// `SHORTEST_LINE`. None if no word was matched.
 pub fn time_lines(lines: &[String], heard: &[Word]) -> Option<Vec<Cue>> {
     let mut script = Vec::new();
     let mut line_of = Vec::new();
@@ -211,14 +247,32 @@ pub fn time_lines(lines: &[String], heard: &[Word]) -> Option<Vec<Cue>> {
             line_of.push(index);
         }
     }
-    let heard_words: Vec<String> = heard.iter().map(|word| normalize(&word.text)).collect();
+    // The words heard, split as the script's are, each piece a share of its
+    // word's time by its length.
+    let mut heard_words = Vec::new();
+    let mut heard_times = Vec::new();
+    for word in heard {
+        let pieces = words_of(&word.text);
+        let total: usize = pieces.iter().map(|piece| piece.chars().count()).sum();
+        let mut at = word.start;
+        for (index, piece) in pieces.iter().enumerate() {
+            let end = if index + 1 == pieces.len() {
+                word.end
+            } else {
+                at + (word.end - word.start) * piece.chars().count() as f64 / total as f64
+            };
+            heard_words.push(piece.clone());
+            heard_times.push((at, end));
+            at = end;
+        }
+    }
     let matched = align(&script, &heard_words);
     let mut times: Vec<Option<(f64, f64)>> = vec![None; lines.len()];
     for (word, heard_at) in matched.iter().enumerate() {
         let Some(heard_at) = *heard_at else {
             continue;
         };
-        let (start, end) = (heard[heard_at].start, heard[heard_at].end);
+        let (start, end) = heard_times[heard_at];
         let time = &mut times[line_of[word]];
         *time = Some(match *time {
             Some((first, last)) => (first.min(start), last.max(end)),
@@ -245,18 +299,20 @@ pub fn time_lines(lines: &[String], heard: &[Word]) -> Option<Vec<Cue>> {
         } else {
             times[index - 1].map_or(0.0, |(_, end)| end)
         };
+        // Where the lines either side overlap, there's no time between.
         let to = times
             .get(gap_end)
             .copied()
             .flatten()
-            .map_or(from + 2.0 * (gap_end - index) as f64, |(start, _)| start);
+            .map_or(from + 2.0 * (gap_end - index) as f64, |(start, _)| start)
+            .max(from);
         let lengths: Vec<f64> = (index..gap_end)
             .map(|at| crate::markup::plain(&lines[at]).chars().count().max(1) as f64)
             .collect();
         let total: f64 = lengths.iter().sum();
         let mut start = from;
         for (offset, length) in lengths.iter().enumerate() {
-            let end = start + (to - from) * length / total;
+            let end = start + ((to - from) * length / total).max(SHORTEST_LINE);
             times[index + offset] = Some((start, end));
             start = end;
         }
@@ -270,7 +326,7 @@ pub fn time_lines(lines: &[String], heard: &[Word]) -> Option<Vec<Cue>> {
                 let (start, end) = time.unwrap_or_default();
                 Cue {
                     start,
-                    end,
+                    end: end.max(start + SHORTEST_LINE),
                     text: line.clone(),
                     style: None,
                 }
@@ -452,6 +508,8 @@ const STARTS_AFTER: usize = 3;
 const ENDS_AFTER: usize = 15;
 const JOIN_GAP: f64 = 0.25;
 const SHORTEST: f64 = 0.2;
+// Quieter than this, in dB, a frame is silence, as 16-bit dither is (-96).
+const SILENCE: f64 = -90.0;
 
 /// When someone's speaking in a mono soundtrack, roughly: by loudness above
 /// the soundtrack's quiet.
@@ -471,7 +529,17 @@ pub fn speech_spans(samples: &[f32], sample_rate: u32) -> Vec<Span> {
     if levels.is_empty() {
         return Vec::new();
     }
-    let mut sorted = levels.clone();
+    // The quiet between lines, from the frames that aren't silence: digital
+    // silence (gaps between clips, a fade's end) would put it so low that
+    // anything else counted as speech.
+    let mut sorted: Vec<f64> = levels
+        .iter()
+        .copied()
+        .filter(|&level| level > SILENCE)
+        .collect();
+    if sorted.is_empty() {
+        return Vec::new();
+    }
     sorted.sort_by(f64::total_cmp);
     let floor = sorted[sorted.len() * 15 / 100];
     let threshold = floor + ABOVE_FLOOR;
@@ -516,13 +584,11 @@ pub fn speech_spans(samples: &[f32], sample_rate: u32) -> Vec<Span> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn finds_speech_by_its_loudness() {
-        // Quiet noise, and a tone from 1 to 2.5 s and from 4 to 4.6 s, with a
-        // 0.1 s dip in the first that doesn't end it, and a 0.05 s click.
-        let rate = 16_000;
+    /// Quiet noise, and a tone from 1 to 2.5 s and from 4 to 4.6 s, with a
+    /// 0.1 s dip in the first that doesn't end it, and a 0.05 s click.
+    fn soundtrack(rate: u32) -> Vec<f32> {
         let mut seed = 7u32;
-        let samples: Vec<f32> = (0..rate * 6)
+        (0..rate * 6)
             .map(|i| {
                 seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
                 let noise = ((seed >> 16) as f32 / 32_768.0 - 1.0) * 0.001;
@@ -537,16 +603,36 @@ mod tests {
                 };
                 noise + tone
             })
-            .collect();
-        let spans = speech_spans(&samples, rate as u32);
+            .collect()
+    }
+
+    fn assert_spans(spans: &[Span], expected: [(f64, f64); 2]) {
         assert_eq!(spans.len(), 2, "{spans:?}");
-        for (span, (start, end)) in spans.iter().zip([(1.0, 2.5), (4.0, 4.6)]) {
+        for (span, (start, end)) in spans.iter().zip(expected) {
             assert!(
                 (span.start - start).abs() < 0.05 && (span.end - end).abs() < 0.05,
                 "{spans:?}"
             );
         }
+    }
+
+    #[test]
+    fn finds_speech_by_its_loudness() {
+        let rate = 16_000;
+        let spans = speech_spans(&soundtrack(rate), rate);
+        assert_spans(&spans, [(1.0, 2.5), (4.0, 4.6)]);
         assert!(speech_spans(&[], 16_000).is_empty());
+        assert!(speech_spans(&[0.0; 16_000], 16_000).is_empty());
+    }
+
+    #[test]
+    fn finds_speech_beside_digital_silence() {
+        // Six seconds of nothing first, as a gap between clips: half of it.
+        let rate = 16_000;
+        let mut samples = vec![0.0; rate as usize * 6];
+        samples.extend(soundtrack(rate));
+        let spans = speech_spans(&samples, rate);
+        assert_spans(&spans, [(7.0, 8.5), (10.0, 10.6)]);
     }
 
     fn heard(words: &[(&str, f64, f64)]) -> Vec<Word> {
@@ -591,6 +677,49 @@ mod tests {
         assert_eq!(times[2], (4.2, 8.0));
         assert_eq!(cues[1].text, "How are you, Anna?");
         assert!(time_lines(&lines, &heard(&[("zebra", 0.0, 1.0)])).is_none());
+    }
+
+    #[test]
+    fn times_lines_in_scripts_without_spaces() {
+        let lines: Vec<String> = ["你好，世界。", "今天天气很好", "สวัสดีครับ"]
+            .map(String::from)
+            .into();
+        // Heard in words of a character or several, not as the lines split.
+        let words = heard(&[
+            ("你好", 1.0, 1.4),
+            ("世界", 1.4, 2.0),
+            ("今天天", 3.0, 3.6),
+            ("气", 3.6, 3.8),
+            ("很好", 3.8, 4.2),
+            ("สวัสดี", 5.0, 5.6),
+            ("ครับ", 5.6, 6.0),
+        ]);
+        let cues = time_lines(&lines, &words).unwrap();
+        let times: Vec<(f64, f64)> = cues.iter().map(|cue| (cue.start, cue.end)).collect();
+        assert_eq!(times, [(1.0, 2.0), (3.0, 4.2), (5.0, 6.0)]);
+    }
+
+    #[test]
+    fn gives_every_line_some_time() {
+        let lines: Vec<String> = ["One two", "(music)", "(applause)", "Three four", "Five"]
+            .map(String::from)
+            .into();
+        // The lines either side of the two not heard overlap; "Five" is heard
+        // in no time at all.
+        let words = heard(&[
+            ("One", 1.0, 1.5),
+            ("two", 1.5, 2.0),
+            ("Three", 1.9, 2.4),
+            ("four", 2.4, 3.0),
+            ("Five", 4.0, 4.0),
+        ]);
+        let cues = time_lines(&lines, &words).unwrap();
+        for cue in &cues {
+            assert!(cue.end - cue.start >= SHORTEST_LINE - 1e-9, "{cues:?}");
+        }
+        // The two not heard one after the other, from where the first ends.
+        assert_eq!(cues[1].start, 2.0);
+        assert!(cues[2].start >= cues[1].end - 1e-9, "{cues:?}");
     }
 
     #[test]

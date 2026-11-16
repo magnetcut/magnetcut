@@ -207,8 +207,11 @@ export function ExportFast({
 	onFormatChange: ({ value }: { value: ExportFormat }) => void;
 }) {
 	const tracks = useEditor((e) => e.scenes.getActiveScene().tracks);
+	const canvasSize = useEditor(
+		(e) => e.project.getActiveOrNull()?.settings.canvasSize,
+	);
 	const openConform = useConformStore((state) => state.openDialog);
-	const losses = listFastLosses({ tracks });
+	const losses = listFastLosses({ tracks, canvasSize, output: info });
 	const { format, hasAudio, audioPassthrough } = choices;
 	const formats = info?.codec
 		? getFastFormats({ codec: info.codec })

@@ -92,6 +92,8 @@ struct Parsed {
 /// file says, else 23.976.
 pub fn open(bytes: &[u8], name: Option<&str>, frame_rate: Option<f64>) -> Result<Opened, String> {
     let (text, encoding) = encoding::decode(bytes);
+    // Lines ended by "\r" alone (old Macs), as by "\n".
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
     let format = detect(&text, name).ok_or("This isn't a subtitle file MagnetCut knows")?;
     let mut parsed = match format {
         Format::Srt => srt::read(&text),
@@ -233,10 +235,71 @@ mod tests {
             };
             assert_eq!(first.text, expected, "{format:?}");
         }
+        // MicroDVD says the rate it was saved at: no guess when it's opened.
         let micro = save(&opened.subtitles, Format::MicroDvd, Some(25.0)).unwrap();
-        let again = open(micro.as_bytes(), None, Some(25.0)).unwrap();
+        let again = open(micro.as_bytes(), None, None).unwrap();
+        assert!(again.warnings.is_empty(), "{:?}", again.warnings);
         assert_eq!(again.subtitles.cues[1].start, 62.0);
         assert_eq!(again.subtitles.cues[0].text, "<i>Hello</i>\nthere");
+    }
+
+    #[test]
+    fn keeps_text_that_looks_like_markup_in_every_format() {
+        let text = "5 < 6 and 7 > 3 {note} & co";
+        let subtitles = Subtitles {
+            cues: vec![Cue {
+                start: 1.0,
+                end: 2.0,
+                text: text.into(),
+                style: None,
+            }],
+            ass: None,
+        };
+        for format in [
+            Format::Srt,
+            Format::Vtt,
+            Format::Ass,
+            Format::Ssa,
+            Format::SubViewer,
+            Format::MicroDvd,
+        ] {
+            let saved = save(&subtitles, format, Some(25.0)).unwrap();
+            let again = open(saved.as_bytes(), None, None).unwrap();
+            assert_eq!(again.subtitles.cues[0].text, text, "{format:?}: {saved}");
+        }
+    }
+
+    #[test]
+    fn keeps_a_cue_whole_with_blank_lines_typed_in_it() {
+        let cue = |start: f64, text: &str| Cue {
+            start,
+            end: start + 1.0,
+            text: text.into(),
+            style: None,
+        };
+        let subtitles = Subtitles {
+            cues: vec![cue(1.0, "One\n\nTwo\n  \nThree\n"), cue(3.0, "Next")],
+            ass: None,
+        };
+        for format in [Format::Srt, Format::Vtt] {
+            let saved = save(&subtitles, format, None).unwrap();
+            let again = open(saved.as_bytes(), None, None).unwrap();
+            assert_eq!(again.skipped, 0, "{format:?}: {saved}");
+            assert_eq!(
+                again.subtitles.cues,
+                [cue(1.0, "One\nTwo\nThree"), cue(3.0, "Next")],
+                "{format:?}: {saved}"
+            );
+        }
+    }
+
+    #[test]
+    fn reads_lines_ended_by_a_carriage_return_alone() {
+        let srt = "1\r00:00:01,000 --> 00:00:02,000\rHello\rthere\r\r2\r00:00:03,000 --> 00:00:04,000\rBye\r";
+        let opened = open(srt.as_bytes(), None, None).unwrap();
+        assert_eq!(opened.format, Format::Srt);
+        assert_eq!(opened.subtitles.cues.len(), 2);
+        assert_eq!(opened.subtitles.cues[0].text, "Hello\nthere");
     }
 
     #[test]

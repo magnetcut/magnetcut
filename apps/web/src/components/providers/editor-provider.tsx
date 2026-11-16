@@ -2,8 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { EditorCore } from "@/core";
+import { SAVE_FAILED_TOAST_ID } from "@/core/managers/save-manager";
 import { getEditorUrl } from "@/project/editor-url";
 import { useEditor } from "@/editor/use-editor";
 import { useKeybindingsListener } from "@/actions/use-keybindings";
@@ -147,6 +151,30 @@ function EditorRuntimeBindings() {
 
 		window.addEventListener("beforeunload", handleBeforeUnload);
 		return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+	}, [editor]);
+
+	// In the app, closing the window saves first. A save that fails keeps it
+	// open, once, to say so: closing it again closes it without.
+	useEffect(() => {
+		if (!isTauri()) return;
+		let hasWarned = false;
+		const unlisten = getCurrentWindow().onCloseRequested(async (event) => {
+			try {
+				await editor.save.flush();
+			} catch (error) {
+				if (hasWarned) return;
+				hasWarned = true;
+				event.preventDefault();
+				toast.error("Couldn't save the project", {
+					id: SAVE_FAILED_TOAST_ID,
+					description: `Close the window again to close it without the latest changes. ${error instanceof Error ? error.message : String(error)}`,
+					duration: Number.POSITIVE_INFINITY,
+				});
+			}
+		});
+		return () => {
+			void unlisten.then((stop) => stop());
+		};
 	}, [editor]);
 
 	useEditorActions();

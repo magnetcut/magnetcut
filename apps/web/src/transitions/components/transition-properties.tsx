@@ -95,7 +95,7 @@ export function TransitionProperties({ trackId, transitionId }: TransitionRef) {
 	const from = track.elements.find(({ id }) => id === transition.fromElementId);
 	const to = track.elements.find(({ id }) => id === transition.toElementId);
 	const window =
-		from && to ? getTransitionWindow({ transition, from, to }) : null;
+		from && to ? getTransitionWindow({ transition, from, to, track }) : null;
 	const definition = getTransitionDefinition({ type: transition.type });
 	const paramFields = getTransitionParamFields({ definition });
 
@@ -139,8 +139,10 @@ export function TransitionProperties({ trackId, transitionId }: TransitionRef) {
 					</SectionField>
 					{window?.clamped && (
 						<p className="text-muted-foreground text-xs">
-							Plays for {toSeconds({ time: window.end - window.start })} s: the
-							clips have no more media past the cut.
+							Plays for {toSeconds({ time: window.end - window.start })} s:
+							{
+								" there's no more media past the cut, or room beside the clips' other transitions."
+							}
 						</p>
 					)}
 					{!window && (

@@ -33,7 +33,10 @@ export type FrameItemDescriptor =
 			mask?: LayerMaskDescriptor | null;
 	  }
 	| {
-			/** Two layers drawn into one (rust/crates/compositor/src/transition.rs). */
+			/**
+			 * Two layers drawn into one (rust/crates/compositor/src/transition.rs),
+			 * then blended into the scene with their own blend modes.
+			 */
 			type: "transition";
 			/** The outgoing clip: null when it has nothing to show. */
 			from: LayerItemDescriptor | null;
@@ -42,7 +45,6 @@ export type FrameItemDescriptor =
 			transition: string;
 			params: Record<string, TransitionParamValue>;
 			progress: number;
-			blendMode: BlendMode;
 	  };
 
 export type QuadTransformDescriptor = {

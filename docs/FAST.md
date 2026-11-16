@@ -21,9 +21,11 @@ code is in `apps/web/src/export/fast`.
 
 ## What's left out
 
-Transitions, pictures, effects and masks, speed changes, position, size and opacity changes,
-text and subtitles, stickers and graphics, effect layers, the other video tracks and the audio
-tracks. Gaps between clips are closed up. A clip's volume is kept: then its sound is mixed and
+Hide regions, so what they hide shows in the file: the panel lists them first. Transitions,
+pictures, effects and masks, speed changes, position, size and opacity changes, text and
+subtitles, stickers and graphics, effect layers, the other video tracks and the audio tracks.
+The canvas: the file has the clips' own size and shape, and the panel says so when the canvas's
+differs. Gaps between clips are closed up. A clip's volume is kept: then its sound is mixed and
 encoded rather than copied.
 
 ## How a file is made

@@ -68,7 +68,7 @@ pub fn partial_path(target: &Path) -> Result<PathBuf, String> {
 }
 
 /// Starts the file an export is written to until it's finished (see
-/// `partial_path`); in the temporary folder where the app may not make one
+/// `partial_path`); in a folder of the app's own where it may not make one
 /// beside it (the App Store edition may write only the file picked). The file
 /// picked stays as it was until the export is put in its place: if it's
 /// cancelled or fails, that file is never touched.
@@ -77,14 +77,61 @@ pub fn create_partial(target: &Path) -> Result<(PathBuf, File), String> {
     match File::create_new(&beside) {
         Ok(file) => Ok((beside, file)),
         Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
-            let folder = std::env::temp_dir().join("MagnetCut exports");
-            fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
+            let folder = own_exports_folder()?;
             let path = unused_path(&folder, &partial_name(target)?);
             let file = File::create_new(&path).map_err(|error| error.to_string())?;
             Ok((path, file))
         }
         Err(error) => Err(error.to_string()),
     }
+}
+
+/// Where exports are written that can't be beside the file picked: the
+/// user's own cache (in the App Store edition, the container's), not a
+/// shared folder such as Linux's /tmp, where another user could make it
+/// first and read the export, or put a link in its place.
+fn own_exports_folder() -> Result<PathBuf, String> {
+    let folder = match dirs::cache_dir() {
+        Some(cache) => cache.join("MagnetCut").join("Exports"),
+        None => std::env::temp_dir().join("MagnetCut exports"),
+    };
+    if let Some(parent) = folder.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    make_own_folder(&folder)?;
+    Ok(folder)
+}
+
+/// Makes `folder`, readable by the user only, or checks that the one there is
+/// a folder of theirs, not a link, and makes it so.
+#[cfg(unix)]
+fn make_own_folder(folder: &Path) -> Result<(), String> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    match fs::DirBuilder::new().mode(0o700).create(folder) {
+        Ok(()) => return Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.to_string()),
+    }
+    let metadata = fs::symlink_metadata(folder).map_err(|error| error.to_string())?;
+    // SAFETY: geteuid has no preconditions and can't fail.
+    let user = unsafe { libc::geteuid() };
+    if !metadata.is_dir() || metadata.uid() != user {
+        return Err(format!(
+            "{} isn't a folder of this user's: the export can't be written there",
+            folder.display()
+        ));
+    }
+    if metadata.mode() & 0o077 != 0 {
+        fs::set_permissions(folder, fs::Permissions::from_mode(0o700))
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+/// Makes `folder`: the user's cache is theirs alone already.
+#[cfg(not(unix))]
+fn make_own_folder(folder: &Path) -> Result<(), String> {
+    fs::create_dir_all(folder).map_err(|error| error.to_string())
 }
 
 /// Puts a finished export in the place of the file it replaces: renamed, or
@@ -194,6 +241,39 @@ impl Exports {
         put_in_place(&path, &target)?;
         self.add_saved(target);
         Ok(())
+    }
+
+    /// The page writing these files is gone (reloaded, or its window
+    /// closed), and won't finish them: exports not yet put in place are
+    /// deleted, the files picked left as they were; files in folders (a take
+    /// being recorded) are closed as they are, as a crash leaves them. The
+    /// picks it hadn't used go too.
+    pub fn abandon(&self) {
+        let open: Vec<Writing> = lock(&self.open)
+            .drain()
+            .map(|(_, writing)| writing)
+            .collect();
+        for Writing {
+            path,
+            replaces,
+            file,
+            ..
+        } in open
+        {
+            drop(file);
+            if replaces.is_some() {
+                let _ = fs::remove_file(&path);
+            }
+        }
+        let closed: Vec<PathBuf> = lock(&self.closed)
+            .drain()
+            .map(|(_, (path, _))| path)
+            .collect();
+        for path in closed {
+            let _ = fs::remove_file(&path);
+        }
+        lock(&self.kept).clear();
+        lock(&self.picked).clear();
     }
 }
 
@@ -565,6 +645,74 @@ mod tests {
         exports.close(id, true).unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"a take");
         assert!(lock(&exports.saved).contains(&path));
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn a_page_gone_leaves_no_export_behind_but_keeps_a_take() {
+        let (folder, film) = folder_with_a_film("abandon");
+        let exports = Exports::default();
+        // An export being written, one finished but not yet put in place, and
+        // a take being recorded into a folder.
+        let other = folder.join("other.mp4");
+        exports.add_pick(film.clone());
+        exports.add_pick(other.clone());
+        let writing = exports.open_export(film.clone()).unwrap();
+        write(&exports, writing, b"half an export");
+        let finished = exports.open_export(other.clone()).unwrap();
+        write(&exports, finished, b"an export");
+        exports.close(finished, true).unwrap();
+        let take = folder.join("take.wav");
+        let recording = exports.begin(Writing {
+            path: take.clone(),
+            replaces: None,
+            file: File::create_new(&take).unwrap(),
+            _activity: Activity::begin("Writing a file"),
+        });
+        write(&exports, recording, b"a take");
+        exports.add_pick(folder.join("unused.mp4"));
+        exports.abandon();
+        assert_eq!(fs::read(&film).unwrap(), b"the user's film");
+        assert!(!other.exists());
+        assert_eq!(fs::read(&take).unwrap(), b"a take");
+        let mut names: Vec<_> = fs::read_dir(&folder)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            ["film.mp4", "take.wav"],
+            "the partial files are gone"
+        );
+        assert!(lock(&exports.open).is_empty() && lock(&exports.picked).is_empty());
+        assert!(exports.commit(finished).is_err());
+        fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_folder_of_the_apps_own_is_the_users_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let folder = std::env::temp_dir().join(format!("magnetcut-own-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&folder);
+        make_own_folder(&folder).unwrap();
+        let mode = fs::metadata(&folder).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+        // Made before, open to others: closed to them.
+        fs::set_permissions(&folder, fs::Permissions::from_mode(0o777)).unwrap();
+        make_own_folder(&folder).unwrap();
+        let mode = fs::metadata(&folder).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+        // A link in its place, or a file, is refused.
+        let link = folder.with_extension("link");
+        let _ = fs::remove_file(&link);
+        std::os::unix::fs::symlink(&folder, &link).unwrap();
+        assert!(make_own_folder(&link).is_err());
+        let file = folder.join("file");
+        File::create(&file).unwrap();
+        assert!(make_own_folder(&file).is_err());
+        fs::remove_file(&link).unwrap();
         fs::remove_dir_all(&folder).unwrap();
     }
 

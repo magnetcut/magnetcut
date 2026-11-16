@@ -44,15 +44,16 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
 - **Authentication: a token for each agent.** Settings, Agents: Add, a name ("Claude Code on
   this Mac"), and MagnetCut shows a token once (32 random bytes, `mc_` and base64url), in the
   line to paste; it keeps only its SHA-256, in the app's own data, not the web view's. Each
-  agent is listed with when it was last used, and Revoke ends it at once. Every request must
-  carry a token that's there (`Authorization: Bearer`); any other gets 401 and nothing else. The
-  server listens on 127.0.0.1 only, never on the network, and refuses a request whose `Host`
-  isn't that address and port, or that has an `Origin` (a web page's), so a site open in a
-  browser can't reach it by DNS rebinding or a form. Tokens are never logged. The switch off
-  closes the port.
+  agent is listed with when it was last used, and Revoke ends it at once, the calls it has on
+  their way too. Every request must carry a token that's there (`Authorization: Bearer`, the
+  scheme in any case); any other gets 401 and nothing else, its body not read. The server
+  listens on 127.0.0.1 only, never on the network, and refuses a request whose `Host` isn't
+  that address and port (`127.0.0.1:<port>`, not `localhost`), or that has an `Origin` (a web
+  page's), so a site open in a browser can't reach it by DNS rebinding or a form. Tokens are
+  never logged. The switch off closes the port and ends the calls on their way.
 - **The user watches.** Edits happen in the window that's open, live: a strip at the top says
-  which agent is at work, with Stop. Each batch of edits is one step of undo, named for the
-  agent. Nothing runs headless until phase 4.
+  which agent is at work, with Stop. Each batch of edits is one step of undo. Nothing runs
+  headless until phase 4.
 - **The logic stays in the web view; the door is in Rust.** Rust serves HTTP (a small server on
   its own thread), checks the token, speaks MCP's JSON-RPC (`initialize`, `tools/list`,
   `tools/call`, progress as server-sent events), and hands each tool call to the page as an
@@ -178,7 +179,8 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
   can't be seen). Phases 1 to 3 have the window open; phase 4 finds what each system allows.
 - App Review and the server entitlement: a refusal keeps agent mode to the website's edition
   until it's answered.
-- A port taken by something else: the next free one, kept, and the lines to paste updated.
+- A port taken by something else: the next free one while it's taken, not kept, so the lines
+  pasted work again once the kept one is free.
 - Windows, phase 4: an app built for the GUI has no console, but its standard input and output
   still work when given pipes, as MCP clients give them; to be checked on CI.
 - A model that edits badly does it fast: the dry run, one undo per batch, the revision, the user
@@ -239,10 +241,14 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
   47213, which the server takes first when it's free), its progress passed on as it comes, the
   app started if it isn't running; Settings gives the entry to paste, with the app's own path.
   `magnetcut call <tool> ['<json>']`: one call, its text printed, its exit status whether it
-  worked. `--hidden`: the app without its window. Tested in code (the relay's reply and its
-  progress; a wrong token refused) and on CI on all three systems, the whole check run against
-  the app hidden (frames looked at and the film exported with no window showing), then tools
-  listed through `--mcp` and the summary printed by `call`.
+  worked. `--hidden`: the app without its window. One copy of the app runs at a time
+  (`tauri-plugin-single-instance`): one started while it's open, by the command line or by
+  hand, hands over to it, which comes forward unless the new one was `--hidden`, and quits.
+  On a Mac it's a socket in /tmp, likely out of the App Store edition's sandbox: there the app
+  then starts as it did before (not yet tried in a store build). Tested in code (the relay's
+  reply and its progress; a wrong token refused) and on CI on all three systems, the whole
+  check run against the app hidden (frames looked at and the film exported with no window
+  showing), then tools listed through `--mcp` and the summary printed by `call`.
 
 - Then the rest. `find` gains shots (each frame of the timeline drawn 96 px wide, its
   brightness histogram against the last's; a cut is a change over 0.3 and three times the
@@ -261,6 +267,18 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
   to Apple's rules, not yet tried in a store build. A project opened is waited for by the
   managers' notices and the clock: polling with timers alone, a hidden window (which slows them)
   once kept a call waiting six minutes.
+
+- A call's life. The app sends a call only once the editor listens (its tools said), waiting
+  15 seconds for it, as the app starts or its page reloads; a page that reloads or closes ends
+  the calls it had, each answered at once rather than in 30 minutes. A call no one waits for
+  any more (timed out, its agent revoked, agent mode switched off) is dropped by the editor if
+  it hasn't started and stopped if it has, and the paths it named open nothing from then on,
+  even after a dialog it was waiting on. Stop pressed once a tool had done its work (a project
+  saved) answers what it did; one cut short says so, with what it had done. The exports a
+  page was writing when it reloaded, or when the app quit, are deleted, the files picked left
+  as they were; the native export's thread is stopped, and with it the hold on sleep. Tested
+  in code: revoking, switching off, a call before the editor listens and its page reloading,
+  a timed-out call dropped, a fallback port not kept, the exports a page left.
 
 What's left of step 12: Claude Code trying it by hand, and the tokens it took written here; and
 the App Store build tried with an agent.

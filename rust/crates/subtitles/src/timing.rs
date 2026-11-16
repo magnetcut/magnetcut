@@ -34,13 +34,17 @@ impl Retime {
     }
 
     /// Jubler's two-point sync: two times as they are and as they should be,
-    /// every other time moved in proportion. None if the two are one.
+    /// every other time moved in proportion. None if the two are one, or if
+    /// they'd swap places or meet, which would turn the lines around.
     pub fn two_points((from_a, to_a): (f64, f64), (from_b, to_b): (f64, f64)) -> Option<Self> {
         let span = from_b - from_a;
         if span.abs() < 1e-6 {
             return None;
         }
         let scale = (to_b - to_a) / span;
+        if !(scale > 1e-6 && scale.is_finite()) {
+            return None;
+        }
         Some(Self {
             scale,
             offset: to_a - scale * from_a,
@@ -258,6 +262,9 @@ mod tests {
         assert!(near(retime.apply(10.0), 12.0) && near(retime.apply(110.0), 117.0));
         assert!(near(retime.apply(60.0), 64.5));
         assert_eq!(Retime::two_points((5.0, 1.0), (5.0, 2.0)), None);
+        // The later line marked earlier, or both at one time.
+        assert_eq!(Retime::two_points((10.0, 20.0), (50.0, 15.0)), None);
+        assert_eq!(Retime::two_points((10.0, 20.0), (50.0, 20.0)), None);
     }
 
     #[test]

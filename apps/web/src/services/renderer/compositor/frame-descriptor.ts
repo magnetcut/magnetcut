@@ -290,7 +290,6 @@ async function collectTransitionNode({
 		transition: node.params.shader,
 		params: node.params.params,
 		progress: node.resolved.progress,
-		blendMode: node.params.blendMode ?? "normal",
 	});
 }
 

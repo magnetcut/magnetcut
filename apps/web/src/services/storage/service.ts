@@ -351,6 +351,8 @@ class StorageService {
 			width: mediaAsset.width,
 			height: mediaAsset.height,
 			duration: mediaAsset.duration,
+			fps: mediaAsset.fps,
+			hasAudio: mediaAsset.hasAudio,
 			thumbnailUrl: mediaAsset.thumbnailUrl,
 			ephemeral: mediaAsset.ephemeral,
 			proxy: mediaAsset.proxy
@@ -496,6 +498,8 @@ class StorageService {
 			width: metadata.width,
 			height: metadata.height,
 			duration: metadata.duration,
+			fps: metadata.fps,
+			hasAudio: metadata.hasAudio,
 			thumbnailUrl: metadata.thumbnailUrl,
 			ephemeral: metadata.ephemeral,
 			proxy: await this.loadMediaProxy({ metadata, mediaAssetsAdapter }),
@@ -530,6 +534,36 @@ class StorageService {
 
 		if (missing.length > 0) onMissing?.({ names: missing });
 		return mediaItems;
+	}
+
+	/**
+	 * Copies a project's media to another, as they're stored: what describes
+	 * each, and the files kept in storage. A file on disk stays where it is,
+	 * named even if it has gone, to be found again.
+	 */
+	async copyProjectMedia({
+		fromProjectId,
+		toProjectId,
+	}: {
+		fromProjectId: string;
+		toProjectId: string;
+	}): Promise<void> {
+		const from = this.getProjectMediaAdapters({ projectId: fromProjectId });
+		const to = this.getProjectMediaAdapters({ projectId: toProjectId });
+
+		for (const id of await from.mediaMetadataAdapter.list()) {
+			const metadata = await from.mediaMetadataAdapter.get(id);
+			if (!metadata) continue;
+			const keys = [
+				...(metadata.path ? [] : [id]),
+				...(metadata.proxy && !metadata.proxy.path ? [proxyKey({ id })] : []),
+			];
+			for (const key of keys) {
+				const file = await from.mediaAssetsAdapter.get(key);
+				if (file) await to.mediaAssetsAdapter.set({ key, value: file });
+			}
+			await to.mediaMetadataAdapter.set({ key: id, value: metadata });
+		}
 	}
 
 	async deleteMediaAsset({

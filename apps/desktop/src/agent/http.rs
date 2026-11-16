@@ -1,11 +1,11 @@
 // HTTP/1.1, as much as MCP's Streamable HTTP needs from a server on
-// 127.0.0.1: a request read whole (its headers, then the body its
-// Content-Length says), and a reply, either whole or as server-sent events.
-// Each connection answers one request and closes.
+// 127.0.0.1: a request read whole (its headers, then, once they've been
+// checked, the body its Content-Length says), and a reply, either whole or as
+// server-sent events. Each connection answers one request and closes.
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::TcpStream;
-use std::time::Duration;
+use std::net::{Shutdown, TcpStream};
+use std::time::{Duration, Instant};
 
 // The most a request's line and headers may take, and its body.
 const MAX_HEAD: usize = 16 * 1024;
@@ -13,6 +13,12 @@ const MAX_BODY: usize = 16 * 1024 * 1024;
 
 // How long a client may take to send its request.
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
+
+// What's let in, and for how long, of a request refused before its body was
+// read, so that closing doesn't reset the connection before the client has
+// read the refusal.
+const LINGER: Duration = Duration::from_millis(500);
+const LINGER_BYTES: usize = 64 * 1024;
 
 pub struct Request {
     pub method: String,
@@ -40,8 +46,9 @@ pub enum Refusal {
     Status(u16, &'static str),
 }
 
-/// Reads one request from `stream`.
-pub fn read_request(stream: &TcpStream) -> Result<Request, Refusal> {
+/// Reads a request's line and headers from `stream`: the request, its body
+/// still to be read from the reader given back (`read_body`).
+pub fn read_head(stream: &TcpStream) -> Result<(Request, BufReader<&TcpStream>), Refusal> {
     stream
         .set_read_timeout(Some(READ_TIMEOUT))
         .map_err(|_| Refusal::Gone)?;
@@ -88,6 +95,15 @@ pub fn read_request(stream: &TcpStream) -> Result<Request, Refusal> {
         headers,
         body: Vec::new(),
     };
+    Ok((request, reader))
+}
+
+/// The body of `request`, whose head `reader` read: as long as its
+/// Content-Length says.
+pub fn read_body(
+    reader: &mut BufReader<&TcpStream>,
+    request: &Request,
+) -> Result<Vec<u8>, Refusal> {
     if request
         .header("Transfer-Encoding")
         .is_some_and(|value| !value.eq_ignore_ascii_case("identity"))
@@ -105,7 +121,7 @@ pub fn read_request(stream: &TcpStream) -> Result<Request, Refusal> {
     }
     let mut body = vec![0u8; length];
     reader.read_exact(&mut body).map_err(|_| Refusal::Gone)?;
-    Ok(Request { body, ..request })
+    Ok(body)
 }
 
 /// A whole reply: its status, then `body` as `kind` (or none).
@@ -133,6 +149,24 @@ pub fn respond(
     let _ = stream.flush();
 }
 
+/// A refusal, sent before the request's body was read: then what the client
+/// is still sending is let in, a little and briefly, and dropped.
+pub fn refuse(stream: &TcpStream, status: u16, reason: &str, extra: &[(&str, &str)]) {
+    respond(stream, status, reason, extra, None, b"");
+    let _ = stream.shutdown(Shutdown::Write);
+    let _ = stream.set_read_timeout(Some(LINGER));
+    let started = Instant::now();
+    let mut reader = stream;
+    let mut sink = [0u8; 4096];
+    let mut left = LINGER_BYTES;
+    while left > 0 && started.elapsed() < LINGER {
+        match reader.read(&mut sink) {
+            Ok(0) | Err(_) => break,
+            Ok(count) => left = left.saturating_sub(count),
+        }
+    }
+}
+
 /// A reply of server-sent events: its head, after which each `event` is sent
 /// as it comes, until the connection closes.
 pub fn start_events(mut stream: &TcpStream) -> std::io::Result<()> {
@@ -150,7 +184,7 @@ pub fn event(mut stream: &TcpStream, message: &serde_json::Value) -> std::io::Re
 
 #[cfg(test)]
 mod tests {
-    use super::{Refusal, read_request};
+    use super::{Refusal, read_body, read_head};
     use std::io::Write;
     use std::net::{TcpListener, TcpStream};
 
@@ -161,7 +195,9 @@ mod tests {
         client.write_all(raw).unwrap();
         client.shutdown(std::net::Shutdown::Write).unwrap();
         let (server, _) = listener.accept().unwrap();
-        read_request(&server)
+        let (mut request, mut reader) = read_head(&server)?;
+        request.body = read_body(&mut reader, &request)?;
+        Ok(request)
     }
 
     #[test]

@@ -12,6 +12,17 @@ import { useSettingsStore } from "./settings-store";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** When the daily check last failed, since the app opened. */
+let lastFailedCheck: number | null = null;
+
+/** Whether a check at `time` was less than a day ago. One in the future means
+ * the clock was wrong: it doesn't count. */
+function isWithinDay({ time }: { time: number | null }): boolean {
+	if (time === null) return false;
+	const elapsed = Date.now() - time;
+	return elapsed >= 0 && elapsed < DAY_MS;
+}
+
 export type DownloadProgress = { downloaded: number; total: number | null };
 
 export function describeError(error: unknown): string {
@@ -54,12 +65,14 @@ export async function checkForUpdatesIfDue(): Promise<void> {
 	if (!info?.updates) return;
 	const { checksForUpdates, lastUpdateCheck } = useSettingsStore.getState();
 	if (!checksForUpdates) return;
-	// A check in the future means the clock was wrong: it doesn't count.
-	const elapsed =
-		lastUpdateCheck === null
-			? Number.POSITIVE_INFINITY
-			: Date.now() - lastUpdateCheck;
-	if (elapsed >= 0 && elapsed < DAY_MS) return;
+	// A check that failed counts too, so that a broken feed isn't asked every
+	// hour. Offline, the next launch tries again, or Check Now.
+	if (
+		isWithinDay({ time: lastUpdateCheck }) ||
+		isWithinDay({ time: lastFailedCheck })
+	) {
+		return;
+	}
 	const dialogs = useAppDialogsStore.getState();
 	if (dialogs.isCheckingForUpdates || dialogs.update) return;
 	try {
@@ -71,7 +84,7 @@ export async function checkForUpdatesIfDue(): Promise<void> {
 			dialogs.setUpdate({ update });
 		}
 	} catch {
-		// Offline, most likely: the next look, within the hour, tries again.
+		lastFailedCheck = Date.now();
 	}
 }
 
@@ -92,7 +105,13 @@ export async function installUpdate({
 	});
 	// On Windows the installer closes the app as it starts.
 	const { EditorCore } = await import("@/core");
-	await EditorCore.getInstance().save.flush();
+	await EditorCore.getInstance()
+		.save.flush()
+		.catch((error: unknown) => {
+			throw new Error(
+				`Couldn't save the project first: ${describeError(error)}`,
+			);
+		});
 	await update.install();
 	await relaunch();
 }

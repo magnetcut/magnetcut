@@ -25,8 +25,9 @@ made by Whisper, which runs on the computer (`apps/web/src/transcription`).
 - Syncing to the speech:
   - Auto-sync: lines of text timed to the words Whisper heard. Both sides as words, anchored on
     runs of three found once in each (the longest run of them in order), aligned word by word
-    between anchors; each line from its first word heard to its last, one none of whose words
-    were heard placed between its neighbours.
+    between anchors (Chinese, Japanese and Thai, written without spaces, a character at a
+    time); each line from its first word heard to its last, one none of whose words were heard
+    placed between its neighbours, none shorter than half a second.
   - Offset and drift: subtitles lined up with when someone speaks, which works for a
     translation too. Every ratio of two common frame rates tried as a scale, each with the best
     shift over two minutes either way; then the shift for each half, for what drift is left.
@@ -59,8 +60,8 @@ made by Whisper, which runs on the computer (`apps/web/src/transcription`).
   and on 3000 words with some dropped and changed; 4% drift and 3.2 s late found to within
   0.15 s across half an hour; a translation, two spoken stretches a line, found 2.5 s early.
 - Phase 2: the import offers .srt, .vtt, .ass, .ssa and .sub, and maps ASS styles as before
-  (tested in `bun test`); a line in italics or bold throughout keeps it, partly styled ones are
-  said to be left plain. Not yet tried in the app.
+  (tested in `bun test`); a line in italics or bold throughout (or on each of its lines) keeps
+  it, partly styled ones are said to be left plain. Not yet tried in the app.
 - Phases 3 to 6 in part, in the Captions panel (`subtitles/components/subtitle-list.tsx`), not
   yet tried in the app; the logic behind them tested in `bun test` (`subtitles/track.ts`,
   `subtitles/sync.ts`):
@@ -69,13 +70,14 @@ made by Whisper, which runs on the computer (`apps/web/src/transcription`).
     how fast they ask to be read, the one showing marked; a line clicked moves the playhead to
     it and opens its start, end and text to edit.
   - Lined up with the speech in one click: the timeline's sound mixed down to 16 kHz, speech
-    found by its loudness (`speech_spans`: 12 dB above its quiet, music counting too), and the
-    core's fit applied. Two-point sync: "Spoken now" on two lines, then sync on them. A script
-    pasted in, timed to the words Whisper heard: it's asked for each word's time
-    (`return_timestamps: "word"`), and where the model can't, its segments' words are spread
-    over each by length.
+    found by its loudness (`speech_spans`: 12 dB above its quiet, digital silence aside, music
+    counting too), and the core's fit applied. Two-point sync: "Spoken now" on two lines, then
+    sync on them. A script pasted in, timed to the words Whisper heard: it's asked for each
+    word's time (`return_timestamps: "word"`), and where the model can't, its segments' words
+    are spread over each by length.
   - Shift, another frame rate, overlaps and durations fixed; saved as any of the six formats
-    (in the desktop app through its save dialog).
+    (in the desktop app through its save dialog), each line's italics, bold and underline as
+    markup, MicroDVD with its frame rate.
   - Export puts the subtitle tracks in the picture (as before), in tracks a player turns on and
     off, or both (`export/subtitles.ts`): each a WebVTT track, through mediabunny, in MP4, MKV
     or WebM, the picture without them if they go only in tracks. The Mac's own export writes
@@ -91,5 +93,9 @@ made by Whisper, which runs on the computer (`apps/web/src/transcription`).
     line edited with the original it overlaps most shown above it.
   - Timed by holding a key: lines pasted in, T held while each is spoken (pressed where it
     starts, let go where it ends), taken before the editor's own shortcuts see the key.
+  - An ASS or SSA file's header and styles kept on its track (`assScript`), and each line's
+    style (`assStyle`): saved as the same kind, it comes back with them, each line's markup
+    only what its style doesn't say (tested: a file opened and saved is the file it was). Its
+    translation track keeps them too.
   - Still to do: the subtitles' styles in timed text (white, at the foot, for now); whether the
     app's Whisper models give word times, to be seen in the app.

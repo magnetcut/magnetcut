@@ -10,6 +10,7 @@ import { isRetimableElement } from "@/timeline";
 import { splitAnimationsAtTime } from "@/animation";
 import { getSourceSpanAtClipTime } from "@/retime";
 import { followSplitEnds } from "@/transitions";
+import { splitFadeParams } from "@/timeline/audio-fades";
 import {
 	addMediaTime,
 	type MediaTime,
@@ -19,6 +20,7 @@ import {
 
 export class SplitElementsCommand extends Command {
 	private savedState: SceneTracks | null = null;
+	private madeState: SceneTracks | null = null;
 	private rightSideElements: { trackId: string; elementId: string }[] = [];
 	private readonly elements: { trackId: string; elementId: string }[];
 	private readonly splitTime: MediaTime;
@@ -120,6 +122,9 @@ export class SplitElementsCommand extends Command {
 					splitTime: relativeTime,
 					shouldIncludeSplitBoundary: true,
 				});
+				const { left: leftParams, right: rightParams } = splitFadeParams({
+					params: element.params,
+				});
 				let splitResult: TimelineElement[];
 
 				const leftTrimEnd = addMediaTime({
@@ -138,6 +143,7 @@ export class SplitElementsCommand extends Command {
 							duration: leftVisibleDuration,
 							trimEnd: leftTrimEnd,
 							name: `${element.name} (left)`,
+							params: leftParams,
 							animations: leftAnimations,
 							...(retimeRef !== undefined ? { retime: retimeRef } : {}),
 						},
@@ -157,6 +163,7 @@ export class SplitElementsCommand extends Command {
 							duration: rightVisibleDuration,
 							trimStart: rightTrimStart,
 							name: `${element.name} (right)`,
+							params: rightParams,
 							animations: rightAnimations,
 							...(retimeRef !== undefined ? { retime: retimeRef } : {}),
 						},
@@ -174,6 +181,7 @@ export class SplitElementsCommand extends Command {
 							duration: leftVisibleDuration,
 							trimEnd: leftTrimEnd,
 							name: `${element.name} (left)`,
+							params: leftParams,
 							animations: leftAnimations,
 							...(retimeRef !== undefined ? { retime: retimeRef } : {}),
 						},
@@ -184,6 +192,7 @@ export class SplitElementsCommand extends Command {
 							duration: rightVisibleDuration,
 							trimStart: rightTrimStart,
 							name: `${element.name} (right)`,
+							params: rightParams,
 							animations: rightAnimations,
 							...(retimeRef !== undefined ? { retime: retimeRef } : {}),
 						},
@@ -205,12 +214,9 @@ export class SplitElementsCommand extends Command {
 			ends,
 		});
 
+		this.madeState = updatedTracks;
 		editor.timeline.updateTracks(updatedTracks);
-
-		if (this.rightSideElements.length > 0) {
-			return createElementSelectionResult(this.rightSideElements);
-		}
-		return undefined;
+		return this.getSelectionResult();
 	}
 
 	undo(): void {
@@ -218,5 +224,26 @@ export class SplitElementsCommand extends Command {
 			const editor = EditorCore.getInstance();
 			editor.timeline.updateTracks(this.savedState);
 		}
+	}
+
+	/** The halves as the first split made them: the steps after it in the
+	 * history refer to their ids. */
+	redo(): CommandResult | undefined {
+		const editor = EditorCore.getInstance();
+		if (
+			!this.madeState ||
+			editor.scenes.getActiveScene().tracks !== this.savedState
+		) {
+			return this.execute();
+		}
+		editor.timeline.updateTracks(this.madeState);
+		return this.getSelectionResult();
+	}
+
+	private getSelectionResult(): CommandResult | undefined {
+		if (this.rightSideElements.length > 0) {
+			return createElementSelectionResult(this.rightSideElements);
+		}
+		return undefined;
 	}
 }

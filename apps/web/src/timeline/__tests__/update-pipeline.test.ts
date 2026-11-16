@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Transform } from "@/rendering";
 import type { SceneTracks, VideoElement } from "@/timeline";
 import { applyElementUpdate } from "@/timeline/update-pipeline";
-import { mediaTime, ZERO_MEDIA_TIME } from "@/wasm";
+import { mediaTime, TICKS_PER_SECOND, ZERO_MEDIA_TIME } from "@/wasm";
 
 function buildTransform(): Transform {
 	return {
@@ -68,5 +68,44 @@ describe("applyElementUpdate", () => {
 
 		expect(updatedElement.duration).toBe(mediaTime({ ticks: 7 }));
 		expect(Number.isInteger(updatedElement.duration)).toBe(true);
+	});
+});
+
+describe("a speed change", () => {
+	const second = TICKS_PER_SECOND;
+	/** Five seconds of a 20-second file, with B after it on its track. */
+	function slowDown({ nextAt }: { nextAt: number | null }) {
+		const a = buildVideoElement({
+			duration: mediaTime({ ticks: 5 * second }),
+			trimEnd: mediaTime({ ticks: 15 * second }),
+			sourceDuration: mediaTime({ ticks: 20 * second }),
+		});
+		const tracks = buildTracks(a);
+		if (nextAt !== null) {
+			tracks.main.elements.push(
+				buildVideoElement({
+					id: "video-2",
+					startTime: mediaTime({ ticks: nextAt * second }),
+				}),
+			);
+		}
+		const updated = applyElementUpdate({
+			element: a,
+			patch: { retime: { rate: 0.5 } },
+			context: { tracks, trackId: tracks.main.id },
+		});
+		return {
+			duration: updated.duration / second,
+			trimEnd: updated.trimEnd / second,
+		};
+	}
+
+	test("slowing a clip down lengthens it", () => {
+		expect(slowDown({ nextAt: null })).toEqual({ duration: 10, trimEnd: 15 });
+	});
+
+	test("it stops where the next clip starts, the rest of its media after its end", () => {
+		expect(slowDown({ nextAt: 5 })).toEqual({ duration: 5, trimEnd: 17.5 });
+		expect(slowDown({ nextAt: 8 })).toEqual({ duration: 8, trimEnd: 16 });
 	});
 });

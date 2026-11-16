@@ -1,19 +1,24 @@
+import { Command, type CommandResult } from "@/commands/base-command";
+import { BatchCommand } from "@/commands/batch-command";
 import { TracksSnapshotCommand } from "@/commands/timeline/tracks-snapshot";
 import type { EditorCore } from "@/core";
 import { frameRateToFloat } from "@/fps/utils";
-import type { TimelineElement, TimelineTrack } from "@/timeline";
+import type { TProjectSettings } from "@/project/types";
+import type { ElementType, TimelineElement, TimelineTrack } from "@/timeline";
 import { DEFAULT_NEW_ELEMENT_DURATION } from "@/timeline/creation";
 import {
 	buildElementFromMedia,
 	buildTextElement,
 } from "@/timeline/element-utils";
-import { DEFAULT_TRANSITION_TYPE } from "@/transitions/catalog";
+import { canElementGoOnTrack } from "@/timeline/placement";
+import { canPlaceTimeSpansOnTrack } from "@/timeline/placement/overlap";
+import { DEFAULT_TRANSITION_TYPE, TRANSITIONS } from "@/transitions/catalog";
 import { mediaTime, mediaTimeFromSeconds } from "@/wasm";
-import { resolveId } from "./ids";
+import { resolveId, shortIds } from "./ids";
 import { mergeRanges, removeRanges, type Range } from "./ranges";
 import { allIds, diffTracks, namedTracks } from "./summary";
 import { parseTime } from "./time";
-import { revisionOf, ToolError, type Tool } from "./tools-base";
+import { needProject, revisionOf, ToolError, type Tool } from "./tools-base";
 
 // `edit` (docs/AUTOMATION.md): a batch of operations on the open project, done
 // in order with the editor's own commands, then folded into one step of undo.
@@ -94,6 +99,63 @@ function trackNamed({
 	return found.track;
 }
 
+/** Refuses a `type` of clip on `track`, named `name`, if it can't go there. */
+function needKind({
+	track,
+	type,
+	name,
+}: {
+	track: TimelineTrack;
+	type: ElementType;
+	name: unknown;
+}): void {
+	if (!canElementGoOnTrack({ elementType: type, trackType: track.type })) {
+		throw new ToolError(
+			`${String(name)} is for ${track.type}: ${type} doesn't go there`,
+		);
+	}
+}
+
+/** Refuses a clip from `start` for `duration` on `track` where another one
+ * is (clip `id` aside): clips on a track never overlap, as in the timeline. */
+function needRoom({
+	scope,
+	track,
+	start,
+	duration,
+	id,
+}: {
+	scope: Scope;
+	track: TimelineTrack;
+	start: number;
+	duration: number;
+	id?: string;
+}): void {
+	const span = {
+		startTime: mediaTime({ ticks: start }),
+		duration: mediaTime({ ticks: duration }),
+		excludeElementId: id,
+	};
+	const other = track.elements.find(
+		(one) =>
+			!canPlaceTimeSpansOnTrack({
+				track: { elements: [one] },
+				timeSpans: [span],
+			}),
+	);
+	if (!other) return;
+	const tracks = tracksOf({ editor: scope.editor });
+	const short = shortIds({
+		ids: allIds({ tracks, assets: scope.editor.media.getAssets() }),
+	});
+	const name = namedTracks({ tracks }).find(
+		(one) => one.track.id === track.id,
+	)?.name;
+	throw new ToolError(
+		`${short.get(other.id) ?? other.id} is there on ${name ?? "that track"}: clips on a track don't overlap`,
+	);
+}
+
 function trackEnd({ track }: { track: TimelineTrack }): number {
 	return Math.max(
 		0,
@@ -120,6 +182,52 @@ function rangesOf({
 		throw new ToolError("each range's to is after its from");
 	}
 	return mergeRanges({ ranges });
+}
+
+/** Gives the open project `settings`, if it hasn't them already. */
+function putSettings({
+	editor,
+	settings,
+}: {
+	editor: EditorCore;
+	settings: TProjectSettings;
+}): void {
+	const current = editor.project.getActive();
+	if (current.settings === settings) return;
+	editor.project.setActiveProject({ project: { ...current, settings } });
+	editor.save.markDirty();
+}
+
+/** What a batch did to the project's settings, already done, for its step of
+ * undo: the size and rate the first clip on a timeline gives it. */
+class SettingsSnapshotCommand extends Command {
+	constructor({
+		editor,
+		before,
+		after,
+	}: {
+		editor: EditorCore;
+		before: TProjectSettings;
+		after: TProjectSettings;
+	}) {
+		super();
+		this.editor = editor;
+		this.before = before;
+		this.after = after;
+	}
+
+	private editor: EditorCore;
+	private before: TProjectSettings;
+	private after: TProjectSettings;
+
+	execute(): CommandResult | undefined {
+		putSettings({ editor: this.editor, settings: this.after });
+		return undefined;
+	}
+
+	undo(): void {
+		putSettings({ editor: this.editor, settings: this.before });
+	}
 }
 
 const OPERATIONS: Record<
@@ -151,23 +259,35 @@ const OPERATIONS: Record<
 				: visual
 					? trackEnd({ track: main })
 					: editor.timeline.getTotalDuration());
+		const duration =
+			asset.duration != null
+				? mediaTimeFromSeconds({ seconds: asset.duration })
+				: DEFAULT_NEW_ELEMENT_DURATION;
+		const element = buildElementFromMedia({
+			mediaId: asset.id,
+			mediaType: asset.type,
+			name: asset.name,
+			duration,
+			startTime: mediaTime({ ticks: at }),
+		});
+		// On a track named, the timeline puts it where it's told: so it's
+		// checked here.
+		if (track) {
+			needKind({ track, type: element.type, name: operation.track });
+			needRoom({ scope, track, start: at, duration });
+		}
+		const before = tracksOf({ editor });
 		editor.timeline.insertElement({
-			element: buildElementFromMedia({
-				mediaId: asset.id,
-				mediaType: asset.type,
-				name: asset.name,
-				duration:
-					asset.duration != null
-						? mediaTimeFromSeconds({ seconds: asset.duration })
-						: DEFAULT_NEW_ELEMENT_DURATION,
-				startTime: mediaTime({ ticks: at }),
-			}),
+			element,
 			placement: track
 				? { mode: "explicit", trackId: track.id }
 				: visual && operation.at === undefined
 					? { mode: "explicit", trackId: main.id }
 					: { mode: "auto" },
 		});
+		if (tracksOf({ editor }) === before) {
+			throw new ToolError("the clip couldn't be put there");
+		}
 	},
 	text: ({ scope, operation }) => {
 		if (typeof operation.text !== "string" || !operation.text.trim()) {
@@ -180,13 +300,17 @@ const OPERATIONS: Record<
 			operation.track === undefined
 				? null
 				: trackNamed({ scope, name: operation.track });
+		const duration = to === undefined ? DEFAULT_NEW_ELEMENT_DURATION : to - at;
+		if (track) {
+			needKind({ track, type: "text", name: operation.track });
+			needRoom({ scope, track, start: at, duration });
+		}
+		const before = tracksOf({ editor: scope.editor });
 		scope.editor.timeline.insertElement({
 			element: buildTextElement({
 				raw: {
 					name: operation.text.slice(0, 30),
-					duration: mediaTime({
-						ticks: to === undefined ? DEFAULT_NEW_ELEMENT_DURATION : to - at,
-					}),
+					duration: mediaTime({ ticks: duration }),
 					params: { content: operation.text },
 				},
 				startTime: mediaTime({ ticks: at }),
@@ -195,6 +319,9 @@ const OPERATIONS: Record<
 				? { mode: "explicit", trackId: track.id }
 				: { mode: "auto", trackType: "text" },
 		});
+		if (tracksOf({ editor: scope.editor }) === before) {
+			throw new ToolError("the words couldn't be put there");
+		}
 	},
 	cut: ({ scope, operation }) => {
 		const at = time({ scope, value: operation.at, key: "at" });
@@ -218,7 +345,7 @@ const OPERATIONS: Record<
 		});
 	},
 	trim: ({ scope, operation }) => {
-		const { element: clip } = element({ scope, id: operation.id });
+		const { track, element: clip } = element({ scope, id: operation.id });
 		const start =
 			optionalTime({ scope, value: operation.start, key: "start" }) ??
 			clip.startTime;
@@ -242,6 +369,7 @@ const OPERATIONS: Record<
 				"that's past the media's own start or end: the clip can't be that long",
 			);
 		}
+		needRoom({ scope, track, start, duration: end - start, id: clip.id });
 		scope.editor.timeline.updateElementTrim({
 			elementId: clip.id,
 			trimStart: mediaTime({ ticks: Math.round(trimStart) }),
@@ -262,6 +390,13 @@ const OPERATIONS: Record<
 				`a ${found.track.type} clip goes on a ${found.track.type} track`,
 			);
 		}
+		needRoom({
+			scope,
+			track: target,
+			start: to,
+			duration: found.element.duration,
+			id: found.element.id,
+		});
 		scope.editor.timeline.moveElements({
 			moves: [
 				{
@@ -316,6 +451,14 @@ const OPERATIONS: Record<
 				`no clip starts where ${String(operation.from)} ends: move one there first`,
 			);
 		}
+		const type = TRANSITIONS.find(
+			(one) => one.id === (operation.type ?? DEFAULT_TRANSITION_TYPE),
+		);
+		if (!type) {
+			throw new ToolError(
+				`type is one of ${TRANSITIONS.map((one) => one.id).join(", ")}`,
+			);
+		}
 		const duration = optionalTime({
 			scope,
 			value: operation.duration,
@@ -325,10 +468,7 @@ const OPERATIONS: Record<
 			trackId: found.track.id,
 			fromElementId: found.element.id,
 			toElementId: next.id,
-			type:
-				typeof operation.type === "string"
-					? operation.type
-					: DEFAULT_TRANSITION_TYPE,
+			type: type.id,
 			duration:
 				duration === undefined ? undefined : mediaTime({ ticks: duration }),
 		});
@@ -369,10 +509,7 @@ export const editTool: Tool = {
 		required: ["operations"],
 	},
 	run: async ({ args, context: { editor } }) => {
-		const project = editor.project.getActiveOrNull();
-		if (!project || location.pathname !== "/editor") {
-			throw new ToolError("No project is open: `project` first");
-		}
+		const project = needProject({ editor });
 		const operations = Array.isArray(args.operations)
 			? args.operations.filter(
 					(one): one is Operation => typeof one === "object" && one !== null,
@@ -390,10 +527,15 @@ export const editTool: Tool = {
 			editor,
 			fps: frameRateToFloat(project.settings.fps),
 		};
-		const mark = editor.command.getHistoryLength();
+		const mark = editor.command.getHistoryMark();
+		const selection = editor.selection.getSnapshot();
+		// All as it was, the user's redo too: and the canvas and frame rate,
+		// which the first clip on a timeline sets.
 		const putBack = () => {
 			editor.timeline.updateTracks(before);
-			editor.command.dropSince({ length: mark });
+			putSettings({ editor, settings: project.settings });
+			editor.selection.restoreSnapshot({ snapshot: selection });
+			editor.command.dropSince({ mark });
 		};
 		for (const [index, operation] of operations.entries()) {
 			const apply = OPERATIONS[String(operation.op)];
@@ -424,9 +566,22 @@ export const editTool: Tool = {
 				content: [{ type: "text", text: `would change:\n${changes}` }],
 			};
 		}
+		// One step of undo for it all, the settings too.
+		const tracksStep = new TracksSnapshotCommand({ before, after });
+		const settings = editor.project.getActive().settings;
 		editor.command.foldSince({
-			length: mark,
-			command: new TracksSnapshotCommand({ before, after }),
+			mark,
+			command:
+				settings === project.settings
+					? tracksStep
+					: new BatchCommand([
+							tracksStep,
+							new SettingsSnapshotCommand({
+								editor,
+								before: project.settings,
+								after: settings,
+							}),
+						]),
 		});
 		return {
 			content: [
@@ -448,6 +603,7 @@ export const undoTool: Tool = {
 		properties: { redo: { type: "boolean" } },
 	},
 	run: async ({ args, context: { editor } }) => {
+		needProject({ editor });
 		const before = tracksOf({ editor });
 		if (args.redo === true) {
 			if (!editor.command.canRedo()) throw new ToolError("nothing to redo");

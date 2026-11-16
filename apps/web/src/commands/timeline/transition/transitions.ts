@@ -5,6 +5,7 @@ import {
 	type SceneTracks,
 	type TimelineTrack,
 	type Transition,
+	type TransitionRef,
 	type VideoTrack,
 } from "@/timeline";
 import { generateUUID } from "@/utils/id";
@@ -33,6 +34,23 @@ function updateTransitions({
 	});
 }
 
+function hasTransition({
+	tracks,
+	ref,
+}: {
+	tracks: SceneTracks;
+	ref: TransitionRef;
+}): boolean {
+	return [tracks.main, ...tracks.overlay].some(
+		(track) =>
+			track.id === ref.trackId &&
+			isVideoTrack(track) &&
+			!!track.transitions?.some(
+				(transition) => transition.id === ref.transitionId,
+			),
+	);
+}
+
 /** Snapshots the tracks, changes them, and puts the snapshot back on undo. */
 abstract class TransitionCommand extends Command {
 	private savedState: SceneTracks | null = null;
@@ -42,8 +60,13 @@ abstract class TransitionCommand extends Command {
 	execute(): CommandResult | undefined {
 		const editor = EditorCore.getInstance();
 		this.savedState = editor.scenes.getActiveScene().tracks;
-		editor.timeline.updateTracks(this.apply({ tracks: this.savedState }));
-		return undefined;
+		const tracks = this.apply({ tracks: this.savedState });
+		editor.timeline.updateTracks(tracks);
+		// A selected transition this took away isn't selected any more.
+		const selected = editor.selection.getSelectedTransition();
+		return selected && !hasTransition({ tracks, ref: selected })
+			? { selection: { selectedTransition: null } }
+			: undefined;
 	}
 
 	undo(): void {

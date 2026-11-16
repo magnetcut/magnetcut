@@ -1,4 +1,3 @@
-import type { BlendMode } from "@/rendering";
 import type { TransitionParamValue } from "@/timeline";
 import type { TransitionWindow } from "@/transitions";
 import { BaseNode, type AnyBaseNode } from "./base-node";
@@ -8,7 +7,6 @@ export interface TransitionNodeParams {
 	shader: string;
 	params: Record<string, TransitionParamValue>;
 	window: TransitionWindow;
-	blendMode?: BlendMode;
 }
 
 export interface ResolvedTransitionNodeState {

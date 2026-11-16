@@ -4,6 +4,7 @@ import {
 	retimeCues,
 	saveSubtitles,
 	snapSubtitleEdges,
+	type AssScriptData,
 	type Retime,
 	type SubtitleCueData,
 	type SubtitleFormat,
@@ -147,7 +148,50 @@ export function fixTrackDurations({
 	return getLineUpdates({ track, lines, cues });
 }
 
-/** The track as a subtitle file's text. MicroDVD needs the frame rate. */
+/** The track's lines as a file's cues: each in <i>, <b> and <u> where the
+ * whole line is italic, bold or underlined, its text otherwise as it is (a
+ * "<" that isn't one of those is text). Subtitles are bold unless a file
+ * says otherwise, so bold is said only on a track where some lines aren't.
+ * Saved with `script` (an ASS or SSA file's styles), each line is in its own
+ * style, and the markup says only what that style doesn't. */
+export function getSubtitleCues({
+	track,
+	script,
+}: {
+	track: TextTrack;
+	script?: AssScriptData;
+}): SubtitleCueData[] {
+	const styles = new Map(
+		(script?.styles ?? []).map((style) => [style.name, style]),
+	);
+	const isBoldSaid = track.elements.some(
+		({ params }) => params.fontWeight !== "bold",
+	);
+	return getSubtitleLines({ track }).map(({ elementId, cue }) => {
+		const element = track.elements.find(({ id }) => id === elementId);
+		const params = element?.params;
+		const style = element?.assStyle ? styles.get(element.assStyle) : undefined;
+		const tags = [
+			params?.fontStyle === "italic" && !style?.italic ? "i" : null,
+			params?.fontWeight === "bold" && (style ? !style.bold : isBoldSaid)
+				? "b"
+				: null,
+			params?.textDecoration === "underline" && !style?.underline ? "u" : null,
+		].filter((tag) => tag !== null);
+		return {
+			...cue,
+			text: tags.reduceRight(
+				(inner, tag) => `<${tag}>${inner}</${tag}>`,
+				cue.text,
+			),
+			...(style ? { style: style.name } : {}),
+		};
+	});
+}
+
+/** The track as a subtitle file's text: an ASS file saved as ASS (or SSA as
+ * SSA) with the header and styles it was opened with. MicroDVD needs the
+ * frame rate. */
 export function saveTrack({
 	track,
 	format,
@@ -157,8 +201,41 @@ export function saveTrack({
 	format: SubtitleFormat;
 	frameRate?: number;
 }): string {
-	const cues = getSubtitleLines({ track }).map(({ cue }) => cue);
-	return saveSubtitles({ cues }, format, frameRate);
+	const isAss = format === "ass" || format === "ssa";
+	const script =
+		isAss && track.assScript?.isSsa === (format === "ssa")
+			? track.assScript
+			: undefined;
+	return saveSubtitles(
+		{
+			cues: getSubtitleCues({ track, script }),
+			...(script ? { ass: script } : {}),
+		},
+		format,
+		frameRate,
+	);
+}
+
+/** A line as its editor leaves it: what was typed in each field, and the
+ * line as it is now in those left alone, which follow it when it's moved
+ * meanwhile (a shift, a sync). None if the times aren't a line's. */
+export function getEditedCue({
+	cue,
+	start,
+	end,
+	text,
+}: {
+	cue: SubtitleCueData;
+	start: string | null;
+	end: string | null;
+	text: string | null;
+}): SubtitleCueData | null {
+	const startTime = start === null ? cue.start : parseClock({ text: start });
+	const endTime = end === null ? cue.end : parseClock({ text: end });
+	if (startTime === null || endTime === null || endTime <= startTime) {
+		return null;
+	}
+	return { ...cue, start: startTime, end: endTime, text: text ?? cue.text };
 }
 
 /** How fast a line asks to be read, in characters a second. */

@@ -1,3 +1,4 @@
+import type { AssScriptData } from "magnetcut-wasm";
 import type { TextBackground } from "@/text/background";
 import type {
 	TextAlign,
@@ -43,10 +44,14 @@ export interface SubtitleStyleOverrides {
 
 export interface SubtitleCue extends CaptionChunk {
 	style?: SubtitleStyleOverrides;
+	/** Its ASS style, by name, to be saved in. */
+	assStyle?: string;
 }
 
 export interface ParseSubtitleResult {
 	captions: SubtitleCue[];
 	skippedCueCount: number;
 	warnings: string[];
+	/** An ASS or SSA file's header and styles, to save it back with. */
+	assScript?: AssScriptData;
 }

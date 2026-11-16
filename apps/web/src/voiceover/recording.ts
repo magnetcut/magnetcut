@@ -88,6 +88,9 @@ export async function changeVoiceFolder(): Promise<void> {
 
 // Counted up by each open and close: an open that a close overtook lets go.
 let generation = 0;
+// Counted up by each count-in and its cancel: one cancelled stops counting,
+// even if another has started since.
+let countIns = 0;
 
 /** Opens the microphone, or another one, with the choices made. */
 export async function openMicrophone({
@@ -139,13 +142,18 @@ export async function startTake({
 }): Promise<void> {
 	const { recorder, status } = get();
 	if (!recorder || status !== "ready") return;
+	const countIn = ++countIns;
+	const isCancelled = () => countIn !== countIns || get().status !== "counting";
+	// Counting at once: a second click while the folder is found does nothing.
+	set({ status: "counting", count: COUNT_IN });
 	try {
 		const folder = await ensureVoiceFolder();
 		for (let count = COUNT_IN; count > 0; count--) {
-			set({ status: "counting", count });
+			if (isCancelled()) return;
+			set({ count });
 			await sleep(1000);
-			if (get().status !== "counting") return;
 		}
+		if (isCancelled()) return;
 		const startTime = editor.playback.getCurrentTime();
 		await recorder.start({
 			folder,
@@ -153,6 +161,11 @@ export async function startTake({
 			// The disk full, say: the take stops there, kept as far as it got.
 			onFailure: () => void stopTake({ editor }),
 		});
+		// Cancelled, or the microphone closed, while the take was opened.
+		if (isCancelled()) {
+			await recorder.cancel();
+			return;
+		}
 		const wasMuted = editor.playback.isMuted();
 		if (get().monitor === "muted") editor.playback.mute();
 		editor.playback.play();
@@ -163,14 +176,16 @@ export async function startTake({
 			wasMuted,
 		});
 	} catch (error) {
-		set({ status: "ready" });
+		if (!isCancelled()) set({ status: "ready" });
 		toast.error("Couldn't start recording", { description: String(error) });
 	}
 }
 
 /** Stops counting in, before a take starts. */
 export function cancelCountIn(): void {
-	if (get().status === "counting") set({ status: "ready" });
+	if (get().status !== "counting") return;
+	countIns += 1;
+	set({ status: "ready" });
 }
 
 /** Ends the take: kept, and put on the Voice-over track where it started. */

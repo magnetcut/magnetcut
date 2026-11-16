@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import type { AudioElement, SceneTracks, VideoElement } from "@/timeline";
+import { getScalarChannelValueAtTime } from "@/animation";
+import { isLeafChannelData } from "@/animation/channel-data";
+import { isScalarChannel } from "@/animation/interpolation";
+import type {
+	AudioElement,
+	SceneTracks,
+	TimelineElement,
+	VideoElement,
+} from "@/timeline";
 import { mediaTime, TICKS_PER_SECOND } from "@/wasm";
 import { mergeRanges, removeRanges } from "../ranges";
 
@@ -159,4 +167,96 @@ test("several stretches are each taken where they were given", () => {
 		{ from: 1, to: 2 },
 		{ from: 5, to: 9 },
 	]);
+});
+
+/** `clip` with its opacity rising from 0 at its start to 1 ten seconds on. */
+function ramp(props: Parameters<typeof clip>[0]): VideoElement {
+	return {
+		...clip(props),
+		animations: {
+			opacity: {
+				keys: [0, 10].map((at) => ({
+					id: `k${at}`,
+					time: mediaTime({ ticks: s(at) }),
+					value: at / 10,
+					segmentToNext: "linear" as const,
+					tangentMode: "auto" as const,
+				})),
+			},
+		},
+	};
+}
+
+function opacityAt({
+	element,
+	at,
+}: {
+	element: TimelineElement;
+	at: number;
+}): number {
+	const channel = element.animations?.opacity;
+	if (!isLeafChannelData(channel) || !isScalarChannel(channel)) {
+		throw new Error("no opacity ramp");
+	}
+	return getScalarChannelValueAtTime({
+		channel,
+		time: mediaTime({ ticks: s(at) }),
+		fallbackValue: -1,
+	});
+}
+
+test("a piece after a stretch keeps its keyframes with its media", () => {
+	const before = tracks();
+	before.main.elements = [ramp({ id: "one", start: 0, length: 10 })];
+	const [first, second] = removeRanges({
+		tracks: before,
+		ranges: [{ from: s(2), to: s(4) }],
+	}).main.elements;
+	expect(opacityAt({ element: first, at: 1 })).toBeCloseTo(0.1);
+	// The second piece starts on what was at 4 s.
+	expect(opacityAt({ element: second, at: 0 })).toBeCloseTo(0.4);
+	expect(opacityAt({ element: second, at: 6 })).toBeCloseTo(1);
+});
+
+test("a piece whose start is taken out keeps its keyframes with its media", () => {
+	const before = tracks();
+	before.main.elements = [
+		before.main.elements[0],
+		ramp({ id: "two", start: 10, length: 10 }),
+	];
+	const [, second] = removeRanges({
+		tracks: before,
+		ranges: [{ from: s(8), to: s(13) }],
+	}).main.elements;
+	expect(opacityAt({ element: second, at: 0 })).toBeCloseTo(0.3);
+});
+
+test("a clip cut in two: its transition out follows the second piece, its fades their ends", () => {
+	const before = tracks();
+	before.main.elements[0].params = { fadeIn: 1, fadeOut: 2 };
+	const result = removeRanges({
+		tracks: before,
+		ranges: [{ from: s(2), to: s(4) }],
+	});
+	const [first, second, third] = result.main.elements;
+	expect(
+		result.main.transitions?.map(({ id, fromElementId, toElementId }) => ({
+			id,
+			fromElementId,
+			toElementId,
+		})),
+	).toEqual([{ id: "t", fromElementId: second.id, toElementId: "two" }]);
+	expect(third.id).toBe("two");
+	expect(first.params).toEqual({ fadeIn: 1, fadeOut: 0 });
+	expect(second.params).toEqual({ fadeIn: 0, fadeOut: 2 });
+});
+
+test("a clip shortened at one end keeps both fades", () => {
+	const before = tracks();
+	before.main.elements[0].params = { fadeIn: 1, fadeOut: 2 };
+	const result = removeRanges({
+		tracks: before,
+		ranges: [{ from: s(8), to: s(12) }],
+	});
+	expect(result.main.elements[0].params).toEqual({ fadeIn: 1, fadeOut: 2 });
 });

@@ -8,7 +8,12 @@ import {
 import type { EditorCore } from "@/core";
 import type { MediaAsset } from "@/media/types";
 import type { ParamValues } from "@/params";
-import type { AudioTrack, RetimeConfig, SceneTracks } from "@/timeline";
+import type {
+	AudioTrack,
+	CreateTimelineElement,
+	RetimeConfig,
+	SceneTracks,
+} from "@/timeline";
 import { toElementDurationTicks } from "@/timeline/creation";
 import { buildElementFromMedia } from "@/timeline/element-utils";
 import type { MediaTime } from "@/wasm";
@@ -77,6 +82,32 @@ export function assignLanes({
 	});
 }
 
+/** The clip a sound goes on the timeline as. */
+export function buildSoundElement({
+	sound,
+}: {
+	sound: PlacedSound;
+}): CreateTimelineElement {
+	const fileLength = toElementDurationTicks({
+		seconds: sound.asset.duration ?? 0,
+	});
+	const element = buildElementFromMedia({
+		mediaId: sound.asset.id,
+		mediaType: "audio",
+		name: sound.asset.name,
+		duration: sound.duration ?? fileLength,
+		startTime: sound.startTime,
+	});
+	return {
+		...element,
+		// The file's length, not the clip's: a cue sped up to fit plays all of
+		// it at 1x again.
+		sourceDuration: fileLength,
+		...(sound.retime ? { retime: sound.retime } : {}),
+		params: { ...element.params, ...sound.params },
+	};
+}
+
 /**
  * Sounds put on the audio tracks called `trackName`, made if there are none,
  * in one step that Undo takes back. What they cover there is taken off (a new
@@ -95,21 +126,9 @@ export function placeSounds({
 	if (sounds.length === 0) return;
 	const built = sounds
 		.map((sound) => {
-			const element = buildElementFromMedia({
-				mediaId: sound.asset.id,
-				mediaType: "audio",
-				name: sound.asset.name,
-				duration:
-					sound.duration ??
-					toElementDurationTicks({ seconds: sound.asset.duration ?? 0 }),
-				startTime: sound.startTime,
-			});
+			const element = buildSoundElement({ sound });
 			return {
-				element: {
-					...element,
-					...(sound.retime ? { retime: sound.retime } : {}),
-					params: { ...element.params, ...sound.params },
-				},
+				element,
 				span: {
 					start: element.startTime,
 					end: element.startTime + element.duration,

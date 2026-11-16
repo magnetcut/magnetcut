@@ -12,6 +12,8 @@ pub const ABOUT: &str = "about";
 pub const SETTINGS: &str = "settings";
 pub const OPEN_PROJECT: &str = "open-project";
 pub const SAVE_PROJECT: &str = "save-project";
+/// Quit, handled in Rust: it closes the window first, so the editor saves.
+pub const QUIT: &str = "quit";
 #[cfg(feature = "updater")]
 pub const CHECK_FOR_UPDATES: &str = "check-for-updates";
 
@@ -41,7 +43,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
             &PredefinedMenuItem::hide_others(app, None)?,
             &PredefinedMenuItem::show_all(app, None)?,
             &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::quit(app, None)?,
+            &MenuItem::with_id(app, QUIT, format!("Quit {name}"), true, Some("CmdOrCtrl+Q"))?,
         ],
     )?;
     #[cfg(feature = "updater")]

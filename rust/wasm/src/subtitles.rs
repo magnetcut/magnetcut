@@ -153,7 +153,8 @@ pub fn retime_cues(
 }
 
 /// The retime that moves two times to where they should be (Jubler's
-/// two-point sync): none if they're the same time.
+/// two-point sync): none if they're the same time, or if it would turn the
+/// lines around.
 #[wasm_bindgen(js_name = twoPointRetime, unchecked_return_type = "Retime | undefined")]
 pub fn two_point_retime(
     from_a: f64,

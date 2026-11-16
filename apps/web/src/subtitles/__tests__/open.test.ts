@@ -30,6 +30,26 @@ describe("openSubtitleFile", () => {
 		expect(result.warnings).toHaveLength(1);
 	});
 
+	test("keeps a style given a line at a time, and bold apart", async () => {
+		const result = await openSubtitleFile({
+			file: file({
+				name: "film.srt",
+				content:
+					"1\n00:00:01,000 --> 00:00:02,000\n<i>One</i>\n<i>two</i>\n\n2\n00:00:03,000 --> 00:00:04,000\n<b>Loud</b>\n",
+			}),
+		});
+		expect(result.warnings).toEqual([]);
+		expect(result.captions.map(({ text, style }) => ({ text, style }))).toEqual(
+			[
+				{
+					text: "One\ntwo",
+					style: { fontWeight: "normal", fontStyle: "italic" },
+				},
+				{ text: "Loud", style: { fontWeight: "bold" } },
+			],
+		);
+	});
+
 	test("opens WebVTT, SubViewer and MicroDVD too", async () => {
 		const cases = [
 			{ name: "a.vtt", content: "WEBVTT\n\n00:01.000 --> 00:02.000\nHi\n" },
@@ -73,10 +93,12 @@ Dialogue: 0,0:00:01.00,0:00:02.00,Top,,0,0,0,,Exit
 			file: file({ name: "a.ass", content }),
 		});
 		expect(result.warnings).toEqual([]);
+		expect(result.assScript?.styles.map(({ name }) => name)).toEqual(["Top"]);
 		expect(result.captions[0]).toEqual({
 			text: "Exit",
 			startTime: 1,
 			duration: 1,
+			assStyle: "Top",
 			style: {
 				fontFamily: "Georgia",
 				fontSizeRatioOfPlayHeight: 0.1,

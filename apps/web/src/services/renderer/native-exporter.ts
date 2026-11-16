@@ -65,6 +65,7 @@ export async function findNativeSources({
 	videoCodec,
 	audioCodec,
 	copiesSound,
+	copiesFromNativeFormat,
 	hasSubtitleTracks,
 }: {
 	rootNode: RootNode;
@@ -74,6 +75,11 @@ export async function findNativeSources({
 	audioCodec: string | null;
 	/** Whether the sound is a source's, copied. */
 	copiesSound: boolean;
+	/**
+	 * And whether its file is one the native export copies from
+	 * (`AudioPassthrough.isNativeCopy`): unknown counts as one.
+	 */
+	copiesFromNativeFormat?: boolean;
 	hasSubtitleTracks: boolean;
 }): Promise<NativeSources> {
 	const capabilities = await getNativeCapabilities();
@@ -93,6 +99,9 @@ export async function findNativeSources({
 	}
 	if (copiesSound && !capabilities.audioCopy) {
 		return { reason: "it doesn't copy sound here" };
+	}
+	if (copiesSound && copiesFromNativeFormat === false) {
+		return { reason: "it copies sound only from MP4 and QuickTime files" };
 	}
 	if (audioCodec && audioCodec !== "aac") {
 		return { reason: `it copies only AAC sound, and this is ${audioCodec}` };

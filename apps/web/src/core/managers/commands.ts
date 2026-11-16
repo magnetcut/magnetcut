@@ -2,12 +2,21 @@ import type { EditorCore } from "@/core";
 import type { Command, CommandResult } from "@/commands";
 import type { EditorSelectionSnapshot } from "@/selection/editor-selection";
 import { applyRippleAdjustments, computeRippleAdjustments } from "@/ripple";
+import { findTrackInSceneTracks } from "@/timeline/track-element-update";
 import type { SceneTracks } from "@/timeline/types";
 
 interface CommandHistoryEntry {
 	command: Command;
 	previousSelection: EditorSelectionSnapshot;
 	selectionOverride?: EditorSelectionSnapshot;
+	/** Whether it rippled when it was done, so that a redo does the same. */
+	rippled?: boolean;
+}
+
+/** Where the history was: a mark for `foldSince` and `dropSince`. */
+export interface HistoryMark {
+	readonly length: number;
+	readonly redoStack: readonly CommandHistoryEntry[];
 }
 
 export class CommandManager {
@@ -24,18 +33,21 @@ export class CommandManager {
 	constructor(private editor: EditorCore) {}
 
 	execute({ command }: { command: Command }): Command {
-		const beforeTracks = this.isRippleEnabled
+		const rippled = this.isRippleEnabled;
+		const beforeTracks = rippled
 			? (this.editor.scenes.getActiveSceneOrNull()?.tracks ?? null)
 			: null;
 		const previousSelection = this.getSelectionSnapshot();
 		const result = command.execute();
-		this.applyRippleIfEnabled({ beforeTracks });
+		this.applyRipple({ beforeTracks });
 		const selectionOverride = this.applySelectionOverride(result);
 		this.runReactors();
+		this.deselectGoneTransition();
 		this.history.push({
 			command,
 			previousSelection,
 			selectionOverride,
+			rippled,
 		});
 		this.redoStack = [];
 		return command;
@@ -68,6 +80,7 @@ export class CommandManager {
 					snapshot: entry.previousSelection,
 				});
 			}
+			this.deselectGoneTransition();
 			this.redoStack.push(entry);
 		}
 	}
@@ -79,19 +92,22 @@ export class CommandManager {
 			return;
 		}
 
-		const beforeTracks = this.isRippleEnabled
+		// As it was done, whatever the ripple toggle says now.
+		const beforeTracks = entry.rippled
 			? (this.editor.scenes.getActiveSceneOrNull()?.tracks ?? null)
 			: null;
 		const previousSelection = this.getSelectionSnapshot();
 		const result = entry.command.redo();
-		this.applyRippleIfEnabled({ beforeTracks });
+		this.applyRipple({ beforeTracks });
 		const selectionOverride = this.applySelectionOverride(result);
 		this.runReactors();
+		this.deselectGoneTransition();
 
 		this.history.push({
 			command: entry.command,
 			previousSelection,
 			selectionOverride,
+			rippled: entry.rippled,
 		});
 	}
 
@@ -99,14 +115,15 @@ export class CommandManager {
 		return this.history.length > 0;
 	}
 
-	/** How many steps there are to undo: a mark for `foldSince`. */
-	getHistoryLength(): number {
-		return this.history.length;
+	/** Where the history is now: a mark for `foldSince` or `dropSince`. */
+	getHistoryMark(): HistoryMark {
+		return { length: this.history.length, redoStack: [...this.redoStack] };
 	}
 
-	/** Folds the steps taken since the history was `length` long into one,
-	 * `command`, already applied: an agent's batch of edits, one undo. */
-	foldSince({ length, command }: { length: number; command: Command }): void {
+	/** Folds the steps taken since `mark` into one, `command`, already
+	 * applied: an agent's batch of edits, one undo. */
+	foldSince({ mark, command }: { mark: HistoryMark; command: Command }): void {
+		const { length } = mark;
 		const first = this.history[length];
 		this.history.length = Math.min(this.history.length, length);
 		this.history.push({
@@ -117,10 +134,12 @@ export class CommandManager {
 		this.redoStack = [];
 	}
 
-	/** Forgets the steps taken since the history was `length` long, their
-	 * changes already put back: a dry run, or a batch that failed. */
-	dropSince({ length }: { length: number }): void {
-		this.history.length = Math.min(this.history.length, length);
+	/** Forgets the steps taken since `mark`, their changes already put back,
+	 * and what there was to redo comes back: a dry run, or a batch that
+	 * failed. */
+	dropSince({ mark }: { mark: HistoryMark }): void {
+		this.history.length = Math.min(this.history.length, mark.length);
+		this.redoStack = [...mark.redoStack];
 	}
 
 	canRedo(): boolean {
@@ -147,18 +166,43 @@ export class CommandManager {
 		});
 	}
 
+	/** Deselects a transition that's no longer on the tracks: a reactor
+	 * dropped it, or an undo took it away. */
+	private deselectGoneTransition(): void {
+		const selected = this.editor.selection.getSelectedTransition();
+		if (!selected) {
+			return;
+		}
+		const tracks = this.editor.scenes.getActiveSceneOrNull()?.tracks;
+		const track = tracks
+			? findTrackInSceneTracks({ tracks, trackId: selected.trackId })
+			: null;
+		const isThere =
+			track?.type === "video" &&
+			(track.transitions ?? []).some(
+				(transition) => transition.id === selected.transitionId,
+			);
+		if (!isThere) {
+			this.editor.selection.applySelectionPatch({
+				patch: { selectedTransition: null },
+			});
+		}
+	}
+
 	private runReactors(): void {
 		for (const reactor of this.reactors) {
 			reactor();
 		}
 	}
 
-	private applyRippleIfEnabled({
+	/** Closes what the command left open, if it ripples: `beforeTracks` are
+	 * the tracks before it, null if it doesn't. */
+	private applyRipple({
 		beforeTracks,
 	}: {
 		beforeTracks: SceneTracks | null;
 	}): void {
-		if (!this.isRippleEnabled || !beforeTracks) {
+		if (!beforeTracks) {
 			return;
 		}
 

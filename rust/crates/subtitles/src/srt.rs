@@ -38,27 +38,51 @@ pub fn blocks(text: &str) -> Vec<Vec<&str>> {
 pub fn read(text: &str) -> Parsed {
     let mut parsed = Parsed::default();
     for block in blocks(text) {
-        let Some(at) = block.iter().position(|line| line.contains("-->")) else {
-            parsed.skipped += 1;
-            continue;
-        };
-        let Some((start, end)) = timing(block[at]) else {
-            parsed.skipped += 1;
-            continue;
-        };
-        let text = keep_simple_tags(&block[at + 1..].join("\n"));
-        if text.trim().is_empty() {
+        // Each timing line starts a cue, even with no blank line before it.
+        let timings: Vec<(usize, (f64, f64))> = block
+            .iter()
+            .enumerate()
+            .filter_map(|(at, line)| Some((at, timing(line)?)))
+            .collect();
+        if timings.is_empty() {
             parsed.skipped += 1;
             continue;
         }
-        parsed.cues.push(Cue {
-            start,
-            end,
-            text,
-            style: None,
-        });
+        for (index, &(at, (start, end))) in timings.iter().enumerate() {
+            let mut until = timings.get(index + 1).map_or(block.len(), |next| next.0);
+            // The next cue's number, just before its timing line.
+            if until < block.len()
+                && until > at + 1
+                && block[until - 1]
+                    .trim()
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit())
+            {
+                until -= 1;
+            }
+            let text = keep_simple_tags(&block[at + 1..until].join("\n"));
+            if text.trim().is_empty() {
+                parsed.skipped += 1;
+                continue;
+            }
+            parsed.cues.push(Cue {
+                start,
+                end,
+                text,
+                style: None,
+            });
+        }
     }
     parsed
+}
+
+/// A cue's text with its blank lines left out: in a file of blocks (SRT,
+/// WebVTT) a blank line would end the cue.
+pub fn folded(text: &str) -> String {
+    text.lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub fn write(cues: &[Cue]) -> String {
@@ -69,7 +93,7 @@ pub fn write(cues: &[Cue]) -> String {
             index + 1,
             times::format(cue.start, ',', 3, 2),
             times::format(cue.end, ',', 3, 2),
-            cue.text
+            folded(&cue.text)
         ));
     }
     text
@@ -88,6 +112,22 @@ mod tests {
         assert_eq!(parsed.cues[0].text, "Hi\nthere");
         assert_eq!((parsed.cues[0].start, parsed.cues[0].end), (1.0, 2.5));
         assert_eq!(parsed.cues[1].text, "<i>Bye</i>");
+    }
+
+    #[test]
+    fn reads_cues_with_no_blank_line_between_them() {
+        let text = "1\n00:00:01,000 --> 00:00:02,000\nHow old?\n42\n2\n00:00:03,000 --> 00:00:04,000\nOld.\n00:00:05,000 --> 00:00:06,000\nNo number\n";
+        let parsed = read(text);
+        let cues: Vec<(f64, &str)> = parsed
+            .cues
+            .iter()
+            .map(|cue| (cue.start, cue.text.as_str()))
+            .collect();
+        assert_eq!(
+            cues,
+            [(1.0, "How old?\n42"), (3.0, "Old."), (5.0, "No number")]
+        );
+        assert_eq!(parsed.skipped, 0);
     }
 
     #[test]

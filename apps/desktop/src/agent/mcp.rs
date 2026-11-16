@@ -1,5 +1,5 @@
-// One request to the agent server, answered: who's asking (the Host, no
-// Origin, a token that's one of the user's agents), then MCP's JSON-RPC.
+// One request to the agent server, answered: who's asking (a token that's one
+// of the user's agents, then the Host and no Origin), then MCP's JSON-RPC.
 // Tool calls go to the editor, which does the work; their progress comes back
 // as server-sent events where the client takes them.
 
@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::Shared;
 use super::http::{self, Refusal};
+use super::{Caller, Shared};
 
 // The protocol versions spoken, the newest first.
 const VERSIONS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
@@ -19,8 +19,8 @@ const VERSIONS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 // answer: an export takes a while.
 const CALL_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
-// How long `tools/list` waits for the editor to say what it can do, while the
-// app starts.
+// How long `tools/list` and a tool call wait for the editor to say what it
+// can do, while the app starts or its page reloads.
 const TOOLS_TIMEOUT: Duration = Duration::from_secs(15);
 
 // What an agent is told, once, when it connects.
@@ -48,59 +48,71 @@ fn result(id: &Value, result: Value) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "result": result })
 }
 
-/// Whether `host` names this server: 127.0.0.1 or localhost, on its port. A
-/// web page that reached it by another name (DNS rebinding) doesn't.
+/// Whether `host` names this server: 127.0.0.1, on its port, as the lines
+/// pasted say. A web page that reached it by another name (DNS rebinding)
+/// doesn't.
 fn is_own_host(host: Option<&str>, port: u16) -> bool {
-    host.is_some_and(|host| {
-        host == format!("127.0.0.1:{port}") || host == format!("localhost:{port}")
-    })
+    host.is_some_and(|host| host == format!("127.0.0.1:{port}"))
+}
+
+/// The token in an `Authorization` header: `Bearer`, in any case, then it.
+fn bearer(value: &str) -> Option<&str> {
+    let (scheme, token) = value.trim().split_once(' ')?;
+    scheme
+        .eq_ignore_ascii_case("bearer")
+        .then_some(token.trim())
+}
+
+fn unauthorized(stream: &TcpStream) {
+    http::refuse(
+        stream,
+        401,
+        "Unauthorized",
+        &[("WWW-Authenticate", "Bearer realm=\"MagnetCut\"")],
+    );
 }
 
 /// Answers the request on `stream`, the server being on `port`.
 pub fn handle(shared: &Shared, stream: &TcpStream, port: u16) {
-    let request = match http::read_request(stream) {
-        Ok(request) => request,
+    // Without a good token, 401 and nothing else: not even the body is read.
+    let (mut request, mut reader) = match http::read_head(stream) {
+        Ok(read) => read,
         Err(Refusal::Gone) => return,
-        Err(Refusal::Status(status, reason)) => {
-            http::respond(stream, status, reason, &[], None, b"");
+        Err(Refusal::Status(..)) => {
+            unauthorized(stream);
             return;
         }
     };
+    let agent = request
+        .header("Authorization")
+        .and_then(bearer)
+        .and_then(|token| shared.agent_for(token));
+    let Some(agent) = agent else {
+        unauthorized(stream);
+        return;
+    };
     if request.path != "/mcp" {
-        http::respond(stream, 404, "Not Found", &[], None, b"");
+        http::refuse(stream, 404, "Not Found", &[]);
         return;
     }
     // Not from a web page, and by this server's own name.
     if request.header("Origin").is_some() || !is_own_host(request.header("Host"), port) {
-        http::respond(stream, 403, "Forbidden", &[], None, b"");
+        http::refuse(stream, 403, "Forbidden", &[]);
         return;
     }
-    let agent = request
-        .header("Authorization")
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .and_then(|token| shared.agent_for(token.trim()));
-    let Some(agent) = agent else {
-        http::respond(
-            stream,
-            401,
-            "Unauthorized",
-            &[("WWW-Authenticate", "Bearer realm=\"MagnetCut\"")],
-            None,
-            b"",
-        );
-        return;
-    };
     if request.method != "POST" {
-        http::respond(
-            stream,
-            405,
-            "Method Not Allowed",
-            &[("Allow", "POST")],
-            None,
-            b"",
-        );
+        http::refuse(stream, 405, "Method Not Allowed", &[("Allow", "POST")]);
         return;
     }
+    request.body = match http::read_body(&mut reader, &request) {
+        Ok(body) => body,
+        Err(Refusal::Gone) => return,
+        Err(Refusal::Status(status, reason)) => {
+            http::refuse(stream, status, reason, &[]);
+            return;
+        }
+    };
+    shared.note_use(&agent.id);
     let message: Value = match serde_json::from_slice(&request.body) {
         Ok(message) => message,
         Err(_) => {
@@ -163,7 +175,7 @@ fn call(
     stream: &TcpStream,
     id: &Value,
     params: &Value,
-    agent: &str,
+    agent: &Caller,
     streams: bool,
 ) {
     let Some(tool) = params.get("name").and_then(Value::as_str) else {
@@ -181,7 +193,7 @@ fn call(
         .get("_meta")
         .and_then(|meta| meta.get("progressToken"))
         .cloned();
-    let (number, updates) = match shared.start_call(agent, tool, arguments) {
+    let (number, updates) = match shared.start_call(agent, tool, arguments, TOOLS_TIMEOUT) {
         Ok(started) => started,
         Err(message) => {
             json_reply(stream, &result(id, failed(&message)));
@@ -208,7 +220,7 @@ fn call(
             }
             Ok(super::Update::Done(answer)) => break answer,
             Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => {
-                shared.end_call(number);
+                shared.cancel(number);
                 break failed("The editor didn't answer in time");
             }
         }
@@ -228,14 +240,24 @@ pub fn failed(message: &str) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::is_own_host;
+    use super::{bearer, is_own_host};
 
     #[test]
     fn knows_its_own_name() {
         assert!(is_own_host(Some("127.0.0.1:4000"), 4000));
-        assert!(is_own_host(Some("localhost:4000"), 4000));
-        assert!(!is_own_host(Some("localhost:4001"), 4000));
+        assert!(!is_own_host(Some("127.0.0.1:4001"), 4000));
+        assert!(!is_own_host(Some("localhost:4000"), 4000));
         assert!(!is_own_host(Some("evil.example:4000"), 4000));
         assert!(!is_own_host(None, 4000));
+    }
+
+    #[test]
+    fn takes_the_bearer_scheme_in_any_case() {
+        assert_eq!(bearer("Bearer mc_a"), Some("mc_a"));
+        assert_eq!(bearer("bearer  mc_a "), Some("mc_a"));
+        assert_eq!(bearer("BEARER mc_a"), Some("mc_a"));
+        assert_eq!(bearer("Basic mc_a"), None);
+        assert_eq!(bearer("Bearer"), None);
+        assert_eq!(bearer("mc_a"), None);
     }
 }

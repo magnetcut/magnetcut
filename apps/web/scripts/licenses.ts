@@ -250,6 +250,9 @@ function packageLicenseTexts({
 
 const standardTexts = new Map<string, string>();
 
+// Licences that ask for no notice: their name and where to read them will do.
+const NO_NOTICE = ["MIT-0", "0BSD", "Unlicense", "CC0-1.0"];
+
 function standardText({ id, pkg }: { id: string; pkg: Package }): string {
 	const holders = pkg.authors.length
 		? pkg.authors.join(", ")
@@ -263,9 +266,13 @@ function standardText({ id, pkg }: { id: string; pkg: Package }): string {
 	if (id === "BSD-3-Clause") {
 		return `BSD 3-Clause License\n\nCopyright (c) ${holders}\n\n${BSD_3_BODY}`;
 	}
-	return (
-		standardTexts.get(id) ??
-		`Licensed under ${id}: https://spdx.org/licenses/${id}.html`
+	const text = standardTexts.get(id);
+	if (text) return text;
+	if (NO_NOTICE.includes(id)) {
+		return `Licensed under ${id}: https://spdx.org/licenses/${id}.html`;
+	}
+	throw new Error(
+		`${pkg.name} ${pkg.version}: no ${id} text, in it or in another package`,
 	);
 }
 
@@ -572,9 +579,15 @@ function section({
 			);
 			continue;
 		}
-		const texts = licenseTexts({ pkg, licenses }).map((part) =>
-			normalise({ text: part }),
-		);
+		let texts: string[];
+		try {
+			texts = licenseTexts({ pkg, licenses }).map((part) =>
+				normalise({ text: part }),
+			);
+		} catch (error) {
+			problems.push(error instanceof Error ? error.message : String(error));
+			continue;
+		}
 		if (licenses.includes("MPL-2.0")) {
 			texts.push(`Source: ${sourceUrl({ pkg })}`);
 		}
@@ -634,6 +647,15 @@ async function main() {
 			) {
 				standardTexts.set("Unicode-3.0", text);
 			}
+			// The whole licence, not a file's header that points to it.
+			if (
+				file === "MPL-2.0" &&
+				/Mozilla Public License Version 2\.0/.test(text) &&
+				/Exhibit A/.test(text) &&
+				!standardTexts.has("MPL-2.0")
+			) {
+				standardTexts.set("MPL-2.0", text);
+			}
 		}
 	}
 
@@ -646,7 +668,7 @@ async function main() {
 
 	if (problems.length) {
 		console.error(
-			`Not allowed, or no licence found:\n  ${problems.join("\n  ")}`,
+			`Not allowed, or no licence (text) found:\n  ${problems.join("\n  ")}`,
 		);
 		process.exit(1);
 	}

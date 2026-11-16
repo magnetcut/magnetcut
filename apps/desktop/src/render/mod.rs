@@ -428,6 +428,40 @@ pub async fn native_export_cancel(
         .map_err(|_| "the export stopped badly".to_owned())
 }
 
+impl NativeExports {
+    /// Stops every export, each deleting what it had written: the page making
+    /// them is gone (reloaded, or its window closed), and will neither finish
+    /// nor cancel them. Waits for them to stop if `wait`, as when the app
+    /// quits.
+    pub fn abandon(&self, wait: bool) {
+        let sessions: Vec<Session> = lock(&self.sessions)
+            .drain()
+            .map(|(_, session)| session)
+            .collect();
+        for Session {
+            sender,
+            worker,
+            _activity: activity,
+            ..
+        } in sessions
+        {
+            // Without a Finish, the worker cancels and deletes the file.
+            drop(sender);
+            let stop = move || {
+                let _ = worker.join();
+                drop(activity);
+            };
+            if wait {
+                stop();
+            } else {
+                let _ = thread::Builder::new()
+                    .name("export cancel".into())
+                    .spawn(stop);
+            }
+        }
+    }
+}
+
 /// Hands a message to the export's thread, waiting while it's behind: why
 /// it stopped, if it has.
 async fn send(native: &NativeExports, session: u32, message: Message) -> Result<(), String> {
@@ -667,5 +701,40 @@ impl Sources {
         let frame = self.frame;
         self.open.retain(|_, (_, used)| frame - *used < IDLE_FRAMES);
         self.frame += 1;
+    }
+}
+
+#[cfg(test)]
+mod abandoned {
+    use super::*;
+
+    #[test]
+    fn an_export_abandoned_stops_and_deletes_what_it_wrote() {
+        let partial =
+            std::env::temp_dir().join(format!("magnetcut-abandoned-{}.mp4", std::process::id()));
+        std::fs::write(&partial, b"half a film").unwrap();
+        let native = NativeExports::default();
+        // A worker as `run` is: without a Finish, it cancels and deletes.
+        let (sender, receiver) = mpsc::sync_channel::<Message>(QUEUE);
+        let worker = {
+            let partial = partial.clone();
+            thread::spawn(move || {
+                for _ in receiver {}
+                let _ = std::fs::remove_file(&partial);
+            })
+        };
+        lock(&native.sessions).insert(
+            0,
+            Session {
+                sender,
+                worker,
+                failure: Arc::new(Mutex::new(None)),
+                path: partial.clone(),
+                _activity: Activity::begin("Testing"),
+            },
+        );
+        native.abandon(true);
+        assert!(lock(&native.sessions).is_empty());
+        assert!(!partial.exists());
     }
 }

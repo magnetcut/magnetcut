@@ -19,7 +19,10 @@ import { createOutputFormat } from "@/export/output-format";
 import { createMediaSource, type MediaFile } from "@/media/disk-file";
 import { checkEncoderColour, readWrittenColour } from "@/media/encoder-colour";
 import { canWriteColour, resolveVideoColour, rgbaToI420 } from "@/media/yuv";
+import { getSourceTimeAtClipTime } from "@/retime";
 import { FILE_CHUNK_SIZE } from "@/services/renderer/scene-exporter";
+import type { VideoElement } from "@/timeline";
+import { TICKS_PER_SECOND } from "@/wasm";
 import type { ConformFile, ConformSound, ConformTarget } from "./conform";
 
 /*
@@ -64,6 +67,30 @@ export function getConvertedPart({
 	// Nearly all of it: the whole file, which can be trimmed out freely.
 	if (start <= 1 && end >= file.duration - 1) return null;
 	return { start, end };
+}
+
+// Closer than this to the part's ends counts as within it, in seconds.
+const PART_TOLERANCE = 1e-3;
+
+/**
+ * Whether a clip uses only the part converted: one that uses more of its file
+ * (hidden, so not counted, or added since) keeps the file it has.
+ */
+export function isInConvertedPart({
+	element,
+	part,
+}: {
+	element: Pick<VideoElement, "trimStart" | "duration" | "retime">;
+	part: ConvertedPart;
+}): boolean {
+	const from = element.trimStart / TICKS_PER_SECOND;
+	const to =
+		from +
+		getSourceTimeAtClipTime({
+			clipTime: element.duration / TICKS_PER_SECOND,
+			retime: element.retime,
+		});
+	return from >= part.start - PART_TOLERANCE && to <= part.end + PART_TOLERANCE;
 }
 
 /** The container a converted file is written in: its codecs' usual one, or Matroska, which holds both. */

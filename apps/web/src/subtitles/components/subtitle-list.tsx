@@ -47,13 +47,13 @@ import {
 	fixTrackDurations,
 	fixTrackOverlaps,
 	formatClock,
+	getEditedCue,
 	getLineUpdates,
 	getOriginalLine,
 	getReadingSpeed,
 	getSubtitleLines,
 	getSubtitleTracks,
 	getTypedCaption,
-	parseClock,
 	retimeTrack,
 	saveTrack,
 	type ElementUpdate,
@@ -106,25 +106,24 @@ function LineEditor({
 	}) => void;
 	onMark: ({ mark }: { mark: SyncMark }) => void;
 }) {
-	const [start, setStart] = useState(formatClock({ seconds: line.cue.start }));
-	const [end, setEnd] = useState(formatClock({ seconds: line.cue.end }));
-	const [text, setText] = useState(line.cue.text);
-	const parsedStart = parseClock({ text: start });
-	const parsedEnd = parseClock({ text: end });
-	const isValid =
-		parsedStart !== null && parsedEnd !== null && parsedEnd > parsedStart;
+	// What's typed in each field: null in those left alone, which show the
+	// line as it is now, moved by a shift or a sync meanwhile.
+	const [start, setStart] = useState<string | null>(null);
+	const [end, setEnd] = useState<string | null>(null);
+	const [text, setText] = useState<string | null>(null);
+	const edited = getEditedCue({ cue: line.cue, start, end, text });
 
 	return (
 		<div className="flex flex-col gap-2 rounded-md border p-2">
 			<div className="flex gap-2">
 				<Input
 					aria-label="Start"
-					value={start}
+					value={start ?? formatClock({ seconds: line.cue.start })}
 					onChange={(event) => setStart(event.target.value)}
 				/>
 				<Input
 					aria-label="End"
-					value={end}
+					value={end ?? formatClock({ seconds: line.cue.end })}
 					onChange={(event) => setEnd(event.target.value)}
 				/>
 			</div>
@@ -136,16 +135,19 @@ function LineEditor({
 			<Textarea
 				aria-label="Text"
 				rows={2}
-				value={text}
+				value={text ?? line.cue.text}
 				onChange={(event) => setText(event.target.value)}
 			/>
 			<div className="flex gap-2">
 				<Button
 					size="sm"
-					disabled={!isValid}
+					disabled={!edited}
 					onClick={() => {
-						if (parsedStart === null || parsedEnd === null) return;
-						onApply({ start: parsedStart, end: parsedEnd, text });
+						if (!edited) return;
+						onApply(edited);
+						setStart(null);
+						setEnd(null);
+						setText(null);
 					}}
 				>
 					Apply
@@ -757,7 +759,9 @@ export function SubtitleList() {
 							const retime = twoPointRetime(a.from, a.to, b.from, b.to);
 							setMarks([]);
 							if (!retime) {
-								setMessage("Mark two different lines.");
+								setMessage(
+									"Mark two different lines, each where it's spoken: the later one later.",
+								);
 								return;
 							}
 							apply({

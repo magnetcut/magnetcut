@@ -55,13 +55,13 @@ export async function runStorageMigrations({
 			continue;
 		}
 
-		let projectRecord = project as ProjectRecord;
+		const projectRecord = project as ProjectRecord;
 		const projectId = getProjectId({ project: projectRecord });
 		if (!projectId) {
 			continue;
 		}
 
-		let currentVersion = getProjectVersion({ project: projectRecord });
+		const currentVersion = getProjectVersion({ project: projectRecord });
 		const targetVersion = orderedMigrations.at(-1)?.to ?? currentVersion;
 
 		if (currentVersion >= targetVersion) {
@@ -81,24 +81,20 @@ export async function runStorageMigrations({
 			projectName,
 		});
 
-		for (const migration of orderedMigrations) {
-			if (migration.from !== currentVersion) {
-				continue;
-			}
-
-			const result = await migration.run({
+		// A migration that fails leaves that project where it got to: the
+		// others are still migrated, and still open.
+		try {
+			await migrateProject({
 				projectId,
 				project: projectRecord,
+				migrations: orderedMigrations,
+				onStep: async ({ project: migrated }) => {
+					await projectsAdapter.set({ key: projectId, value: migrated });
+					migratedCount++;
+				},
 			});
-
-			if (result.skipped) {
-				break;
-			}
-
-			await projectsAdapter.set({ key: projectId, value: result.project });
-			migratedCount++;
-			currentVersion = migration.to;
-			projectRecord = result.project;
+		} catch (error) {
+			console.error(`Failed to migrate project ${projectId}:`, error);
 		}
 	}
 
@@ -120,6 +116,47 @@ export async function runStorageMigrations({
 	});
 
 	return { migratedCount };
+}
+
+/**
+ * `project` brought up to the latest version, a migration at a time, each
+ * step passed to `onStep`: for what's stored, and for a project file.
+ */
+export async function migrateProject({
+	projectId,
+	project,
+	migrations,
+	onStep,
+}: {
+	projectId: string;
+	project: ProjectRecord;
+	migrations: StorageMigration[];
+	onStep?: ({ project }: { project: ProjectRecord }) => Promise<void>;
+}): Promise<ProjectRecord> {
+	const orderedMigrations = [...migrations].sort((a, b) => a.from - b.from);
+	let projectRecord = project;
+	let currentVersion = getProjectVersion({ project });
+
+	for (const migration of orderedMigrations) {
+		if (migration.from !== currentVersion) {
+			continue;
+		}
+
+		const result = await migration.run({
+			projectId,
+			project: projectRecord,
+		});
+
+		if (result.skipped) {
+			break;
+		}
+
+		await onStep?.({ project: result.project });
+		currentVersion = migration.to;
+		projectRecord = result.project;
+	}
+
+	return projectRecord;
 }
 
 function getProjectVersion({ project }: { project: ProjectRecord }): number {

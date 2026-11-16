@@ -1,7 +1,9 @@
 import { splitAnimationsAtTime } from "@/animation";
+import { isHideRegion } from "@/hide/region";
 import { readAudioEffects } from "@/media/audio-effects";
 import { readClipFades } from "@/timeline/audio-fades";
 import type { MediaAsset } from "@/media/types";
+import type { TCanvasSize } from "@/project/types";
 import type {
 	AudioElement,
 	AudioTrack,
@@ -105,11 +107,53 @@ function hasChangedPicture({ element }: { element: VideoElement }): boolean {
 }
 
 /**
- * What the timeline has that Fast mode leaves out, in a few words each, for
- * the export panel to say before it starts.
+ * The project's canvas, if the file isn't its size: Fast mode's is the
+ * clips'. Another shape shows the background around them too.
  */
-export function listFastLosses({ tracks }: { tracks: SceneTracks }): string[] {
+function getCanvasLoss({
+	canvasSize,
+	output,
+}: {
+	canvasSize: TCanvasSize;
+	output: { width: number; height: number };
+}): string | null {
+	if (output.width <= 0 || output.height <= 0) return null;
+	const size = `${output.width}×${output.height}`;
+	// The clips' height on the canvas, fitted to its width: a pixel off is
+	// the same shape.
+	const fitted = (output.height * canvasSize.width) / output.width;
+	if (Math.abs(fitted - canvasSize.height) >= 1) {
+		return `the canvas's shape and background (the file is the clips' ${size})`;
+	}
+	if (output.width !== canvasSize.width) {
+		return `the canvas size (the file is the clips' ${size})`;
+	}
+	return null;
+}
+
+/**
+ * What the timeline has that Fast mode leaves out, in a few words each, for
+ * the export panel to say before it starts. With the canvas and the file's
+ * size (the clips'), whether the canvas is kept too.
+ */
+export function listFastLosses({
+	tracks,
+	canvasSize,
+	output,
+}: {
+	tracks: SceneTracks;
+	canvasSize?: TCanvasSize;
+	output?: { width: number; height: number } | null;
+}): string[] {
 	const losses = new Set<string>();
+	// First: a face or a plate hidden in the timeline shows in the file.
+	const hides = tracks.overlay.some((track) =>
+		track.elements.some((element) => isHideRegion({ element })),
+	);
+	if (hides) losses.add("Hide regions (what they hide shows)");
+	const canvasLoss =
+		canvasSize && output ? getCanvasLoss({ canvasSize, output }) : null;
+	if (canvasLoss) losses.add(canvasLoss);
 	const main = tracks.main;
 	if (main.transitions && main.transitions.length > 0)
 		losses.add("transitions");
@@ -145,7 +189,9 @@ export function listFastLosses({ tracks }: { tracks: SceneTracks }): string[] {
 		} else if (track.type === "graphic") {
 			losses.add("stickers and graphics");
 		} else if (track.type === "effect") {
-			losses.add("effect layers");
+			if (track.elements.some((element) => !isHideRegion({ element }))) {
+				losses.add("effect layers");
+			}
 		} else {
 			losses.add("clips on other video tracks");
 		}

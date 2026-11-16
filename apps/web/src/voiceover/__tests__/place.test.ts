@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { SceneTracks } from "@/timeline";
 import { buildEmptyTrack } from "@/timeline/placement/track-factory";
-import { assignLanes, findLanes } from "../place";
+import type { MediaAsset } from "@/media/types";
+import { mediaTimeFromSeconds } from "@/wasm";
+import { assignLanes, buildSoundElement, findLanes } from "../place";
 
 describe("lanes for sounds", () => {
 	test("a sound goes on the first lane where it overlaps nothing", () => {
@@ -44,5 +46,28 @@ describe("lanes for sounds", () => {
 		expect(
 			findLanes({ tracks, name: "Voice-over" }).map(({ id }) => id),
 		).toEqual(["a", "b", "c"]);
+	});
+});
+
+describe("a sound's clip", () => {
+	test("sped up to fit, it keeps the file's length, so 1x plays all of it", () => {
+		// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- a stand-in with only what a clip reads.
+		const asset = {
+			id: "cue",
+			name: "Hello · 0123456789abcdef.wav",
+			duration: 2.5,
+		} as MediaAsset;
+		const element = buildSoundElement({
+			sound: {
+				asset,
+				startTime: mediaTimeFromSeconds({ seconds: 1 }),
+				duration: mediaTimeFromSeconds({ seconds: 2 }),
+				retime: { rate: 1.25, maintainPitch: true },
+			},
+		});
+		expect(element.duration).toBe(mediaTimeFromSeconds({ seconds: 2 }));
+		expect("sourceDuration" in element ? element.sourceDuration : null).toBe(
+			mediaTimeFromSeconds({ seconds: 2.5 }),
+		);
 	});
 });

@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import type { MediaAsset } from "@/media/types";
+import { CURRENT_PROJECT_VERSION } from "@/services/storage/migrations";
+import { serializeProject } from "@/services/storage/service";
 import { buildDefaultScene } from "@/timeline/scenes";
 import { mediaTime } from "@/wasm";
 import { parseProjectFile, toProjectFile } from "../file";
@@ -25,11 +27,11 @@ function project(): TProject {
 			originalCanvasSize: null,
 			background: { type: "color", color: "#000000" },
 		},
-		version: 1,
+		version: CURRENT_PROJECT_VERSION,
 	};
 }
 
-test("a project file keeps the project and its media by path, and opens again", () => {
+test("a project file keeps the project and its media by path, and opens again", async () => {
 	const assets: MediaAsset[] = [
 		{
 			id: "m1",
@@ -49,7 +51,7 @@ test("a project file keeps the project and its media by path, and opens again", 
 	const saved = project();
 	const { text, leftOut } = toProjectFile({ project: saved, assets });
 	expect(leftOut).toEqual(["pasted.png"]);
-	const opened = parseProjectFile({ text });
+	const opened = await parseProjectFile({ text, projectId: "new" });
 	expect(opened.project.metadata.name).toBe("Trip");
 	expect(opened.project.metadata.createdAt.toISOString()).toBe(
 		"2026-10-01T10:00:00.000Z",
@@ -70,12 +72,90 @@ test("a project file keeps the project and its media by path, and opens again", 
 	]);
 });
 
-test("a file that isn't a project says so", () => {
-	expect(() => parseProjectFile({ text: "nope" })).toThrow("not JSON");
-	expect(() => parseProjectFile({ text: "{}" })).toThrow(
+test("a file that isn't a project says so", async () => {
+	const parse = ({ text }: { text: string }) =>
+		parseProjectFile({ text, projectId: "new" });
+	await expect(parse({ text: "nope" })).rejects.toThrow("not JSON");
+	await expect(parse({ text: "{}" })).rejects.toThrow(
 		"isn't a MagnetCut project",
 	);
-	expect(() =>
-		parseProjectFile({ text: JSON.stringify({ magnetcut: 9, project: {} }) }),
-	).toThrow("another version");
+	await expect(
+		parse({ text: JSON.stringify({ magnetcut: 9, project: {} }) }),
+	).rejects.toThrow("another version");
+});
+
+/** A project file whose project is changed by `change`. */
+function fileWith({
+	change,
+}: {
+	change: (project: Record<string, unknown>) => Record<string, unknown>;
+}): string {
+	const saved = { ...serializeProject({ project: project() }) };
+	return JSON.stringify({ magnetcut: 1, project: change(saved), media: [] });
+}
+
+test("a project from a newer MagnetCut, or without settings or scenes, isn't opened", async () => {
+	await expect(
+		parseProjectFile({
+			text: fileWith({
+				change: (saved) => ({
+					...saved,
+					version: CURRENT_PROJECT_VERSION + 1,
+				}),
+			}),
+			projectId: "new",
+		}),
+	).rejects.toThrow("newer MagnetCut");
+	await expect(
+		parseProjectFile({
+			text: fileWith({
+				change: ({ settings: _settings, ...saved }) => saved,
+			}),
+			projectId: "new",
+		}),
+	).rejects.toThrow("damaged");
+	await expect(
+		parseProjectFile({
+			text: fileWith({ change: (saved) => ({ ...saved, scenes: [] }) }),
+			projectId: "new",
+		}),
+	).rejects.toThrow("damaged");
+});
+
+test("a project from an older MagnetCut is brought up to date", async () => {
+	const text = fileWith({
+		change: (saved) => ({
+			...saved,
+			version: 30,
+			scenes: [
+				{
+					id: "s1",
+					name: "Main scene",
+					isMain: true,
+					bookmarks: [],
+					createdAt: "2026-10-01T10:00:00.000Z",
+					updatedAt: "2026-10-01T10:00:00.000Z",
+					tracks: {
+						overlay: [],
+						audio: [],
+						main: {
+							id: "t1",
+							elements: [
+								{
+									id: "image-1",
+									type: "image",
+									masks: [{ id: "mask-1", type: "custom", params: {} }],
+								},
+							],
+						},
+					},
+				},
+			],
+		}),
+	});
+
+	const opened = await parseProjectFile({ text, projectId: "new" });
+
+	expect(opened.project.version).toBe(CURRENT_PROJECT_VERSION);
+	expect(JSON.stringify(opened.project.scenes)).toContain('"type":"freeform"');
 });

@@ -1,3 +1,4 @@
+import type { AssScriptData } from "magnetcut-wasm";
 import type { ElementAnimations } from "@/animation/types";
 import type { Effect } from "@/effects/types";
 import type { Mask } from "@/masks/types";
@@ -82,6 +83,9 @@ export interface TextTrack extends BaseTrack {
 	subtitles?: boolean;
 	/** Subtitles translating another track's, by its id: edited beside it. */
 	translationOf?: string;
+	/** The ASS or SSA file its subtitles were opened from: its header and
+	 * styles, to save them back with (each line's `assStyle`). */
+	assScript?: AssScriptData;
 }
 
 export interface AudioTrack extends BaseTrack {
@@ -174,6 +178,8 @@ export interface TextElement extends BaseTimelineElement {
 	type: "text";
 	hidden?: boolean;
 	effects?: Effect[];
+	/** A subtitle line's ASS style, by name: one of its track's `assScript`. */
+	assStyle?: string;
 }
 
 export interface StickerElement extends BaseTimelineElement {

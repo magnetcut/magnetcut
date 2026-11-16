@@ -8,7 +8,12 @@ import {
 	type Replacement,
 } from "@/media/replace";
 import type { ConformPlan } from "./conform";
-import { convertFile, getConvertedPart, type ConformFit } from "./convert";
+import {
+	convertFile,
+	getConvertedPart,
+	isInConvertedPart,
+	type ConformFit,
+} from "./convert";
 
 export interface ConformProgress {
 	/** The file being converted, counted from 0. */
@@ -102,9 +107,10 @@ export async function runConform({
 			if (!asset) throw new Error(`"${converted.name}" couldn't be added.`);
 			const main = editor.scenes.getActiveScene().tracks.main;
 			for (const element of main.elements) {
-				if (!("mediaId" in element) || element.mediaId !== file.asset.id) {
+				if (element.type !== "video" || element.mediaId !== file.asset.id) {
 					continue;
 				}
+				if (part && !isInConvertedPart({ element, part })) continue;
 				replacements.push({
 					trackId: main.id,
 					elementId: element.id,

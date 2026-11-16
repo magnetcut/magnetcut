@@ -45,6 +45,14 @@ pub struct TransitionWindowOptions {
     /// The clips' durations: the window stays within both.
     pub from_duration: MediaTime,
     pub to_duration: MediaTime,
+    /// How much of the outgoing clip the transition at its start uses, and of
+    /// the incoming clip the one at its end, each as it plays by itself. This
+    /// one leaves it that, or half the clip when both want more: two windows
+    /// never overlap.
+    #[cfg_attr(feature = "wasm", tsify(optional))]
+    pub from_taken: Option<MediaTime>,
+    #[cfg_attr(feature = "wasm", tsify(optional))]
+    pub to_taken: Option<MediaTime>,
     /// With a rate, a shortened window is a whole number of frames.
     #[cfg_attr(feature = "wasm", tsify(optional))]
     pub rate: Option<FrameRate>,
@@ -66,10 +74,15 @@ pub struct TransitionWindow {
 /// The longest it can be at this cut.
 fn longest(options: &TransitionWindowOptions) -> MediaTime {
     let limit = |handle: Option<MediaTime>| handle.unwrap_or(MediaTime::from_ticks(i64::MAX));
+    // What a clip has left with a transition at its other end too.
+    let room = |duration: MediaTime, taken: Option<MediaTime>| match taken {
+        Some(taken) => (duration - taken).max(duration / 2).min(duration),
+        None => duration,
+    };
     // Before the cut: the outgoing clip itself, and the incoming one's head
     // handle. After it: the outgoing one's tail handle, and the incoming clip.
-    let before = options.from_duration.min(limit(options.to_handle));
-    let after = limit(options.from_handle).min(options.to_duration);
+    let before = room(options.from_duration, options.from_taken).min(limit(options.to_handle));
+    let after = limit(options.from_handle).min(room(options.to_duration, options.to_taken));
     match options.alignment {
         TransitionAlignment::Center => {
             MediaTime::from_ticks(before.min(after).as_ticks().saturating_mul(2))
@@ -150,6 +163,8 @@ mod tests {
             to_handle: Some(seconds(2.0)),
             from_duration: seconds(5.0),
             to_duration: seconds(5.0),
+            from_taken: None,
+            to_taken: None,
             rate: None,
         }
     }
@@ -221,6 +236,57 @@ mod tests {
             transition_window(self::options(TransitionAlignment::Center, 0.0)),
             None
         );
+    }
+
+    #[test]
+    fn leaves_room_for_the_transition_at_a_clips_other_end() {
+        // A 0.3 s image between two others, with 0.5 s centred at both ends:
+        // by itself, each would take 0.25 s of it.
+        let mut options = options(TransitionAlignment::Center, 0.5);
+        options.from_handle = None;
+        options.to_handle = None;
+        options.to_duration = seconds(0.3);
+        let by_itself = transition_window(options).unwrap();
+        assert_eq!(by_itself, window(9.75, 10.25, false).unwrap());
+        // Both want more than half of it: each gets half.
+        options.to_taken = Some(seconds(0.25));
+        assert_eq!(transition_window(options), window(9.85, 10.15, true));
+        // The other wants less than half: this one gets the rest.
+        options.to_taken = Some(seconds(0.1));
+        assert_eq!(transition_window(options), window(9.8, 10.2, true));
+        // Room for both: unchanged.
+        options.to_duration = seconds(1.0);
+        options.to_taken = Some(seconds(0.25));
+        assert_eq!(transition_window(options), Some(by_itself));
+    }
+
+    #[test]
+    fn two_windows_on_one_clip_never_overlap() {
+        // A clip from 10 s to 10.3 s, a transition at each end: what each
+        // takes of it, together, fits in it.
+        let clip = seconds(0.3);
+        let at_start = |duration: f64, taken: Option<MediaTime>| {
+            let mut options = options(TransitionAlignment::Start, duration);
+            options.from_handle = None;
+            options.to_duration = clip;
+            options.to_taken = taken;
+            transition_window(options).map(|window| window.end - window.start)
+        };
+        let at_end = |duration: f64, taken: Option<MediaTime>| {
+            let mut options = options(TransitionAlignment::End, duration);
+            options.to_handle = None;
+            options.cut = seconds(10.3);
+            options.from_duration = clip;
+            options.from_taken = taken;
+            transition_window(options).map(|window| window.end - window.start)
+        };
+        for (first, second) in [(0.5, 0.5), (0.05, 1.0), (1.0, 0.05), (0.2, 0.2)] {
+            let first_alone = at_start(first, None);
+            let second_alone = at_end(second, None);
+            let first_shared = at_start(first, second_alone).unwrap();
+            let second_shared = at_end(second, first_alone).unwrap();
+            assert!(first_shared + second_shared <= clip, "{first} and {second}");
+        }
     }
 
     #[test]

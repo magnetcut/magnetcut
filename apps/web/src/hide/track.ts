@@ -1,6 +1,7 @@
 import { RegionTracker } from "magnetcut-wasm";
 import type { EditorCore } from "@/core";
 import { frameRateToFloat } from "@/fps/utils";
+import { isHideRegion } from "@/hide/region";
 import { resolveMaskAtTime, upsertMaskKeyframes } from "@/masks/keyframes";
 import type { Mask } from "@/masks/types";
 import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
@@ -136,7 +137,7 @@ function withoutHideRegions({ tracks }: { tracks: SceneTracks }): SceneTracks {
 				: {
 						...track,
 						elements: track.elements.filter(
-							(element) => (element.masks?.length ?? 0) === 0,
+							(element) => !isHideRegion({ element }),
 						),
 					},
 		),

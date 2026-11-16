@@ -48,15 +48,18 @@ function getHandles({ element }: { element: VideoElement | ImageElement }): {
 	};
 }
 
-/** Where it plays, within the clips and their handles: null for no room. */
-export function getTransitionWindow({
+type Clip = VideoElement | ImageElement;
+
+function getOwnWindow({
 	transition,
 	from,
 	to,
+	taken = {},
 }: {
 	transition: Pick<Transition, "duration" | "alignment">;
-	from: VideoElement | ImageElement;
-	to: VideoElement | ImageElement;
+	from: Clip;
+	to: Clip;
+	taken?: { from?: number; to?: number };
 }): TransitionWindow | null {
 	const window = transitionWindow({
 		cut: to.startTime,
@@ -66,8 +69,99 @@ export function getTransitionWindow({
 		toHandle: getHandles({ element: to }).head,
 		fromDuration: from.duration,
 		toDuration: to.duration,
+		fromTaken: taken.from,
+		toTaken: taken.to,
 	});
 	return window ?? null;
+}
+
+function isHidden({ element }: { element: Clip }) {
+	return element.hidden === true;
+}
+
+/** Its clips, if it plays: both there and shown, touching. */
+function getPlayingClips({
+	transition,
+	elements,
+}: {
+	transition: Transition;
+	elements: Map<string, Clip>;
+}): { from: Clip; to: Clip } | null {
+	const from = elements.get(transition.fromElementId);
+	const to = elements.get(transition.toElementId);
+	if (
+		!from ||
+		!to ||
+		isHidden({ element: from }) ||
+		isHidden({ element: to }) ||
+		from.startTime + from.duration !== to.startTime
+	) {
+		return null;
+	}
+	return { from, to };
+}
+
+/**
+ * How much of the outgoing clip the transition at its start takes, and of the
+ * incoming clip the one at its end, each as it would play by itself.
+ */
+function getTakenByNeighbours({
+	transitions,
+	elements,
+	from,
+	to,
+}: {
+	transitions: Transition[];
+	elements: Map<string, Clip>;
+	from: Clip;
+	to: Clip;
+}): { from?: number; to?: number } {
+	const windowOf = (transition: Transition | undefined) => {
+		const clips = transition && getPlayingClips({ transition, elements });
+		return clips ? getOwnWindow({ transition, ...clips }) : null;
+	};
+	const before = windowOf(
+		transitions.find(({ toElementId }) => toElementId === from.id),
+	);
+	const after = windowOf(
+		transitions.find(({ fromElementId }) => fromElementId === to.id),
+	);
+	return {
+		from: before ? Math.max(0, before.end - from.startTime) : undefined,
+		to: after
+			? Math.max(0, to.startTime + to.duration - after.start)
+			: undefined,
+	};
+}
+
+function mapClips({ track }: { track: VideoTrack }): Map<string, Clip> {
+	return new Map(track.elements.map((element) => [element.id, element]));
+}
+
+/**
+ * Where it plays, within the clips and their handles: null for no room. On
+ * its track, it shares a clip with the transition at the clip's other end.
+ */
+export function getTransitionWindow({
+	transition,
+	from,
+	to,
+	track,
+}: {
+	transition: Pick<Transition, "duration" | "alignment">;
+	from: Clip;
+	to: Clip;
+	track?: VideoTrack;
+}): TransitionWindow | null {
+	const taken = track
+		? getTakenByNeighbours({
+				transitions: track.transitions ?? [],
+				elements: mapClips({ track }),
+				from,
+				to,
+			})
+		: {};
+	return getOwnWindow({ transition, from, to, taken });
 }
 
 /** How long a new transition lasts: whole frames, when the rate is known. */
@@ -106,38 +200,30 @@ export function getFittingAlignment({
 	);
 }
 
-function isHidden({ element }: { element: VideoElement | ImageElement }) {
-	return element.hidden === true;
-}
-
-/** A track's transitions that play: both clips there and shown, touching. */
+/**
+ * A track's transitions that play: both clips there and shown, touching. Two
+ * at the ends of one clip share it, so their windows never overlap.
+ */
 export function resolveTrackTransitions({
 	track,
 }: {
 	track: VideoTrack;
 }): ResolvedTransition[] {
-	if (!track.transitions?.length) {
+	const transitions = track.transitions ?? [];
+	if (!transitions.length) {
 		return [];
 	}
-	const elements = new Map(
-		track.elements.map((element) => [element.id, element]),
-	);
+	const elements = mapClips({ track });
 	const resolved: ResolvedTransition[] = [];
-	for (const transition of track.transitions) {
-		const from = elements.get(transition.fromElementId);
-		const to = elements.get(transition.toElementId);
-		if (
-			!from ||
-			!to ||
-			isHidden({ element: from }) ||
-			isHidden({ element: to }) ||
-			from.startTime + from.duration !== to.startTime
-		) {
+	for (const transition of transitions) {
+		const clips = getPlayingClips({ transition, elements });
+		if (!clips) {
 			continue;
 		}
-		const window = getTransitionWindow({ transition, from, to });
+		const taken = getTakenByNeighbours({ transitions, elements, ...clips });
+		const window = getOwnWindow({ transition, ...clips, taken });
 		if (window) {
-			resolved.push({ transition, from, to, window });
+			resolved.push({ transition, ...clips, window });
 		}
 	}
 	return resolved;

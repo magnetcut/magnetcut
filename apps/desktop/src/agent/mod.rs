@@ -2,7 +2,9 @@
 // the agents the user added in Settings, each with its own token. Each tool
 // call goes to the editor, which does the work, and its answer comes back
 // (`agent_reply`). A path an agent names is opened for the editor only if
-// it's in that agent's call.
+// it's in that agent's call, while the call is on: revoking the agent,
+// switching agent mode off, the call timing out or the editor's page going
+// end it.
 
 pub mod cli;
 mod http;
@@ -50,8 +52,25 @@ pub struct ToolCall {
     pub agent: String,
 }
 
+/// What the editor is sent.
+pub enum ToEditor<'a> {
+    /// A call to make.
+    Call(&'a ToolCall),
+    /// Calls no one waits for any more (timed out, the agent revoked, agent
+    /// mode switched off): dropped if they haven't started, stopped if they
+    /// have.
+    Cancel(&'a [u64]),
+}
+
+/// The agent a request is from: its id in the store, and its name.
+#[derive(Clone)]
+struct Caller {
+    id: String,
+    name: String,
+}
+
 struct Call {
-    agent: String,
+    agent: Caller,
     arguments: Value,
     /// Paths the call reached through a file the agent named: a project
     /// file's media.
@@ -65,7 +84,7 @@ struct Server {
     thread: Option<JoinHandle<()>>,
 }
 
-type Editor = Box<dyn Fn(&ToolCall) -> Result<(), String> + Send + Sync>;
+type Editor = Box<dyn Fn(ToEditor<'_>) -> Result<(), String> + Send + Sync>;
 
 pub struct Shared {
     store_path: PathBuf,
@@ -90,13 +109,23 @@ const DEFAULT_PORT: u16 = 47213;
 const LAST_USED_EVERY: u64 = 60;
 
 impl Shared {
-    /// The name of the agent `token` is for, noting its use.
-    fn agent_for(&self, token: &str) -> Option<String> {
+    /// The agent `token` is for, if it's one of the user's.
+    fn agent_for(&self, token: &str) -> Option<Caller> {
+        let store = lock(&self.store);
+        let agent = &store.agents[store.position(token)?];
+        Some(Caller {
+            id: agent.id.clone(),
+            name: agent.name.clone(),
+        })
+    }
+
+    /// Notes that agent `id` made a request, now and then.
+    fn note_use(&self, id: &str) {
         let mut store = lock(&self.store);
         let now = tokens::now();
-        let index = store.position(token)?;
-        let agent = &mut store.agents[index];
-        let name = agent.name.clone();
+        let Some(agent) = store.agents.iter_mut().find(|agent| agent.id == id) else {
+            return;
+        };
         if agent
             .last_used
             .is_none_or(|last| now >= last + LAST_USED_EVERY)
@@ -104,52 +133,135 @@ impl Shared {
             agent.last_used = Some(now);
             let _ = store.save(&self.store_path);
         }
-        Some(name)
     }
 
-    /// The editor's tools, waiting up to `timeout` for it to say them.
-    fn tools(&self, timeout: Duration) -> Option<Value> {
+    /// The editor's tools once it has said them, waiting up to `timeout`:
+    /// none if it hasn't, or its page is reloading.
+    fn ready(&self, timeout: Duration) -> MutexGuard<'_, Option<Value>> {
         let tools = lock(&self.tools);
-        let (tools, _) = self
-            .tools_ready
+        self.tools_ready
             .wait_timeout_while(tools, timeout, |tools| tools.is_none())
-            .unwrap_or_else(|e| e.into_inner());
-        tools.clone()
+            .unwrap_or_else(|e| e.into_inner())
+            .0
     }
 
-    /// Hands a call to the editor: its number, and where its updates come.
+    fn tools(&self, timeout: Duration) -> Option<Value> {
+        self.ready(timeout).clone()
+    }
+
+    /// Hands a call to the editor, once it listens (waiting up to `wait`):
+    /// its number, and where its updates come.
     fn start_call(
         &self,
-        agent: &str,
+        agent: &Caller,
         tool: &str,
         arguments: Value,
+        wait: Duration,
     ) -> Result<(u64, Receiver<Update>), String> {
+        // Sent before the page listens, or as it reloads, a call would be
+        // lost. Held while it's sent: a page that goes drops its tools, then
+        // the calls it had (`editor_gone`).
+        let ready = self.ready(wait);
+        if ready.is_none() {
+            return Err("The editor isn't ready: try again".into());
+        }
         let number = self.next_call.fetch_add(1, Ordering::Relaxed) + 1;
         let (updates, receiver) = mpsc::channel();
-        lock(&self.calls).insert(
-            number,
-            Call {
-                agent: agent.to_owned(),
-                arguments: arguments.clone(),
-                allowed: Vec::new(),
-                updates,
-            },
-        );
+        {
+            let mut calls = lock(&self.calls);
+            // Revoked or switched off since the request was let in: then
+            // either this sees it, or the call is ended with the others.
+            let store = lock(&self.store);
+            if !store.enabled || !store.agents.iter().any(|known| known.id == agent.id) {
+                return Err(format!("{} may no longer use MagnetCut", agent.name));
+            }
+            drop(store);
+            calls.insert(
+                number,
+                Call {
+                    agent: agent.clone(),
+                    arguments: arguments.clone(),
+                    allowed: Vec::new(),
+                    updates,
+                },
+            );
+        }
         let call = ToolCall {
             call: number,
             tool: tool.to_owned(),
             arguments,
-            agent: agent.to_owned(),
+            agent: agent.name.clone(),
         };
-        if let Err(message) = (self.editor)(&call) {
+        if let Err(message) = (self.editor)(ToEditor::Call(&call)) {
             self.end_call(number);
             return Err(message);
         }
+        drop(ready);
         Ok((number, receiver))
     }
 
     fn end_call(&self, number: u64) {
         lock(&self.calls).remove(&number);
+    }
+
+    /// Ends the calls `which` picks, each answered with `message`, and tells
+    /// the editor to drop them: their paths no longer open anything.
+    fn end_calls(&self, which: impl Fn(u64, &Call) -> bool, message: &str) {
+        let ended: Vec<(u64, Call)> = lock(&self.calls)
+            .extract_if(|number, call| which(*number, call))
+            .collect();
+        if ended.is_empty() {
+            return;
+        }
+        for (_, call) in &ended {
+            let _ = call.updates.send(Update::Done(mcp::failed(message)));
+        }
+        let numbers: Vec<u64> = ended.iter().map(|(number, _)| *number).collect();
+        let _ = (self.editor)(ToEditor::Cancel(&numbers));
+    }
+
+    /// Ends call `number`, which the agent was told didn't answer in time: not
+    /// to be done later, when the agent may have tried again.
+    fn cancel(&self, number: u64) {
+        self.end_calls(|each, _| each == number, "The editor didn't answer in time");
+    }
+
+    /// The editor's page is gone (reloading, or closed): its tools, until the
+    /// next one says them, and the calls it had, which it won't answer.
+    fn editor_gone(&self) {
+        *lock(&self.tools) = None;
+        self.end_calls(
+            |_, _| true,
+            "The editor's window reloaded or closed before it answered: call again",
+        );
+    }
+
+    /// Takes an agent out at once, its calls too, even if the store can't be
+    /// saved.
+    fn revoke(&self, id: &str) -> Result<(), String> {
+        let saved = {
+            let mut store = lock(&self.store);
+            store.revoke(id);
+            store.save(&self.store_path)
+        };
+        self.end_calls(|_, call| call.agent.id == id, "The user revoked this agent");
+        saved
+    }
+
+    /// Agent mode on, served; or off, the port closed and every call ended,
+    /// even if the store can't be saved.
+    fn set_enabled(self: &Arc<Self>, enabled: bool) -> Result<(), String> {
+        let saved = {
+            let mut store = lock(&self.store);
+            store.enabled = enabled;
+            store.save(&self.store_path)
+        };
+        if enabled {
+            self.start()?;
+        } else {
+            self.stop();
+        }
+        saved
     }
 
     fn update(&self, number: u64, update: Update) {
@@ -165,7 +277,7 @@ impl Shared {
     }
 
     /// Whether `path` is one the agent named in call `number`, or reached
-    /// through a file it named.
+    /// through a file it named: never once the call's over.
     fn named(&self, number: u64, path: &str) -> bool {
         lock(&self.calls).get(&number).is_some_and(|call| {
             mentions(&call.arguments, path) || call.allowed.iter().any(|one| one == path)
@@ -176,7 +288,13 @@ impl Shared {
     fn agent_of(&self, number: u64) -> String {
         lock(&self.calls)
             .get(&number)
-            .map_or_else(|| "An agent".to_owned(), |call| call.agent.clone())
+            .map_or_else(|| "An agent".to_owned(), |call| call.agent.name.clone())
+    }
+
+    /// Whether call `number` is still on: not answered, timed out, revoked or
+    /// switched off.
+    fn is_live(&self, number: u64) -> bool {
+        lock(&self.calls).contains_key(&number)
     }
 
     /// Lets call `number` open `paths` too.
@@ -186,7 +304,8 @@ impl Shared {
         }
     }
 
-    /// Serves, on the port kept (or another free one, then kept).
+    /// Serves, on the port kept (or, while that's taken, on another free one,
+    /// not kept: the lines pasted name the one kept).
     fn start(self: &Arc<Self>) -> Result<u16, String> {
         let mut server = lock(&self.server);
         if let Some(running) = server.as_ref() {
@@ -203,7 +322,7 @@ impl Shared {
             .local_addr()
             .map_err(|error| error.to_string())?
             .port();
-        if port != kept {
+        if port == wanted && port != kept {
             let mut store = lock(&self.store);
             store.port = port;
             store.save(&self.store_path)?;
@@ -234,16 +353,18 @@ impl Shared {
         Ok(port)
     }
 
+    /// The port closed, and the calls on their way ended.
     fn stop(&self) {
-        let Some(mut server) = lock(&self.server).take() else {
-            return;
-        };
-        server.stop.store(true, Ordering::Relaxed);
-        // Wakes the listener, which then sees it's stopped.
-        let _ = TcpStream::connect(("127.0.0.1", server.port));
-        if let Some(thread) = server.thread.take() {
-            let _ = thread.join();
+        let taken = lock(&self.server).take();
+        if let Some(mut server) = taken {
+            server.stop.store(true, Ordering::Relaxed);
+            // Wakes the listener, which then sees it's stopped.
+            let _ = TcpStream::connect(("127.0.0.1", server.port));
+            if let Some(thread) = server.thread.take() {
+                let _ = thread.join();
+            }
         }
+        self.end_calls(|_, _| true, "The user switched agent mode off");
     }
 
     fn running_port(&self) -> Option<u16> {
@@ -266,6 +387,11 @@ fn mentions(value: &Value, text: &str) -> bool {
 // left alone. Whoever can set these can run programs as the user already.
 const TEST_TOKEN: &str = "MAGNETCUT_AGENT_TEST_TOKEN";
 const TEST_PORT: &str = "MAGNETCUT_AGENT_TEST_PORT";
+
+/// Whether the app runs for that test, which is the only one it runs.
+pub fn is_test() -> bool {
+    std::env::var_os(TEST_TOKEN).is_some()
+}
 
 /// The test's store, written afresh, if the test asked for one.
 fn test_store() -> Option<PathBuf> {
@@ -320,10 +446,12 @@ impl Agents {
         let agents = Self::new(
             store_path,
             app.package_info().version.to_string(),
-            Box::new(move |call| {
-                handle
-                    .emit_to("main", "agent", call)
-                    .map_err(|error| format!("Couldn't reach the editor: {error}"))
+            Box::new(move |message| {
+                match message {
+                    ToEditor::Call(call) => handle.emit_to("main", "agent", call),
+                    ToEditor::Cancel(calls) => handle.emit_to("main", "agent-cancel", calls),
+                }
+                .map_err(|error| format!("Couldn't reach the editor: {error}"))
             }),
         );
         // The folders granted, reachable again in the sandbox.
@@ -338,6 +466,12 @@ impl Agents {
             eprintln!("agents: {error}");
         }
         agents
+    }
+
+    /// The editor's page is gone, reloading or closed: the calls it had are
+    /// ended, and the next ones wait for the page to listen again.
+    pub fn editor_gone(&self) {
+        self.0.editor_gone();
     }
 
     fn settings(&self) -> Settings {
@@ -420,16 +554,7 @@ pub fn agent_settings(agents: State<'_, Agents>) -> Settings {
 /// Agent mode on or off: served, or not.
 #[tauri::command]
 pub fn agent_set_enabled(agents: State<'_, Agents>, enabled: bool) -> Result<Settings, String> {
-    {
-        let mut store = lock(&agents.0.store);
-        store.enabled = enabled;
-        store.save(&agents.0.store_path)?;
-    }
-    if enabled {
-        agents.0.start()?;
-    } else {
-        agents.0.stop();
-    }
+    agents.0.set_enabled(enabled)?;
     Ok(agents.settings())
 }
 
@@ -448,13 +573,11 @@ pub fn agent_add(agents: State<'_, Agents>, name: String) -> Result<Added, Strin
     })
 }
 
+/// Revokes an agent: its token no longer lets it in, and its calls on their
+/// way end.
 #[tauri::command]
 pub fn agent_revoke(agents: State<'_, Agents>, id: String) -> Result<Settings, String> {
-    {
-        let mut store = lock(&agents.0.store);
-        store.revoke(&id);
-        store.save(&agents.0.store_path)?;
-    }
+    agents.0.revoke(&id)?;
     Ok(agents.settings())
 }
 
@@ -499,6 +622,16 @@ fn agent_path(agents: &Agents, call: u64, path: &str) -> Result<PathBuf, String>
         return Err(format!("{path} isn't a whole path: give it from the root"));
     }
     Ok(location)
+}
+
+/// That call `call` is still on, after a dialog it may have waited on: one
+/// revoked or switched off meanwhile opens and writes nothing.
+fn still_live(agents: &Agents, call: u64) -> Result<(), String> {
+    if agents.0.is_live(call) {
+        Ok(())
+    } else {
+        Err("This call was ended".into())
+    }
 }
 
 /// Whether the app can reach `location` as it stands: in the App Store
@@ -570,6 +703,7 @@ pub async fn agent_open_media(
         false,
     )
     .await?;
+    still_live(&agents, call)?;
     if !location.is_file() {
         return Err(unreachable(&location, agents.settings().sandboxed));
     }
@@ -601,6 +735,7 @@ pub async fn agent_export_to(
         return Err(format!("{path}'s folder isn't there"));
     }
     let location = reach(&app, &agents, call, named, true).await?;
+    still_live(&agents, call)?;
     let shown = location
         .to_str()
         .map(str::to_owned)
@@ -640,6 +775,7 @@ pub async fn agent_read_project(
         false,
     )
     .await?;
+    still_live(&agents, call)?;
     let text = std::fs::read_to_string(&location)
         .map_err(|_| unreachable(&location, agents.settings().sandboxed))?;
     agents.0.allow(call, media_paths(&text));
@@ -664,6 +800,7 @@ pub async fn agent_write_project(
         ));
     }
     let location = reach(&app, &agents, call, named, true).await?;
+    still_live(&agents, call)?;
     std::fs::write(&location, text).map_err(|error| format!("Couldn't write {path}: {error}"))?;
     location
         .to_str()

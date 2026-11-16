@@ -14,6 +14,7 @@ export function createElementSelectionResult(
 			selectedKeyframes: [],
 			keyframeSelectionAnchor: null,
 			selectedMaskPoints: null,
+			selectedTransition: null,
 		},
 	};
 }

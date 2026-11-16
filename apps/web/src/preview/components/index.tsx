@@ -176,6 +176,7 @@ function PreviewCanvas({
 			width: nativeWidth,
 			height: nativeHeight,
 			fps: activeProject.settings.fps,
+			isPreview: true,
 		});
 	}, [nativeWidth, nativeHeight, activeProject.settings.fps]);
 
@@ -190,9 +191,15 @@ function PreviewCanvas({
 		outputCanvas.style.width = "100%";
 		outputCanvas.style.height = "100%";
 		mount.appendChild(outputCanvas);
+		// Over it, the preview's frame held while frames are drawn for others
+		// (Track, Find, snapshots): they never show.
+		const holdCover = renderer.getHoldCover();
+		mount.appendChild(holdCover);
 		return () => {
-			if (outputCanvas.parentElement === mount) {
-				mount.removeChild(outputCanvas);
+			for (const canvas of [outputCanvas, holdCover]) {
+				if (canvas.parentElement === mount) {
+					mount.removeChild(canvas);
+				}
 			}
 		};
 	}, [renderer]);
@@ -218,9 +225,12 @@ function PreviewCanvas({
 		);
 		const frame = Math.floor(renderTime / ticksPerFrame);
 
+		// Drawn again once frames drawn for others have stopped, to be shown
+		// again.
 		if (
 			frame === lastFrameRef.current &&
-			renderTree === lastSceneRef.current
+			renderTree === lastSceneRef.current &&
+			!renderer.shouldRedrawHeld()
 		) {
 			return;
 		}

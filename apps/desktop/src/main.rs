@@ -17,7 +17,7 @@ mod webkit;
 
 use serde::Serialize;
 use tauri::webview::{PageLoadEvent, PermissionKind, PermissionResponse};
-use tauri::{Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 
 /// The commands the editor calls, and any more given.
 macro_rules! commands {
@@ -176,6 +176,35 @@ fn is_own_page(url: &tauri::Url) -> bool {
     }
 }
 
+/// The editor's page is gone, reloading or with its window closed, and won't
+/// finish what it was doing: the exports it was writing are deleted (the
+/// files picked left as they were), and the agents' calls it had are ended.
+/// Waits for the native exports to stop if `wait`, as when the app quits.
+fn page_gone(app: &AppHandle, wait: bool) {
+    if let Some(exports) = app.try_state::<export::Exports>() {
+        exports.abandon();
+    }
+    if let Some(native) = app.try_state::<render::NativeExports>() {
+        native.abandon(wait);
+    }
+    if let Some(agents) = app.try_state::<agent::Agents>() {
+        agents.editor_gone();
+    }
+}
+
+/// Brings the window forward, as another copy of the app started hands over
+/// to this one; not if that one was to be hidden too.
+fn come_forward(app: &AppHandle, args: &[String]) {
+    if args.iter().any(|arg| arg == "--hidden") {
+        return;
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 fn main() {
     let context = tauri::generate_context!();
     let mut diagnostics = diagnostics::Diagnostics::new(&context.config().identifier);
@@ -188,8 +217,20 @@ fn main() {
     if let Some(code) = agent::cli::run(&args) {
         std::process::exit(code);
     }
+    let probing = std::env::var_os(PROBE_ENV).is_some();
+    let mut builder = tauri::Builder::default();
+    // One copy of the app at a time, as two would share the editor's storage:
+    // another started (by the command line's agent modes, or opened again)
+    // hands over to this one and quits. First, before the other plugins. Not
+    // for the dev server's build, which runs beside the app installed, nor for
+    // the probe or the agent check.
+    if !tauri::is_dev() && !probing && !agent::is_test() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _| {
+            come_forward(app, &args);
+        }));
+    }
     // Links with target="_blank" open in the browser.
-    let mut builder = tauri::Builder::default()
+    builder = builder
         .manage(diagnostics)
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -253,37 +294,72 @@ fn main() {
     });
     builder = builder.on_menu_event(|app, event| {
         let id = event.id().as_ref();
+        // Quit closes the window rather than ending the app, so the editor saves
+        // first (its close handler); the app ends with its last window.
+        if id == menu::QUIT {
+            match app.get_webview_window("main") {
+                Some(window) => {
+                    if let Err(error) = window.close() {
+                        eprintln!("quit: {error}");
+                        app.exit(0);
+                    }
+                }
+                None => app.exit(0),
+            }
+            return;
+        }
         if menu::is_forwarded(id)
             && let Err(error) = app.emit_to("main", "menu", id)
         {
             eprintln!("menu: {error}");
         }
     });
+    builder = builder.on_window_event(|window, event| {
+        if matches!(event, WindowEvent::Destroyed) && window.label() == "main" {
+            page_gone(window.app_handle(), true);
+        }
+    });
 
-    if std::env::var_os(PROBE_ENV).is_some() {
+    let probe_script = probing.then(|| {
         let microphone = std::env::var_os(PROBE_MICROPHONE_ENV).is_some();
         let providers = std::env::var_os(PROBE_PROVIDERS_ENV).is_some();
-        let script = format!(
+        format!(
             "window.__magnetcutProbeMicrophone = {microphone};\nwindow.__magnetcutProbeProviders = {providers};\n{}",
             include_str!("probe.js")
-        );
-        builder = builder
-            .invoke_handler(commands![
-                probe_report,
-                probe_export_paths,
-                probe_grant,
-                probe_folder,
-                probe_fixtures
-            ])
-            .on_page_load(move |webview, payload| {
-                if payload.event() == PageLoadEvent::Finished
-                    && let Err(error) = webview.eval(&script)
-                {
-                    eprintln!("probe: {error}");
-                }
-            });
+        )
+    });
+    builder = builder.on_page_load(move |webview, payload| match payload.event() {
+        // A page reloading leaves what the last one was doing.
+        PageLoadEvent::Started if webview.label() == "main" => {
+            page_gone(webview.app_handle(), false);
+        }
+        PageLoadEvent::Finished => {
+            if let Some(script) = &probe_script
+                && let Err(error) = webview.eval(script)
+            {
+                eprintln!("probe: {error}");
+            }
+        }
+        PageLoadEvent::Started => {}
+    });
+    builder = if probing {
+        builder.invoke_handler(commands![
+            probe_report,
+            probe_export_paths,
+            probe_grant,
+            probe_folder,
+            probe_fixtures
+        ])
     } else {
-        builder = builder.invoke_handler(commands![]);
-    }
-    builder.run(context).expect("error while running MagnetCut");
+        builder.invoke_handler(commands![])
+    };
+    builder
+        .build(context)
+        .expect("error while running MagnetCut")
+        .run(|app, event| {
+            // Quitting: nothing left half written.
+            if let RunEvent::Exit = event {
+                page_gone(app, true);
+            }
+        });
 }

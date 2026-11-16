@@ -1,3 +1,4 @@
+import type { AssScriptData } from "magnetcut-wasm";
 import { Command, type CommandResult } from "@/commands/base-command";
 import type { SceneTracks, TrackType } from "@/timeline";
 import { generateUUID } from "@/utils/id";
@@ -17,6 +18,7 @@ export class AddTrackCommand extends Command {
 		subtitles,
 		name,
 		translationOf,
+		assScript,
 	}: {
 		type: TrackType;
 		index?: number;
@@ -26,6 +28,8 @@ export class AddTrackCommand extends Command {
 		name?: string;
 		/** Subtitles translating another track's, by its id. */
 		translationOf?: string;
+		/** The ASS or SSA file a subtitle track's lines come from. */
+		assScript?: AssScriptData;
 	}) {
 		super();
 		this.type = type;
@@ -33,6 +37,7 @@ export class AddTrackCommand extends Command {
 		this.subtitles = subtitles;
 		this.name = name;
 		this.translationOf = translationOf;
+		this.assScript = assScript;
 		this.trackId = generateUUID();
 	}
 
@@ -41,6 +46,7 @@ export class AddTrackCommand extends Command {
 	private subtitles?: boolean;
 	private name?: string;
 	private translationOf?: string;
+	private assScript?: AssScriptData;
 
 	execute(): CommandResult | undefined {
 		const editor = EditorCore.getInstance();
@@ -67,7 +73,11 @@ export class AddTrackCommand extends Command {
 						trackId: this.trackId,
 						trackType: this.type,
 						subtitles: this.subtitles
-							? { name: this.name, translationOf: this.translationOf }
+							? {
+									name: this.name,
+									translationOf: this.translationOf,
+									assScript: this.assScript,
+								}
 							: undefined,
 					});
 
@@ -125,7 +135,11 @@ function buildOverlayTrackState({
 	insertIndex: number;
 	trackId: string;
 	trackType: Exclude<TrackType, "audio">;
-	subtitles?: { name?: string; translationOf?: string };
+	subtitles?: {
+		name?: string;
+		translationOf?: string;
+		assScript?: AssScriptData;
+	};
 }): SceneTracks {
 	const overlayInsertIndex = Math.min(insertIndex, tracks.overlay.length);
 	const newTrack =
@@ -142,6 +156,9 @@ function buildOverlayTrackState({
 							subtitles: true,
 							...(subtitles.translationOf
 								? { translationOf: subtitles.translationOf }
+								: {}),
+							...(subtitles.assScript
+								? { assScript: subtitles.assScript }
 								: {}),
 						}
 					: buildEmptyTrack({ id: trackId, type: "text" })

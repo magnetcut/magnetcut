@@ -46,7 +46,8 @@ computer's own voices in place of Kokoro.
 - When the speech is longer than its cue, it's sped up with the time-stretch, up to 1.25 times.
   Past that it's left long and marked, so the cue's text can be shortened. A clip that would
   run into the next one is marked the same way.
-- A cue already spoken isn't sent again unless its text or the voice has changed.
+- A cue already spoken isn't sent again unless its text or the voice has changed, and a line
+  several cues say is sent once.
 - The providers:
   - ElevenLabs: its text to speech, with a voice from the account's list and its models.
   - OpenAI: its speech endpoint and voices, with whichever text-to-speech models it offers at

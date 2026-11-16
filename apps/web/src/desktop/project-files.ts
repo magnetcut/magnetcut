@@ -21,6 +21,9 @@ export async function openProjectFromDisk({
 			"pick_project_file",
 		);
 		if (!picked) return;
+		// The open project is saved before another replaces it: if it can't
+		// be, it stays open.
+		await EditorCore.getInstance().save.flush();
 		const { id, missing } = await importProjectFile({
 			text: picked.text,
 			openMedium: async ({ path }) => {
@@ -46,13 +49,15 @@ export async function openProjectFromDisk({
 /** Asks where, and saves the open project there as a file. */
 export async function saveProjectToDisk(): Promise<void> {
 	const editor = EditorCore.getInstance();
-	const project = editor.project.getActiveOrNull();
-	if (!project || location.pathname !== "/editor") {
+	if (!editor.project.getActiveOrNull() || location.pathname !== "/editor") {
 		toast.error("Open a project to save it");
 		return;
 	}
 	try {
-		await editor.project.saveCurrentProject();
+		// Saved in storage too, if it can be. The file is written even if it
+		// can't: a way out when storage is full.
+		await editor.save.flush().catch(() => undefined);
+		const project = editor.project.getActive();
 		const { text, leftOut } = toProjectFile({
 			project,
 			assets: editor.media.getAssets(),

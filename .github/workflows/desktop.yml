@@ -74,6 +74,11 @@ jobs:
       - name: Clippy
         run: cargo clippy -p magnetcut --all-targets -- -D warnings
 
+      # The App Store edition, which is built without the updater.
+      - name: Clippy, the App Store edition
+        if: runner.os == 'macOS'
+        run: cargo clippy -p magnetcut --all-targets --no-default-features -- -D warnings
+
       # Without a GPU, the tests that need one say so and pass.
       - name: Tests
         if: runner.os != 'Linux'

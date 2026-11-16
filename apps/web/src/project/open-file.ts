@@ -18,8 +18,8 @@ export async function importProjectFile({
 	text: string;
 	openMedium: (medium: { path: string }) => Promise<DiskFile>;
 }): Promise<{ id: string; missing: string[] }> {
-	const opened = parseProjectFile({ text });
 	const id = generateUUID();
+	const opened = await parseProjectFile({ text, projectId: id });
 	const now = new Date();
 	const project = {
 		...opened.project,

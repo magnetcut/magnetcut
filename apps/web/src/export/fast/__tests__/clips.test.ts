@@ -193,6 +193,54 @@ describe("listFastLosses", () => {
 			"subtitles",
 		]);
 	});
+
+	test("names Hide regions first: what they hide shows", () => {
+		const withEffects = (elements: object[]): SceneTracks => ({
+			...makeTracks({
+				elements: [makeClip({ id: "a", start: 0, duration: 2 })],
+			}),
+			// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- stand-ins with only what the list reads.
+			overlay: [
+				{ id: "fx", name: "Effects", type: "effect", hidden: false, elements },
+			] as unknown as SceneTracks["overlay"],
+		});
+		const hide = { type: "effect", effectType: "blur", masks: [{}] };
+		const layer = { type: "effect", effectType: "blur" };
+		expect(listFastLosses({ tracks: withEffects([hide]) })).toEqual([
+			"Hide regions (what they hide shows)",
+		]);
+		expect(listFastLosses({ tracks: withEffects([layer, hide]) })).toEqual([
+			"Hide regions (what they hide shows)",
+			"effect layers",
+		]);
+	});
+
+	test("says when the canvas isn't the clips' size or shape", () => {
+		const tracks = makeTracks({
+			elements: [makeClip({ id: "a", start: 0, duration: 2 })],
+		});
+		const losses = ({ width, height }: { width: number; height: number }) =>
+			listFastLosses({
+				tracks,
+				canvasSize: { width, height },
+				output: { width: 1920, height: 1080 },
+			});
+		expect(losses({ width: 1920, height: 1080 })).toEqual([]);
+		expect(losses({ width: 1080, height: 1920 })).toEqual([
+			"the canvas's shape and background (the file is the clips' 1920×1080)",
+		]);
+		expect(losses({ width: 1280, height: 720 })).toEqual([
+			"the canvas size (the file is the clips' 1920×1080)",
+		]);
+		// Until the clips' size is known, nothing.
+		expect(
+			listFastLosses({
+				tracks,
+				canvasSize: { width: 1080, height: 1920 },
+				output: { width: 0, height: 0 },
+			}),
+		).toEqual([]);
+	});
 });
 
 describe("the clips' sound", () => {

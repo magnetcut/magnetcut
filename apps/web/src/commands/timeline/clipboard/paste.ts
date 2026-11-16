@@ -23,6 +23,7 @@ import {
 
 export class PasteCommand extends Command {
 	private savedState: SceneTracks | null = null;
+	private madeState: SceneTracks | null = null;
 	private pastedElements: { trackId: string; elementId: string }[] = [];
 	private readonly time: MediaTime;
 	private readonly clipboardItems: ElementClipboardItem[];
@@ -144,12 +145,9 @@ export class PasteCommand extends Command {
 			}
 		}
 
+		this.madeState = updatedTracks;
 		editor.timeline.updateTracks(updatedTracks);
-
-		if (this.pastedElements.length > 0) {
-			return createElementSelectionResult(this.pastedElements);
-		}
-		return undefined;
+		return this.getSelectionResult();
 	}
 
 	undo(): void {
@@ -157,6 +155,27 @@ export class PasteCommand extends Command {
 			const editor = EditorCore.getInstance();
 			editor.timeline.updateTracks(this.savedState);
 		}
+	}
+
+	/** The copies as the first paste made them: the steps after it in the
+	 * history refer to their ids. */
+	redo(): CommandResult | undefined {
+		const editor = EditorCore.getInstance();
+		if (
+			!this.madeState ||
+			editor.scenes.getActiveScene().tracks !== this.savedState
+		) {
+			return this.execute();
+		}
+		editor.timeline.updateTracks(this.madeState);
+		return this.getSelectionResult();
+	}
+
+	private getSelectionResult(): CommandResult | undefined {
+		if (this.pastedElements.length > 0) {
+			return createElementSelectionResult(this.pastedElements);
+		}
+		return undefined;
 	}
 
 	getPastedElements(): { trackId: string; elementId: string }[] {

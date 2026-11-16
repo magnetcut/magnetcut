@@ -15,6 +15,7 @@ import {
 } from "@/export/wizard";
 import { frameRateToFloat } from "@/fps/utils";
 import { DiskFile } from "@/media/disk-file";
+import type { MediaAsset } from "@/media/types";
 import { processMediaAssets } from "@/media/processing";
 import { getEditorUrl } from "@/project/editor-url";
 import { PROJECT_FILE_EXTENSION, toProjectFile } from "@/project/file";
@@ -29,6 +30,7 @@ import { formatTime, parseTime } from "./time";
 import { editTool, undoTool } from "./edit";
 import { findTool, listenTool } from "./listen";
 import {
+	needProject,
 	revisionOf,
 	ToolError,
 	type Tool,
@@ -56,20 +58,6 @@ function string({
 	return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function needProject({ editor }: { editor: EditorCore }) {
-	const project = editor.project.getActiveOrNull();
-	if (
-		!project ||
-		typeof location === "undefined" ||
-		location.pathname !== "/editor"
-	) {
-		throw new ToolError(
-			"No project is open: `project` with action open or new first",
-		);
-	}
-	return project;
-}
-
 function summaryInput({ editor }: { editor: EditorCore }): SummaryInput {
 	const project = needProject({ editor });
 	const tracks = editor.scenes.getActiveScene().tracks;
@@ -84,6 +72,15 @@ function summaryInput({ editor }: { editor: EditorCore }): SummaryInput {
 	};
 }
 
+/** The open project saved before another opens: if it can't be, it stays open. */
+async function saveFirst({ editor }: { editor: EditorCore }): Promise<void> {
+	await editor.save.flush().catch((error: unknown) => {
+		throw new ToolError(
+			`The open project couldn't be saved, so it stays open: ${String(error)}`,
+		);
+	});
+}
+
 /** Waits until the editor shows project `id`, loaded: its scenes, media and
  * fonts in. Woken by the managers' own notices, not timers alone: a window
  * that can't be seen has its timers slowed right down. */
@@ -94,10 +91,17 @@ function editorReady({
 	editor: EditorCore;
 	id: string;
 }): Promise<void> {
-	const isReady = () =>
+	const isLoaded = () =>
 		location.pathname === "/editor" &&
-		editor.project.getLoadedProjectId() === id &&
-		editor.scenes.getActiveSceneOrNull() !== null;
+		editor.project.getLoadedProjectId() === id;
+	const isReady = () =>
+		isLoaded() && editor.scenes.getActiveSceneOrNull() !== null;
+	// A new failure, not one left from an earlier try at the same project.
+	const failedBefore = editor.project.getLoadError();
+	const failure = () => {
+		const failed = editor.project.getLoadError();
+		return failed !== failedBefore && failed?.projectId === id ? failed : null;
+	};
 	if (isReady()) return Promise.resolve();
 	return new Promise((resolve, reject) => {
 		const started = Date.now();
@@ -106,6 +110,13 @@ function editorReady({
 			if (isReady()) {
 				for (const stop of stops) stop();
 				resolve();
+			} else if (isLoaded()) {
+				// Loaded with no scene: there's nothing to wait for.
+				for (const stop of stops) stop();
+				reject(new ToolError("The project has no scenes: it's damaged"));
+			} else if (failure()) {
+				for (const stop of stops) stop();
+				reject(new ToolError(`The project didn't open: ${failure()?.message}`));
 			} else if (Date.now() - started > 60_000) {
 				for (const stop of stops) stop();
 				reject(new ToolError("The project didn't open in time"));
@@ -132,8 +143,12 @@ const status: Tool = {
 			const short = shortIds({
 				ids: editor.project.getSavedProjects().map((saved) => saved.id),
 			});
+			const name = `${JSON.stringify(project.metadata.name)} (${short.get(project.metadata.id) ?? project.metadata.id})`;
+			const scene = editor.scenes.getActiveSceneOrNull();
 			lines.push(
-				`open: ${JSON.stringify(project.metadata.name)} (${short.get(project.metadata.id) ?? project.metadata.id}), rev ${revisionOf({ value: editor.scenes.getActiveScene().tracks })}`,
+				editor.project.getLoadedProjectId() === project.metadata.id && scene
+					? `open: ${name}, rev ${revisionOf({ value: scene.tracks })}`
+					: `opening: ${name}`,
 			);
 		} else {
 			lines.push("no project open");
@@ -231,7 +246,12 @@ const project: Tool = {
 						`save needs a path ending .${PROJECT_FILE_EXTENSION}`,
 					);
 				}
-				await editor.project.saveCurrentProject();
+				// The file is written even when the app's own storage is full, as File >
+				// Save As… is.
+				const notStored = await editor.project
+					.saveCurrentProject()
+					.then(() => null)
+					.catch((error: unknown) => String(error));
 				const { text: file, leftOut } = toProjectFile({
 					project: current,
 					assets: editor.media.getAssets(),
@@ -247,6 +267,9 @@ const project: Tool = {
 				return text(
 					[
 						`saved ${written}`,
+						...(notStored
+							? [`! not saved in the app itself: ${notStored}`]
+							: []),
 						...leftOut.map(
 							(name) =>
 								`left out ${name}: not a file on disk, so it can't be named`,
@@ -257,6 +280,7 @@ const project: Tool = {
 			case "open": {
 				const path = string({ args, key: "path" });
 				if (path) {
+					await saveFirst({ editor });
 					const opened = await openProjectFile({ call, path });
 					navigate(getEditorUrl({ projectId: opened.id }));
 					await editorReady({ editor, id: opened.id });
@@ -271,6 +295,7 @@ const project: Tool = {
 					? resolveId({ short: wanted, ids: saved.map((one) => one.id) })
 					: null;
 				if (!id) throw new ToolError(`No project ${wanted ?? ""}: see list`);
+				await saveFirst({ editor });
 				navigate(getEditorUrl({ projectId: id }));
 				await editorReady({ editor, id });
 				return text(buildSummary(summaryInput({ editor })));
@@ -318,20 +343,31 @@ const media: Tool = {
 					failures.push(String(error));
 				}
 			}
-			const before = new Set(editor.media.getAssets().map((asset) => asset.id));
 			const assets = await processMediaAssets({
 				files,
 				onProgress: ({ progress: done }) =>
 					progress({ progress: done, total: 100 }),
 			});
+			// What couldn't be read, or kept with the project, is said, not
+			// skipped over.
+			for (const file of files) {
+				if (!assets.some((asset) => asset.path === file.path)) {
+					failures.push(
+						`${file.path}: not a film, picture or sound MagnetCut can read`,
+					);
+				}
+			}
+			const added: MediaAsset[] = [];
 			for (const asset of assets) {
-				await editor.media.addMediaAsset({
+				const kept = await editor.media.addMediaAsset({
 					projectId: current.metadata.id,
 					asset,
 				});
+				if (kept) added.push(kept);
+				else
+					failures.push(`${asset.path ?? asset.name}: it couldn't be stored`);
 			}
 			const all = editor.media.getAssets();
-			const added = all.filter((asset) => !before.has(asset.id));
 			// On the timeline too, if asked: one after another at its end, as
 			// each asset's + button puts it.
 			if (args.add === true) {

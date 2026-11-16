@@ -45,6 +45,8 @@ export class ProjectManager {
 	/** The project whose load has finished, media and fonts in: what an agent
 	 * waits for after opening one (src/agent). */
 	private loadedProjectId: string | null = null;
+	/** The last load, if it failed: what the editor shows instead. */
+	private loadError: { projectId: string; message: string } | null = null;
 	private invalidProjectIds = new Set<string>();
 	private storageMigrationPromise: Promise<void> | null = null;
 	private listeners = new Set<() => void>();
@@ -83,6 +85,10 @@ export class ProjectManager {
 	}
 
 	async createNewProject({ name }: { name: string }): Promise<string> {
+		// The open project's last changes are saved before it's replaced, and
+		// its undo history goes with it.
+		await this.editor.save.flush();
+		this.editor.command.clear();
 		const mainScene = buildDefaultScene({ name: "Main scene", isMain: true });
 		const newProject: TProject = {
 			metadata: {
@@ -129,6 +135,20 @@ export class ProjectManager {
 	}
 
 	async loadProject({ id }: { id: string }): Promise<void> {
+		this.loadError = null;
+		// The open project's last changes are saved before its scenes go: if
+		// they can't be, nothing goes.
+		try {
+			await this.editor.save.flush();
+		} catch (error) {
+			const failure = new Error(
+				`Couldn't save the open project first: ${error instanceof Error ? error.message : String(error)}`,
+			);
+			this.loadError = { projectId: id, message: failure.message };
+			this.notify();
+			throw failure;
+		}
+
 		if (!this.isInitialized) {
 			this.isLoading = true;
 			this.notify();
@@ -136,11 +156,14 @@ export class ProjectManager {
 
 		this.loadedProjectId = null;
 		this.editor.save.pause();
-		await this.ensureStorageMigrations();
-		this.editor.media.clearAllAssets();
-		this.editor.scenes.clearScenes();
 
 		try {
+			await this.ensureStorageMigrations();
+			// Its undo would put the old project's tracks into the new one.
+			this.editor.command.clear();
+			this.editor.media.clearAllAssets();
+			this.editor.scenes.clearScenes();
+
 			const result = await storageService.loadProject({ id });
 			if (!result) {
 				throw new Error(`Project with id ${id} not found`);
@@ -184,6 +207,10 @@ export class ProjectManager {
 			}
 		} catch (error) {
 			console.error("Failed to load project:", error);
+			this.loadError = {
+				projectId: id,
+				message: error instanceof Error ? error.message : String(error),
+			};
 			throw error;
 		} finally {
 			this.isLoading = false;
@@ -208,10 +235,13 @@ export class ProjectManager {
 			};
 
 			await storageService.saveProject({ project: updatedProject });
+			// Closed or deleted while it saved: it isn't brought back.
+			if (this.active?.metadata.id !== updatedProject.metadata.id) return;
 			this.active = updatedProject;
 			this.updateMetadata(updatedProject);
 		} catch (error) {
 			console.error("Failed to save project:", error);
+			throw error;
 		}
 	}
 
@@ -283,6 +313,16 @@ export class ProjectManager {
 		const uniqueIds = Array.from(new Set(ids));
 		if (uniqueIds.length === 0) return;
 
+		const idSet = new Set(uniqueIds);
+		// The open project, if it goes, isn't saved again: a save after the
+		// delete would bring it back.
+		const deletesActive =
+			this.active !== null && idSet.has(this.active.metadata.id);
+		if (deletesActive) {
+			this.editor.save.pause();
+			await this.editor.save.discard();
+		}
+
 		try {
 			await Promise.all(
 				uniqueIds.map((id) =>
@@ -293,7 +333,6 @@ export class ProjectManager {
 				),
 			);
 
-			const idSet = new Set(uniqueIds);
 			this.savedProjects = this.savedProjects.filter(
 				(project) => !idSet.has(project.id),
 			);
@@ -303,6 +342,7 @@ export class ProjectManager {
 
 			if (shouldClearActive) {
 				this.active = null;
+				this.editor.command.clear();
 				this.editor.media.clearAllAssets();
 				this.editor.scenes.clearScenes();
 			}
@@ -310,6 +350,8 @@ export class ProjectManager {
 			this.notify();
 		} catch (error) {
 			console.error("Failed to delete projects:", error);
+		} finally {
+			if (deletesActive) this.editor.save.resume();
 		}
 	}
 
@@ -317,6 +359,7 @@ export class ProjectManager {
 		this.active = null;
 		this.notify();
 
+		this.editor.command.clear();
 		this.editor.media.clearAllAssets();
 		this.editor.scenes.clearScenes();
 	}
@@ -457,21 +500,14 @@ export class ProjectManager {
 				),
 			);
 
+			// As stored: files on disk that have gone stay named, to be found.
 			await Promise.all(
-				duplicationPlans.map(async ({ sourceProjectId, newProjectId }) => {
-					const sourceMediaAssets = await storageService.loadAllMediaAssets({
-						projectId: sourceProjectId,
-					});
-
-					await Promise.all(
-						sourceMediaAssets.map((mediaAsset) =>
-							storageService.saveMediaAsset({
-								projectId: newProjectId,
-								mediaAsset,
-							}),
-						),
-					);
-				}),
+				duplicationPlans.map(({ sourceProjectId, newProjectId }) =>
+					storageService.copyProjectMedia({
+						fromProjectId: sourceProjectId,
+						toProjectId: newProjectId,
+					}),
+				),
 			);
 
 			for (const { newProject } of duplicationPlans) {
@@ -537,17 +573,16 @@ export class ProjectManager {
 		this.editor.save.markDirty();
 	}
 
+	/** Saves the open project, with a new thumbnail: throws if it can't. */
 	async prepareExit(): Promise<void> {
 		if (!this.active) return;
 
 		try {
-			const didUpdateThumbnail = await this.updateThumbnailFromTimeline();
-			if (didUpdateThumbnail) {
-				await this.editor.save.flush();
-			}
+			await this.updateThumbnailFromTimeline();
 		} catch (error) {
 			console.error("Failed to generate project thumbnail on exit:", error);
 		}
+		await this.editor.save.flush();
 	}
 
 	getFilteredAndSortedProjects({
@@ -637,6 +672,12 @@ export class ProjectManager {
 
 	getLoadedProjectId(): string | null {
 		return this.loadedProjectId;
+	}
+
+	/** Why the last load failed, and of which project: null while one loads,
+	 * or once one has. */
+	getLoadError(): { projectId: string; message: string } | null {
+		return this.loadError;
 	}
 
 	getIsInitialized(): boolean {
