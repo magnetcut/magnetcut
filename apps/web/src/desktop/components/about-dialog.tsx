@@ -56,7 +56,7 @@ export function AboutDialog({
 					)}
 					<p className="text-muted-foreground text-xs">
 						Completely free and open source, under the GNU AGPL 3.0 licence. No
-						ads, no telemetry, no account.
+						ads, no account. Crash reporting is optional and off by default.
 					</p>
 					<p className="text-muted-foreground text-xs">
 						Based on{" "}

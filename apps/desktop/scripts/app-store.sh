@@ -121,10 +121,13 @@ jq -n --arg id "$APP_STORE_BUNDLE_ID" --arg ent "$ENT" --arg profile "$WORK/embe
 say "Building the App Store edition $VERSION ($BUILD), universal, signed as: $SIGN_APP"
 # Without the updater (--no-default-features), and no notarization: the store
 # checks the app itself.
+# Keep the store edition's existing data-collection behavior. Its privacy
+# disclosures and symbol uploads need a separate update before enabling Sentry.
 (
     cd apps/desktop
     env -u APPLE_ID -u APPLE_PASSWORD -u APPLE_API_KEY -u APPLE_API_KEY_PATH -u APPLE_API_ISSUER \
         APPLE_SIGNING_IDENTITY="$SIGN_APP" \
+        MAGNETCUT_SENTRY_DSN="" NEXT_PUBLIC_SENTRY_DSN="" SENTRY_AUTH_TOKEN="" \
         cargo tauri build --ci --target universal-apple-darwin --bundles app \
         --config "$WORK/app-store.conf.json" -- --no-default-features
 )

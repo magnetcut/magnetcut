@@ -2,7 +2,8 @@
 
 MagnetCut is a desktop video editor for macOS, Windows and Linux, forked from
 [OpenCut](https://github.com/OpenCut-app/opencut-classic) (MIT). No account, no ads, no
-telemetry: everything stays on the computer. Not for iOS or Android.
+telemetry by default. Crash reporting is an explicit opt-in (docs/CRASH_REPORTING.md).
+Not for iOS or Android.
 
 ## Decisions
 
@@ -14,6 +15,8 @@ telemetry: everything stays on the computer. Not for iOS or Android.
 - **Nothing to install for the user.** macOS: nothing. Windows 10/11 ship WebView2; the
   installer bootstraps it where it's missing. Linux: the .deb/.rpm pull in webkit2gtk and
   GStreamer from the distro. No AppImage: it would carry WebKitGTK and GTK, which are LGPL.
+  OpenSSL (Apache-2.0, for TLS) is linked in: its soname changes with each major version, and
+  Ubuntu 26.10 has only OpenSSL 4. The release run fails if the app needs a system libssl.
 - **No ffmpeg.** Media goes through mediabunny (MPL-2.0) and the system's codecs (WebCodecs), so
   H.264/AAC are licensed by whoever made the OS codec, not us, and nothing GPL ships. Where a
   web view lacks a codec, the fallback is the platform's own (AVFoundation, Media Foundation,
@@ -46,7 +49,7 @@ telemetry: everything stays on the computer. Not for iOS or Android.
 - **About box, as in MyDiskIsFull.** Icon, name, version, the update line (direct download
   only), one sentence on what it does, a card with what it keeps on this computer (the storage
   its projects and media take, of what the web view lets it keep), "Completely free and open source, under the GNU AGPL 3.0 licence. No
-  ads, no telemetry, no account.", Source, Acknowledgements (third-party notices) and "Based on OpenCut".
+  ads, no account. Crash reporting is optional and off by default.", Source, Acknowledgements (third-party notices) and "Based on OpenCut".
 - **Export does HandBrake's job.** No separate converter and no queue: open a video and Export
   is the conversion. Its settings: container (MP4, MOV, MKV, WebM) and codec; quality
   (constant quality, bitrate or a target file size); size presets (4K, 1080p, 720p, phone,

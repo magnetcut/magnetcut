@@ -43,12 +43,17 @@ const ALLOWED = [
 	"CC-BY-4.0",
 	"Python-2.0",
 	"MPL-2.0",
+	"CDLA-Permissive-2.0",
 ];
 
 // Packages in the lockfile's tree that never reach the bundle, and why.
 // Besides these, any package for one system only (os or cpu in the lockfile):
 // native binaries, which a browser bundle can't contain.
 const NOT_SHIPPED: Array<{ pattern: RegExp; reason: string }> = [
+	{
+		pattern: /^sentry$/,
+		reason: "Sentry's CLI is used by the build plugin to upload symbols; it is not part of the static browser bundle",
+	},
 	{
 		pattern: /^(sharp|@img\/.*)$/,
 		reason:
@@ -363,7 +368,8 @@ function rustPackages(): Package[] {
 
 	// What the desktop app and the WebAssembly core link: normal dependencies
 	// only (no build scripts' or tests'), and none only for fuzzing, a cfg
-	// set by cargo-fuzz alone.
+	// set by cargo-fuzz alone. Besides those, the code that a build script
+	// compiles from a source crate into the binary (BUILT_IN).
 	const shipped = new Set<string>();
 	const stack = metadata.workspace_members.filter((id) =>
 		["magnetcut", "magnetcut-wasm"].includes(byId.get(id)?.name ?? ""),
@@ -372,9 +378,14 @@ function rustPackages(): Package[] {
 		const id = stack.pop() as string;
 		if (shipped.has(id)) continue;
 		shipped.add(id);
+		// A source crate's own dependencies build it (cc): none ships.
+		if ((byId.get(id)?.name ?? "") in BUILT_IN) continue;
 		for (const dep of nodes.get(id)?.deps ?? []) {
 			const isLinked = dep.dep_kinds.some(
-				({ kind, target }) => kind === null && target !== "cfg(fuzzing)",
+				({ kind, target }) =>
+					target !== "cfg(fuzzing)" &&
+					(kind === null ||
+						(kind === "build" && (byId.get(dep.pkg)?.name ?? "") in BUILT_IN)),
 			);
 			if (isLinked) stack.push(dep.pkg);
 		}
@@ -384,16 +395,34 @@ function rustPackages(): Package[] {
 		.filter((id) => !workspace.has(id))
 		.map((id) => {
 			const pkg = byId.get(id) as CargoMetadata["packages"][number];
+			const builtIn = BUILT_IN[pkg.name];
+			const dir = dirname(pkg.manifest_path);
 			return {
 				ecosystem: "rust" as const,
 				name: pkg.name,
 				version: pkg.version,
-				license: pkg.license ?? "",
-				dir: dirname(pkg.manifest_path),
-				authors: pkg.authors.map((author) => author.replace(/\s*<.*>$/, "")),
+				license: builtIn?.license ?? pkg.license ?? "",
+				dir: builtIn ? join(dir, builtIn.dir) : dir,
+				authors: builtIn
+					? [builtIn.author]
+					: pkg.authors.map((author) => author.replace(/\s*<.*>$/, "")),
 			};
 		});
 }
+
+// Source crates whose code a build script compiles and links in: what ships
+// is that code, under its own licence, not the crate's build glue.
+const BUILT_IN: Record<
+	string,
+	{ license: string; dir: string; author: string }
+> = {
+	// OpenSSL, linked statically into the Linux app (apps/desktop/Cargo.toml).
+	"openssl-src": {
+		license: "Apache-2.0",
+		dir: "openssl",
+		author: "The OpenSSL Project Authors",
+	},
+};
 
 // ---- JavaScript: bun.lock -------------------------------------------------------
 

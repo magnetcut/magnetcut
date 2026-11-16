@@ -1,7 +1,7 @@
 # MagnetCut
 
 A video editor for macOS, Windows and Linux that keeps everything on your computer. Free and
-open source: no account, no ads, no telemetry.
+open source: no account, no ads. Crash reporting is optional and off by default.
 
 > **Early days.** The first release is next, and the Mac App Store edition is in testing
 > (TestFlight). Until then the desktop app runs from source. [docs/PLAN.md](docs/PLAN.md) has

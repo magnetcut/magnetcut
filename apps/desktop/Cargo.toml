@@ -53,6 +53,8 @@ reqwest = { version = "0.13", default-features = false, features = ["native-tls"
 # Credential Manager, and on Linux the Secret Service through zbus, in Rust
 # (no libdbus to build against).
 keyring = "4"
+sentry = { version = "0.49.5", default-features = false, features = ["backtrace", "contexts", "panic", "debug-images", "reqwest", "native-tls", "minidump"] }
+dirs = "6"
 
 # The drag pasteboard, for the paths of dropped files, and bookmarks, which
 # the App Store sandbox needs to open a file again (src/media.rs). The
@@ -110,3 +112,9 @@ gstreamer-video = "0.21"
 # logind's sleep inhibitor while an export runs (src/activity.rs): the
 # version Tauri's opener already uses.
 zbus = "5"
+# native-tls (see above) is OpenSSL on Linux, and its soname changes with each
+# major version: a binary linked to the build machine's libssl.so.3 doesn't
+# start where there's only libssl.so.4 (Ubuntu 26.10). So OpenSSL is built
+# from source and linked in statically; native-tls still finds the system's
+# certificates (openssl-probe). The updater's reqwest is this one.
+reqwest = { version = "0.13", default-features = false, features = ["native-tls-vendored"] }

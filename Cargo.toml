@@ -14,6 +14,11 @@ members = [
     "rust/crates/tracking",
 ]
 
+# Keep line information for crash symbolication, including optimized releases.
+[profile.release]
+debug = 1
+strip = "none"
+
 # Proc macros and build scripts run only while building: unstripped. Xcode 27's
 # strip breaks dylibs made for macOS 12 or later (dyld: "mis-aligned LINKEDIT
 # string pool"), and Tauri builds for 13.0, so stripped proc macros won't load.

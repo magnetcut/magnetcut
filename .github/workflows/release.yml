@@ -1,7 +1,7 @@
 name: Release builds
 
-# The Windows and Linux installers of a release, built with no key or
-# secret: apps/desktop/scripts/release.sh, on the maintainer's Mac, fetches
+# The Windows and Linux installers of a release. Sentry's optional CI token
+# uploads symbols, never signs installers. apps/desktop/scripts/release.sh fetches
 # them for its commit, signs them as updates, adds the macOS app and puts it
 # all on a draft release (docs/RELEASING.md). It starts this run itself.
 
@@ -16,6 +16,12 @@ env:
   NEXT_TELEMETRY_DISABLED: 1
   TURBO_TELEMETRY_DISABLED: 1
   TAURI_CLI: "@tauri-apps/cli@2.11.2"
+  MAGNETCUT_SENTRY_DSN: ${{ vars.MAGNETCUT_SENTRY_DSN }}
+  NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
+  SENTRY_ORG: salamacchine
+  SENTRY_PROJECT_WEB: magnetcut-web
+  SENTRY_RELEASE: magnetcut@${{ github.sha }}
+  NEXT_PUBLIC_SENTRY_RELEASE: magnetcut@${{ github.sha }}
 
 jobs:
   installers:
@@ -92,7 +98,48 @@ jobs:
       # Builds the editor's core and static files first (beforeBuildCommand).
       - name: Build the installers
         working-directory: apps/desktop
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          # Run the upload hook even when Turbo has a cached web build.
+          TURBO_FORCE: "true"
         run: bunx ${{ env.TAURI_CLI }} build --ci --bundles ${{ matrix.bundles }}
+
+      - name: Upload native debug symbols
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_PROJECT: magnetcut-desktop
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "SENTRY_AUTH_TOKEN is not configured; symbols are retained as artifacts."
+            exit 0
+          fi
+          if [ "$RUNNER_OS" = Linux ]; then
+            bunx @sentry/cli debug-files upload --include-sources target/release/magnetcut
+          else
+            bunx @sentry/cli debug-files upload --include-sources target/release/magnetcut.pdb target/release/magnetcut.exe
+          fi
+
+      - name: Keep native debug symbols
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: symbols-${{ matrix.platform }}-${{ github.sha }}
+          path: |
+            target/release/magnetcut
+            target/release/magnetcut.exe
+            target/release/magnetcut.pdb
+          if-no-files-found: error
+          retention-days: 90
+
+      # The libraries the app needs from the system, in the log. OpenSSL isn't
+      # one (apps/desktop/Cargo.toml): its soname changes with each major
+      # version, and libssl.so.3 isn't on systems with OpenSSL 4.
+      - name: Check the Linux app's system libraries
+        if: runner.os == 'Linux'
+        run: |
+          readelf -d target/release/magnetcut | grep NEEDED
+          ! readelf -d target/release/magnetcut | grep -E 'lib(ssl|crypto)\.so'
 
       - name: Keep the installers
         uses: actions/upload-artifact@v4

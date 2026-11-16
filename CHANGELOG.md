@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format is based on
 
 ## Unreleased
 
+### Added
+- Crash reports, off until you turn on Settings → Send crash reports: errors and crashes go to
+  Sentry, with no project files or media attached (docs/CRASH_REPORTING.md). The App Store edition
+  doesn't have it.
+
+### Fixed
+- On Linux, MagnetCut starts where the system has OpenSSL 4 (Ubuntu 26.10): it no longer looks
+  for libssl.so.3, since OpenSSL is now built into the app.
+
 ## [0.1.4] - 2026-11-04
 
 ### Added

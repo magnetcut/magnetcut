@@ -5,6 +5,7 @@
 
 mod activity;
 mod agent;
+mod diagnostics;
 mod export;
 mod media;
 mod menu;
@@ -23,6 +24,8 @@ macro_rules! commands {
     ($($more:path),*) => {
         tauri::generate_handler![
             app_info,
+            diagnostics::crash_reporting_status,
+            diagnostics::set_crash_reporting,
             media::pick_media_files,
             media::dropped_media_files,
             media::media_file_info,
@@ -173,6 +176,11 @@ fn is_own_page(url: &tauri::Url) -> bool {
 }
 
 fn main() {
+    let context = tauri::generate_context!();
+    let mut diagnostics = diagnostics::Diagnostics::new(&context.config().identifier);
+    // Keep the guard alive through the event loop. Sentry's reporter re-execs
+    // this binary and enters its server here, before CLI or window setup.
+    let _sentry = diagnostics.init();
     // The command line's agent modes, `--mcp` and `call` (src/agent/cli.rs):
     // no window.
     let args: Vec<String> = std::env::args().collect();
@@ -181,6 +189,7 @@ fn main() {
     }
     // Links with target="_blank" open in the browser.
     let mut builder = tauri::Builder::default()
+        .manage(diagnostics)
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(
@@ -227,6 +236,10 @@ fn main() {
         if let Some(window) = app.get_webview_window("main") {
             let probing = std::env::var_os(PROBE_ENV).is_some();
             window.with_webview(move |webview| {
+                use webkit2gtk::prelude::WebViewExt;
+                webview.inner().connect_web_process_terminated(|_, reason| {
+                    diagnostics::web_process_terminated(reason);
+                });
                 let features = webkit::enable_needed(&webview.inner());
                 if probing {
                     webkit::use_mock_capture_devices(&webview.inner());
@@ -271,7 +284,5 @@ fn main() {
     } else {
         builder = builder.invoke_handler(commands![]);
     }
-    builder
-        .run(tauri::generate_context!())
-        .expect("error while running MagnetCut");
+    builder.run(context).expect("error while running MagnetCut");
 }

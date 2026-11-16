@@ -332,15 +332,24 @@ echo "   run $RUN: https://github.com/$REPO/actions/runs/$RUN"
 # ---- 2. The macOS app --------------------------------------------------------
 
 say "2/6  Build the macOS app: universal, Developer ID"
+export SENTRY_RELEASE="magnetcut@$HEAD"
+export NEXT_PUBLIC_SENTRY_RELEASE="$SENTRY_RELEASE"
+export TURBO_FORCE=true
 IDENTITY=$(security find-identity -v -p codesigning \
     | sed -n "s/.*\"\(Developer ID Application: .* ($TEAM_ID)\)\"$/\1/p" | head -1)
 [ -n "$IDENTITY" ] || die "no Developer ID Application certificate of team $TEAM_ID in the keychain"
 # Tauri notarizes on its own when it sees Apple credentials; here the app and
 # then the image are notarized below, so it gets none.
 (cd apps/desktop && env -u APPLE_ID -u APPLE_PASSWORD -u APPLE_API_KEY -u APPLE_API_ISSUER \
-    -u APPLE_API_KEY_PATH APPLE_SIGNING_IDENTITY="$IDENTITY" \
+    -u APPLE_API_KEY_PATH APPLE_SIGNING_IDENTITY="$IDENTITY" CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed \
     cargo tauri build --ci --target universal-apple-darwin --bundles app)
 [ -d "$APP" ] || die "the build made no $APP"
+if [ -n "${SENTRY_AUTH_TOKEN:-}" ]; then
+    # Match each architecture in the universal executable to its own symbols.
+    SENTRY_PROJECT=magnetcut-desktop bunx @sentry/cli debug-files upload --include-sources \
+        target/aarch64-apple-darwin/release/magnetcut.dSYM \
+        target/x86_64-apple-darwin/release/magnetcut.dSYM
+fi
 SIGNED_BY=$(codesign -dv --verbose=2 "$APP" 2>&1 | sed -n 's/^Authority=\(Developer ID Application: .*\)/\1/p' | head -1)
 [ "$SIGNED_BY" = "$IDENTITY" ] || die "the app isn't signed with $IDENTITY (${SIGNED_BY:-not signed})"
 # Capture, then test: `codesign | grep -q` fails under pipefail exactly when
