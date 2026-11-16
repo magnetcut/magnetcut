@@ -78,7 +78,9 @@ is opened. The updates themselves are signed with the updater key either way.
 
 - Installed copies see the update within a day; Check Now sees it at once.
 - `https://github.com/magnetcut/magnetcut/releases/latest/download/MagnetCut.dmg` always
-  downloads the latest macOS app, for links that shouldn't change.
+  downloads the latest macOS app, and `.../MagnetCut_x64-setup.exe` the latest Windows
+  installer, for links that shouldn't change. Updates don't use these: `latest.json` names
+  each version's own files.
 
 ## The Mac App Store edition
 

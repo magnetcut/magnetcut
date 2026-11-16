@@ -14,6 +14,8 @@
 #                                              built by .github/workflows/release.yml
 #                                              from the same commit (this starts the
 #                                              run when there isn't one)
+#       MagnetCut_x64-setup.exe                the Windows installer, a stable name like
+#                                              MagnetCut.dmg's (the feed uses the other)
 #       *.sig                                  each update's signature
 #       latest.json                            what installed copies read
 #       notes.md                               this version's CHANGELOG section
@@ -66,6 +68,8 @@ MAC_UPDATE="$OUT/${APP_NAME}_${VERSION}_universal.app.tar.gz"
 # The names Tauri gives what CI builds.
 WINDOWS_NSIS="${APP_NAME}_${VERSION}_x64-setup.exe"
 WINDOWS_MSI="${APP_NAME}_${VERSION}_x64_en-US.msi"
+# For links to .../releases/latest/download/ that shouldn't change.
+WINDOWS_STABLE="${APP_NAME}_x64-setup.exe"
 LINUX_DEB="${APP_NAME}_${VERSION}_amd64.deb"
 LINUX_RPM="${APP_NAME}-${VERSION}-1.x86_64.rpm"
 INSTALLERS=("$WINDOWS_NSIS" "$WINDOWS_MSI" "$LINUX_DEB" "$LINUX_RPM")
@@ -226,6 +230,7 @@ sign_all() {
     {
         basename "$DMG"
         echo "$APP_NAME.dmg"
+        echo "$WINDOWS_STABLE"
         echo "$mac"
         echo "$mac.sig"
         for name in "${INSTALLERS[@]}"; do
@@ -243,7 +248,7 @@ sign_elsewhere() {
     [ -f "$OUT/unsigned" ] || die "$OUT has no build waiting for signatures: run apps/desktop/scripts/release.sh --unsigned first"
     head=$(git rev-parse HEAD)
     [ "$(cat "$OUT/unsigned")" = "$head" ] || die "$OUT was made from $(cat "$OUT/unsigned"), not HEAD ($head)"
-    for name in "$(basename "$DMG")" "$APP_NAME.dmg" "$(basename "$MAC_UPDATE")" "${INSTALLERS[@]}"; do
+    for name in "$(basename "$DMG")" "$APP_NAME.dmg" "$WINDOWS_STABLE" "$(basename "$MAC_UPDATE")" "${INSTALLERS[@]}"; do
         [ -f "$OUT/$name" ] || die "$OUT/$name is missing"
     done
     for tool in jq cargo xxd; do
@@ -408,6 +413,7 @@ for name in "${INSTALLERS[@]}"; do
     mv "$found" "$OUT/$name"
 done
 rm -rf "$CI"
+cp "$OUT/$WINDOWS_NSIS" "$OUT/$WINDOWS_STABLE"
 
 # ---- 4. The updates and the feed ---------------------------------------------
 
