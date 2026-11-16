@@ -236,7 +236,7 @@ fn main() {
         if let Some(window) = app.get_webview_window("main") {
             let probing = std::env::var_os(PROBE_ENV).is_some();
             window.with_webview(move |webview| {
-                use webkit2gtk::prelude::WebViewExt;
+                use webkit2gtk::WebViewExt;
                 webview.inner().connect_web_process_terminated(|_, reason| {
                     diagnostics::web_process_terminated(reason);
                 });
