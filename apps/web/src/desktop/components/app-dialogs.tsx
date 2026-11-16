@@ -12,6 +12,7 @@ import { checkForUpdatesIfDue, checkForUpdatesNow } from "../updates";
 import { AboutDialog } from "./about-dialog";
 import { SettingsDialog } from "./settings-dialog";
 import { UpdateDialog } from "./update-dialog";
+import { CrashReportingPrompt } from "./crash-reporting-prompt";
 
 /** The first check waits for the app to settle after it opens. */
 const FIRST_CHECK_DELAY_MS = 10_000;
@@ -28,6 +29,7 @@ export function AppDialogs() {
 
 	return (
 		<>
+			<CrashReportingPrompt />
 			<AboutDialog
 				isOpen={openDialog === "about"}
 				onOpenChange={(open) =>

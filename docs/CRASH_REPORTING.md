@@ -1,6 +1,11 @@
 # Crash reporting
 
-Sentry receives errors only after **Settings → Send crash reports** is enabled.
+On first launch, a prompt offers crash reporting. Accepting enables the same
+preference as **Settings → Send crash reports**. Declining or closing the prompt
+saves an off preference, so it does not ask again. Existing choices are respected,
+and builds without Sentry configured do not show the prompt.
+
+Sentry receives errors only after the user opts in.
 It is off by default. The desktop app needs a restart after enabling it; turning
 it off stops new events immediately. An upload already in flight may complete.
 Development builds and `MAGNETCUT_PROBE` runs do not report by default.
