@@ -11,7 +11,10 @@ let appInfo: Promise<AppInfo | null> | null = null;
 
 /** The desktop app's version and edition; null in a browser. */
 export function getAppInfo(): Promise<AppInfo | null> {
-	appInfo ??= isTauri() ? invoke<AppInfo>("app_info") : Promise.resolve(null);
+	// Only the desktop app's answer is kept: a browser's null isn't, so that it
+	// can't stand in for the app's (in the tests, which pretend to be both).
+	if (!isTauri()) return Promise.resolve(null);
+	appInfo ??= invoke<AppInfo>("app_info");
 	return appInfo;
 }
 
