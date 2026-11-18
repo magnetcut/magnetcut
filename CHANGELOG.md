@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## Unreleased
 
+## [0.1.6] - 2026-11-18
+
 ### Added
 - On Linux, Settings → GPU acceleration: video is decoded and drawn on the graphics card only when
   it's on, and it's off by default. On older distributions it made MagnetCut crash while video
@@ -293,6 +295,7 @@ account, ads or telemetry.
   editor's place, as in a browser. It's now imported, wherever it's dropped, and nothing
   dropped on the window can replace the app.
 
+[0.1.6]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.6
 [0.1.5]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.5
 [0.1.4]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.4
 [0.1.3]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.3
