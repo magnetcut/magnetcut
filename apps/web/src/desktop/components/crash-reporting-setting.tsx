@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { isTauri } from "@tauri-apps/api/core";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -51,6 +52,11 @@ export function CrashReportingSetting() {
 			{status?.enabled && status.configured && !status.active && (
 				<p className="text-muted-foreground text-xs">
 					Restart MagnetCut to start crash reporting.
+				</p>
+			)}
+			{status?.enabled && status.active && !status.native && isTauri() && (
+				<p className="text-muted-foreground text-xs">
+					Native crash reports start next time you open MagnetCut.
 				</p>
 			)}
 			{error && (

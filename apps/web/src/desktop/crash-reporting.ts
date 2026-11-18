@@ -5,7 +5,10 @@ export type CrashReportingStatus = {
 	enabled: boolean;
 	decided: boolean;
 	configured: boolean;
+	/** Errors are reported in this run. */
 	active: boolean;
+	/** Native crashes are too: in the app, after a launch with reporting on. */
+	native: boolean;
 };
 
 const preferenceKey = "magnetcut-crash-reporting";
@@ -20,6 +23,7 @@ export async function getCrashReportingStatus(): Promise<CrashReportingStatus> {
 		decided: preference === "enabled" || preference === "disabled",
 		configured: Boolean(process.env.NEXT_PUBLIC_SENTRY_DSN),
 		active: initialized,
+		native: false,
 	};
 }
 
@@ -43,8 +47,7 @@ export async function initializeCrashReporting(): Promise<void> {
 	const status = await getCrashReportingStatus();
 	enabled = status.enabled;
 	if (initialized || !enabled || !process.env.NEXT_PUBLIC_SENTRY_DSN) return;
-	// Native probes/debug builds never activate reporting. A native reporter
-	// restart is also required after first opting in.
+	// The app reports from opting in on; its probe and debug builds never do.
 	if (isTauri() && !status.active) return;
 	if (
 		process.env.NODE_ENV !== "production" &&

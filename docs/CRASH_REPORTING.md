@@ -6,8 +6,10 @@ saves an off preference, so it does not ask again. Existing choices are respecte
 and builds without Sentry configured do not show the prompt.
 
 Sentry receives errors only after the user opts in.
-It is off by default. The desktop app needs a restart after enabling it; turning
-it off stops new events immediately. An upload already in flight may complete.
+It is off by default. Enabling it starts reporting errors, panics and (on Linux)
+WebKit web process crashes at once; native minidumps start at the next launch,
+since their reporter process must start before GTK/WebKit. Turning it off stops
+new events immediately. An upload already in flight may complete.
 Development builds and `MAGNETCUT_PROBE` runs do not report by default.
 
 Projects in the `salamacchine` organization:

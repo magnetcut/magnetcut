@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 
 ## Unreleased
 
+### Fixed
+- Crash reports start as soon as you turn them on, rather than the next time MagnetCut opens, so a
+  crash in the first session is reported. Native crash reports still start at the next launch.
+
 ## [0.1.5] - 2026-11-17
 
 ### Added
