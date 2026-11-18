@@ -16,6 +16,7 @@ import { useSettingsStore } from "../settings-store";
 import { checkForUpdatesNow } from "../updates";
 import { AgentsSetting } from "./agents-setting";
 import { CrashReportingSetting } from "./crash-reporting-setting";
+import { GpuAccelerationSetting } from "./gpu-acceleration-setting";
 import { SpeechKeysSetting } from "@/voiceover/components/speech-keys-setting";
 
 const THEMES = [
@@ -41,6 +42,7 @@ export function SettingsDialog({
 				</DialogHeader>
 				<DialogBody className="max-h-[70vh] gap-6 overflow-y-auto">
 					<AppearanceSetting />
+					<GpuAccelerationSetting />
 					<CrashReportingSetting />
 					{info?.updates && <UpdatesSetting />}
 					<AgentsSetting />

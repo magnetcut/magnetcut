@@ -7,6 +7,7 @@ mod activity;
 mod agent;
 mod diagnostics;
 mod export;
+mod graphics;
 mod media;
 mod menu;
 mod project_file;
@@ -26,6 +27,8 @@ macro_rules! commands {
             app_info,
             diagnostics::crash_reporting_status,
             diagnostics::set_crash_reporting,
+            graphics::gpu_acceleration_status,
+            graphics::set_gpu_acceleration,
             media::pick_media_files,
             media::dropped_media_files,
             media::media_file_info,
@@ -207,6 +210,10 @@ fn come_forward(app: &AppHandle, args: &[String]) {
 
 fn main() {
     let context = tauri::generate_context!();
+    let graphics = graphics::Graphics::new(&context.config().identifier);
+    // Before any thread starts (Sentry's, below): WebKit's web process
+    // inherits the environment.
+    graphics.apply_to_environment();
     let mut diagnostics = diagnostics::Diagnostics::new(&context.config().identifier);
     // Keep the guard alive through the event loop. Sentry's reporter re-execs
     // this binary and enters its server here, before CLI or window setup.
@@ -232,6 +239,7 @@ fn main() {
     // Links with target="_blank" open in the browser.
     builder = builder
         .manage(diagnostics)
+        .manage(graphics)
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(
@@ -277,12 +285,13 @@ fn main() {
         #[cfg(target_os = "linux")]
         if let Some(window) = app.get_webview_window("main") {
             let probing = std::env::var_os(PROBE_ENV).is_some();
+            let accelerated = app.state::<graphics::Graphics>().accelerated();
             window.with_webview(move |webview| {
                 use webkit2gtk::WebViewExt;
                 webview.inner().connect_web_process_terminated(|_, reason| {
                     diagnostics::web_process_terminated(reason);
                 });
-                let features = webkit::enable_needed(&webview.inner());
+                let features = webkit::enable_needed(&webview.inner(), accelerated);
                 if probing {
                     webkit::use_mock_capture_devices(&webview.inner());
                     let features = serde_json::to_string(&features).unwrap_or_default();

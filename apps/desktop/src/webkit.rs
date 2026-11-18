@@ -84,14 +84,18 @@ fn symbol<F: Copy>(name: &CStr) -> Option<F> {
     (!address.is_null()).then(|| unsafe { std::mem::transmute_copy::<*mut c_void, F>(&address) })
 }
 
+/// 2D canvases drawn on the GPU: off without GPU acceleration (graphics.rs).
+const CANVAS_GPU: &str = "CanvasUsesAcceleratedDrawing";
+
 fn is_needed(id: &str) -> bool {
     NEEDED.contains(&id.strip_suffix("Enabled").unwrap_or(id))
 }
 
 /// Switches on what the editor needs in this web view's settings, before its
-/// first page loads, and returns every feature's state (for the probe): none
-/// on a WebKitGTK without the feature API.
-pub fn enable_needed(webview: &webkit2gtk::WebView) -> Vec<Feature> {
+/// first page loads, and without GPU acceleration switches off canvases drawn
+/// on the GPU. Returns every feature's state (for the probe): none on a
+/// WebKitGTK without the feature API.
+pub fn enable_needed(webview: &webkit2gtk::WebView, gpu_acceleration: bool) -> Vec<Feature> {
     let Some(settings) = webview.settings() else {
         return Vec::new();
     };
@@ -114,6 +118,9 @@ pub fn enable_needed(webview: &webkit2gtk::WebView) -> Vec<Feature> {
                 .into_owned();
             if is_needed(&id) && (api.is_enabled)(settings, item) == 0 {
                 (api.set_enabled)(settings, item, 1);
+            }
+            if !gpu_acceleration && id == CANVAS_GPU && (api.is_enabled)(settings, item) != 0 {
+                (api.set_enabled)(settings, item, 0);
             }
             let status = usize::try_from((api.status)(item)).ok();
             features.push(Feature {

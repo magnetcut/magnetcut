@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format is based on
 
 ## Unreleased
 
+### Added
+- On Linux, Settings → GPU acceleration: video is decoded and drawn on the graphics card only when
+  it's on, and it's off by default. On older distributions it made MagnetCut crash while video
+  played (Ubuntu 24.04 with Intel graphics). The preview's compositing stays on the GPU either way.
+
 ### Fixed
 - Crash reports start as soon as you turn them on, rather than the next time MagnetCut opens, so a
   crash in the first session is reported. Native crash reports still start at the next launch.
