@@ -241,7 +241,7 @@ const project: Tool = {
 			case "save": {
 				const current = needProject({ editor });
 				const path = string({ args, key: "path" });
-				if (!path?.endsWith(`.${PROJECT_FILE_EXTENSION}`)) {
+				if (!path?.toLowerCase().endsWith(`.${PROJECT_FILE_EXTENSION}`)) {
 					throw new ToolError(
 						`save needs a path ending .${PROJECT_FILE_EXTENSION}`,
 					);

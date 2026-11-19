@@ -14,6 +14,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::activity::Activity;
+use crate::dialog::AnyCaseFilter;
 use crate::media::{DiskFileInfo, MediaFiles};
 
 /// The files picked in the save dialog, each good for one export; those being
@@ -291,7 +292,7 @@ pub async fn pick_export_file(
         .dialog()
         .file()
         .set_file_name(format!("{name}.{extension}"))
-        .add_filter(extension.to_uppercase(), &[extension.as_str()]);
+        .add_any_case_filter(&extension.to_uppercase(), &[extension.as_str()]);
     if let Some(directory) = directory.map(PathBuf::from).filter(|path| path.is_dir()) {
         dialog = dialog.set_directory(directory);
     }

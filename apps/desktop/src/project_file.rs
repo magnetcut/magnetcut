@@ -10,6 +10,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::agent::media_paths;
+use crate::dialog::AnyCaseFilter;
 use crate::media::MediaFiles;
 
 const EXTENSION: &str = "magnetcut";
@@ -31,7 +32,7 @@ pub async fn pick_project_file(
     let mut dialog = app
         .dialog()
         .file()
-        .add_filter("MagnetCut project", &[EXTENSION]);
+        .add_any_case_filter("MagnetCut project", &[EXTENSION]);
     if let Some(window) = app.get_webview_window("main") {
         dialog = dialog.set_parent(&window);
     }
@@ -59,7 +60,7 @@ pub async fn save_project_file(
         .dialog()
         .file()
         .set_file_name(format!("{name}.{EXTENSION}"))
-        .add_filter("MagnetCut project", &[EXTENSION]);
+        .add_any_case_filter("MagnetCut project", &[EXTENSION]);
     if let Some(window) = app.get_webview_window("main") {
         dialog = dialog.set_parent(&window);
     }

@@ -6,6 +6,7 @@
 mod activity;
 mod agent;
 mod diagnostics;
+mod dialog;
 mod export;
 mod graphics;
 mod media;

@@ -19,6 +19,8 @@ use tauri::ipc::Response;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
+use crate::dialog::AnyCaseFilter;
+
 /// The most one read returns: the editor reads in pieces.
 const MAX_READ: u64 = 64 << 20;
 
@@ -177,7 +179,7 @@ pub async fn pick_media_files(
     app: AppHandle,
     media: State<'_, MediaFiles>,
 ) -> Result<Vec<DiskFileInfo>, String> {
-    let mut dialog = app.dialog().file().add_filter("Media", EXTENSIONS);
+    let mut dialog = app.dialog().file().add_any_case_filter("Media", EXTENSIONS);
     if let Some(window) = app.get_webview_window("main") {
         dialog = dialog.set_parent(&window);
     }
