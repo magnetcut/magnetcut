@@ -3123,6 +3123,8 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tempfile",
+ "toml_edit 0.25.8+spec-1.1.0",
  "webkit2gtk",
  "windows",
  "zbus",
@@ -6330,6 +6332,7 @@ dependencies = [
  "indexmap 2.13.0",
  "toml_datetime 1.1.2+spec-1.1.0",
  "toml_parser",
+ "toml_writer",
  "winnow 1.0.0",
 ]
 

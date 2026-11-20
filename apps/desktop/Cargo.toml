@@ -38,9 +38,13 @@ tauri-plugin-single-instance = "2"
 # The bookmarks of the media files the editor reads where they are; agents'
 # tokens (src/agent/).
 base64 = "0.22"
-# OpenCode's settings (JSON with comments), edited to take MagnetCut's server
-# out again, the user's comments and layout kept (src/agent/clients.rs).
+# Connect (src/agent/clients.rs): OpenCode's settings (JSON with comments) and
+# Codex's (TOML) edited to add MagnetCut's server or take it out, the user's
+# comments and layout kept; Claude Code run from a folder only this user can
+# use. toml_edit is the version proc-macro-crate builds with already.
 jsonc-parser = { version = "0.27", default-features = false, features = ["cst"] }
+tempfile = "3"
+toml_edit = "0.25"
 # Agents' tokens: made at random, kept only as their SHA-256 (src/agent/).
 getrandom = "0.3"
 sha2 = "0.10"

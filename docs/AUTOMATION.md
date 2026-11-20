@@ -284,23 +284,33 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
 - Connect, and the Claude Code plugin. Settings, Agents has a Connect button for Claude Code,
   Codex and OpenCode (`apps/desktop/src/agent/clients.rs`): MagnetCut finds the agent's program
   (on the PATH, the login shell's, and where their installers put them), makes it a token of its
-  own (kept in `agents.json` with which agent it's for), and adds itself with the agent's own
-  command line. Claude Code gets the MagnetCut plugin from this repository's marketplace
-  (`.claude-plugin/marketplace.json`, `plugins/magnetcut`): the MCP server over HTTP, the token
-  in `userConfig` (sensitive, so in the keychain), given on standard input to `claude plugin
-  configure`, and a skill on editing with MagnetCut. Codex gets `magnetcut --mcp`, which starts
-  the app when it isn't running, with the address and token in its environment. OpenCode gets
-  the server by HTTP with the token in a header. Disconnect runs their own commands to take it
-  out (OpenCode has none: its `opencode.json` or `.jsonc` is edited with `jsonc-parser`, the
-  user's comments kept, and left alone with a message if it can't be read), and the token goes
-  whatever happens. Connect again replaces the token. Not in the App Store edition, whose sandbox
+  own (kept in `agents.json` with which agent it's for), and adds itself. Claude Code gets the
+  MagnetCut plugin from this repository's marketplace (`.claude-plugin/marketplace.json`,
+  `plugins/magnetcut`) by its own commands, run from a new folder only this user can use: the
+  MCP server over HTTP, the token in `userConfig` (sensitive, so in the keychain), given on
+  standard input to `claude plugin configure`, and a skill on editing with MagnetCut. Codex gets
+  `magnetcut --mcp`, which starts the app when it isn't running, with the address and token in
+  its environment; OpenCode gets the server by HTTP with the token in a header. Those two have
+  their settings edited, not their commands run (`codex mcp add`, `opencode mcp add`), which
+  would take the token as an argument, which other users of the computer can see while it runs
+  (`ps`), and OpenCode's would write to a project's settings in the folder it runs in:
+  `config.toml` with `toml_edit` as `codex mcp add` writes it, OpenCode's `opencode.json` (or
+  its `.jsonc`) with `jsonc-parser`, the user's comments kept either way. A file is written
+  whole, then moved into place; through a link, the file it points at; and once it holds a
+  token, only its owner may read it. CODEX_HOME, XDG_CONFIG_HOME and CLAUDE_CONFIG_DIR are taken
+  from the login shell too. Disconnect takes it out the same ways (a file it can't read is left
+  alone, with a message saying what to take out by hand), and the token goes whatever happens.
+  Connect again replaces the token. Not in the App Store edition, whose sandbox
   runs no other program: there Other agents gives the lines to paste, OpenCode's now too. The
   plugin installs from GitHub, so it works once this is on `main`; until then
   MAGNETCUT_PLUGIN_MARKETPLACE names a checkout. Tried by hand on a Mac with Claude Code 2.1.329,
   Codex 0.170 and OpenCode 1.19.5, each pointed at a folder of its own (`try_clients` in
   `clients.rs`, ignored by default): all three connected, Claude Code's and OpenCode's servers
   reported connected to the app (its test token), the relay Codex starts listed the eleven
-  tools, and Disconnect left none of them with MagnetCut. `claude plugin validate . --strict`
+  tools, and Disconnect left none of them with MagnetCut, Codex's file as it was before. Run
+  again after the settings were edited instead: commented settings any user could read came
+  back only their owner's with the comments kept, and no process's arguments, read every 50 ms
+  while they connected, held the token. `claude plugin validate . --strict`
   passes for the marketplace and the plugin. Settings is now a page at a time (General, Agents,
   Voices, Privacy), and Agents says what it's for and what to do even while it's off.
 
