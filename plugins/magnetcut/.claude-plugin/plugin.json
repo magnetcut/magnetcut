@@ -1,0 +1,29 @@
+{
+	"name": "magnetcut",
+	"version": "0.1.0",
+	"description": "Edit and export videos in the MagnetCut app open on this computer: read the timeline, cut, trim, add titles and transitions, look at frames, listen, and export, over MCP.",
+	"author": {
+		"name": "MagnetCut",
+		"url": "https://github.com/magnetcut"
+	},
+	"homepage": "https://github.com/magnetcut/magnetcut",
+	"repository": "https://github.com/magnetcut/magnetcut",
+	"license": "AGPL-3.0-only",
+	"privacyPolicyUrl": "https://github.com/magnetcut/magnetcut#privacy",
+	"keywords": ["video", "editor", "mcp"],
+	"userConfig": {
+		"magnetcut_token": {
+			"type": "string",
+			"title": "MagnetCut token",
+			"description": "This agent's token, from MagnetCut's Settings, Agents (Connect fills it in).",
+			"sensitive": true,
+			"required": true
+		},
+		"magnetcut_url": {
+			"type": "string",
+			"title": "MagnetCut address",
+			"description": "Where MagnetCut serves MCP, as its Settings, Agents says.",
+			"default": "http://127.0.0.1:47213/mcp"
+		}
+	}
+}

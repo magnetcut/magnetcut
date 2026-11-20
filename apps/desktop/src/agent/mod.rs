@@ -7,6 +7,7 @@
 // end it.
 
 pub mod cli;
+pub mod clients;
 mod http;
 mod mcp;
 mod scope;
@@ -236,6 +237,16 @@ impl Shared {
         );
     }
 
+    /// The agents MagnetCut added itself to `client` as, those `keep` says.
+    fn ids_for(&self, client: clients::Client, keep: impl Fn(&str) -> bool) -> Vec<String> {
+        lock(&self.store)
+            .agents
+            .iter()
+            .filter(|agent| agent.client == Some(client) && keep(&agent.id))
+            .map(|agent| agent.id.clone())
+            .collect()
+    }
+
     /// Takes an agent out at once, its calls too, even if the store can't be
     /// saved.
     fn revoke(&self, id: &str) -> Result<(), String> {
@@ -407,6 +418,7 @@ fn test_store() -> Option<PathBuf> {
             hash: tokens::hash(&token),
             created: tokens::now(),
             last_used: None,
+            client: None,
         }],
         folders: Vec::new(),
     };
@@ -499,6 +511,7 @@ impl Agents {
                     name: agent.name.clone(),
                     created: agent.created,
                     last_used: agent.last_used,
+                    client: agent.client,
                 })
                 .collect(),
         }
@@ -518,6 +531,7 @@ pub struct AgentView {
     name: String,
     created: u64,
     last_used: Option<u64>,
+    client: Option<clients::Client>,
 }
 
 /// What Settings shows.
@@ -562,7 +576,7 @@ pub fn agent_set_enabled(agents: State<'_, Agents>, enabled: bool) -> Result<Set
 pub fn agent_add(agents: State<'_, Agents>, name: String) -> Result<Added, String> {
     let (agent, token) = {
         let mut store = lock(&agents.0.store);
-        let added = store.add(&name)?;
+        let added = store.add(&name, None)?;
         store.save(&agents.0.store_path)?;
         added
     };
@@ -579,6 +593,73 @@ pub fn agent_add(agents: State<'_, Agents>, name: String) -> Result<Added, Strin
 pub fn agent_revoke(agents: State<'_, Agents>, id: String) -> Result<Settings, String> {
     agents.0.revoke(&id)?;
     Ok(agents.settings())
+}
+
+/// Claude Code, Codex and OpenCode, and which are on this computer: looked
+/// for in the login shell's PATH too, which takes a moment.
+#[tauri::command]
+pub async fn agent_clients() -> Vec<clients::ClientView> {
+    tauri::async_runtime::spawn_blocking(clients::detect)
+        .await
+        .unwrap_or_default()
+}
+
+/// Adds MagnetCut to one of them, with a token of its own, in place of the
+/// one it had: the old token goes once the new one is in.
+#[tauri::command]
+pub async fn agent_connect(
+    agents: State<'_, Agents>,
+    client: clients::Client,
+) -> Result<Settings, String> {
+    if !cfg!(feature = "updater") {
+        return Err("In this edition, paste the lines for your agent instead".into());
+    }
+    let url = agents
+        .0
+        .running_port()
+        .map(|port| format!("http://127.0.0.1:{port}/mcp"))
+        .ok_or("Let agents use MagnetCut first")?;
+    let program = std::env::current_exe().map_err(|error| error.to_string())?;
+    let (agent, token) = {
+        let mut store = lock(&agents.0.store);
+        let added = store.add(client.name(), Some(client))?;
+        store.save(&agents.0.store_path)?;
+        added
+    };
+    let connected = tauri::async_runtime::spawn_blocking(move || {
+        clients::connect(client, &url, &token, &program)
+    })
+    .await
+    .map_err(|error| error.to_string())
+    .and_then(|result| result);
+    let replaced = match connected {
+        Ok(()) => agents.0.ids_for(client, |id| id != agent.id),
+        Err(error) => {
+            agents.0.revoke(&agent.id)?;
+            return Err(error);
+        }
+    };
+    for id in replaced {
+        agents.0.revoke(&id)?;
+    }
+    Ok(agents.settings())
+}
+
+/// Takes MagnetCut out of one of them; its token goes whatever happens, so
+/// what's left lets nothing in.
+#[tauri::command]
+pub async fn agent_disconnect(
+    agents: State<'_, Agents>,
+    client: clients::Client,
+) -> Result<Settings, String> {
+    let disconnected = tauri::async_runtime::spawn_blocking(move || clients::disconnect(client))
+        .await
+        .map_err(|error| error.to_string())
+        .and_then(|result| result);
+    for id in agents.0.ids_for(client, |_| true) {
+        agents.0.revoke(&id)?;
+    }
+    disconnected.map(|()| agents.settings())
 }
 
 /// The editor's tools, as MCP lists them: said once the editor is ready.

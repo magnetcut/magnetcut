@@ -31,7 +31,8 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
 - **Served by the app itself.** With the switch on, the running app serves MCP over HTTP
   (MCP's Streamable HTTP) at `http://127.0.0.1:<port>/mcp`, the port picked once and kept, in
   both editions. No second process and no bridge: the agent talks to the window that's open.
-  Settings gives the lines to paste, with the agent's token in them. For Claude Code:
+  Settings' Connect adds MagnetCut to Claude Code, Codex or OpenCode in one click (see Done);
+  for any other agent it gives the lines to paste, with the agent's token in them. For Claude Code:
   ```
   claude mcp add --transport http magnetcut http://127.0.0.1:47213/mcp \
     --header "Authorization: Bearer mc_…"
@@ -280,5 +281,28 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
   in code: revoking, switching off, a call before the editor listens and its page reloading,
   a timed-out call dropped, a fallback port not kept, the exports a page left.
 
-What's left of step 12: Claude Code trying it by hand, and the tokens it took written here; and
-the App Store build tried with an agent.
+- Connect, and the Claude Code plugin. Settings, Agents has a Connect button for Claude Code,
+  Codex and OpenCode (`apps/desktop/src/agent/clients.rs`): MagnetCut finds the agent's program
+  (on the PATH, the login shell's, and where their installers put them), makes it a token of its
+  own (kept in `agents.json` with which agent it's for), and adds itself with the agent's own
+  command line. Claude Code gets the MagnetCut plugin from this repository's marketplace
+  (`.claude-plugin/marketplace.json`, `plugins/magnetcut`): the MCP server over HTTP, the token
+  in `userConfig` (sensitive, so in the keychain), given on standard input to `claude plugin
+  configure`, and a skill on editing with MagnetCut. Codex gets `magnetcut --mcp`, which starts
+  the app when it isn't running, with the address and token in its environment. OpenCode gets
+  the server by HTTP with the token in a header. Disconnect runs their own commands to take it
+  out (OpenCode has none: its `opencode.json` or `.jsonc` is edited with `jsonc-parser`, the
+  user's comments kept, and left alone with a message if it can't be read), and the token goes
+  whatever happens. Connect again replaces the token. Not in the App Store edition, whose sandbox
+  runs no other program: there Other agents gives the lines to paste, OpenCode's now too. The
+  plugin installs from GitHub, so it works once this is on `main`; until then
+  MAGNETCUT_PLUGIN_MARKETPLACE names a checkout. Tried by hand on a Mac with Claude Code 2.1.329,
+  Codex 0.170 and OpenCode 1.19.5, each pointed at a folder of its own (`try_clients` in
+  `clients.rs`, ignored by default): all three connected, Claude Code's and OpenCode's servers
+  reported connected to the app (its test token), the relay Codex starts listed the eleven
+  tools, and Disconnect left none of them with MagnetCut. `claude plugin validate . --strict`
+  passes for the marketplace and the plugin. Settings is now a page at a time (General, Agents,
+  Voices, Privacy), and Agents says what it's for and what to do even while it's off.
+
+What's left of step 12: Claude Code trying it by hand, and the tokens it took written here; the
+App Store build tried with an agent; and Connect tried on Windows and Linux.

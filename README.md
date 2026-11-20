@@ -23,6 +23,9 @@ open source: no account, no ads. Crash reporting is optional and off by default.
   picture or embedded as a track on export.
 - Captions from speech, transcribed on your computer (Whisper).
 - Media is read where it is on your disk, not copied, so a file of any size goes in.
+- Agents can edit for you: Claude Code, Codex, OpenCode or any MCP client reads the timeline,
+  cuts, trims, adds titles and transitions, looks at frames, listens and exports, in the window
+  you have open, where you watch every change and can stop it. See [Agents](#agents).
 
 Planned:
 
@@ -40,6 +43,28 @@ safe-area guides.
 The desktop app also checks once a day whether there's a new version, by downloading a small file
 from GitHub; Settings turns that off. An update installs only when you say so, and only if it's
 signed with MagnetCut's key.
+
+Agents (off until you switch them on) reach MagnetCut on this computer only, each with its own
+token; what they send to their own services is up to them.
+
+## Agents
+
+Settings, Agents: switch on Let agents use MagnetCut, then Connect next to Claude Code, Codex or
+OpenCode. MagnetCut adds itself to that agent with a token of its own (for Claude Code, the
+MagnetCut plugin, with a skill on editing with it). Then ask the agent, for example: "open my
+latest MagnetCut project, take out the silences and export it for YouTube". Disconnect takes it
+out again, and its token stops working at once.
+
+The Claude Code plugin by hand:
+
+```
+/plugin install magnetcut --marketplace magnetcut/magnetcut
+```
+
+It asks for the token: in Settings, Agents, add an agent under Other agents, which shows it
+once. Any other MCP client: Other agents gives the lines to paste. MCP is served on 127.0.0.1
+only, never to the network, and only while the switch is on. More in
+[docs/AUTOMATION.md](docs/AUTOMATION.md).
 
 ## Run it from source
 

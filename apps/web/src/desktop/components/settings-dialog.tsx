@@ -1,10 +1,17 @@
+import {
+	Mic01Icon,
+	RoboticIcon,
+	Settings01Icon,
+	Shield01Icon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import { useTheme } from "next-themes";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
-	DialogBody,
 	DialogContent,
-	DialogHeader,
+	DialogDescription,
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -18,6 +25,7 @@ import { AgentsSetting } from "./agents-setting";
 import { CrashReportingSetting } from "./crash-reporting-setting";
 import { GpuAccelerationSetting } from "./gpu-acceleration-setting";
 import { SpeechKeysSetting } from "@/voiceover/components/speech-keys-setting";
+import { cn } from "@/utils/ui";
 
 const THEMES = [
 	{ value: "system", label: "System" },
@@ -25,6 +33,41 @@ const THEMES = [
 	{ value: "dark", label: "Dark" },
 ];
 
+type SettingsPage = "general" | "agents" | "voices" | "privacy";
+
+const PAGES: Array<{
+	id: SettingsPage;
+	label: string;
+	summary: string;
+	icon: IconSvgElement;
+}> = [
+	{
+		id: "general",
+		label: "General",
+		summary: "How MagnetCut looks, and its updates.",
+		icon: Settings01Icon,
+	},
+	{
+		id: "agents",
+		label: "Agents",
+		summary: "Claude Code, Codex or OpenCode editing in this window.",
+		icon: RoboticIcon,
+	},
+	{
+		id: "voices",
+		label: "Voices",
+		summary: "Keys for Speak the subtitles, in Voice-over.",
+		icon: Mic01Icon,
+	},
+	{
+		id: "privacy",
+		label: "Privacy",
+		summary: "What MagnetCut may send, and to whom.",
+		icon: Shield01Icon,
+	},
+];
+
+/** Settings, a page at a time: the list of pages down the side. */
 export function SettingsDialog({
 	isOpen,
 	onOpenChange,
@@ -32,25 +75,71 @@ export function SettingsDialog({
 	isOpen: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
-	const info = useAppInfo();
+	const [page, setPage] = useState<SettingsPage>("general");
+	const current = PAGES.find(({ id }) => id === page) ?? PAGES[0];
 
 	return (
 		<Dialog open={isOpen} onOpenChange={onOpenChange}>
-			<DialogContent onOpenAutoFocus={(event) => event.preventDefault()}>
-				<DialogHeader>
-					<DialogTitle>Settings</DialogTitle>
-				</DialogHeader>
-				<DialogBody className="max-h-[70vh] gap-6 overflow-y-auto">
-					<AppearanceSetting />
-					<GpuAccelerationSetting />
-					<CrashReportingSetting />
-					{info?.updates && <UpdatesSetting />}
-					<AgentsSetting />
-					<SpeechKeysSetting />
-				</DialogBody>
+			<DialogContent
+				className="flex h-[min(38rem,85vh)] max-w-3xl gap-0 overflow-hidden p-0"
+				onOpenAutoFocus={(event) => event.preventDefault()}
+			>
+				<nav className="bg-muted/30 flex w-48 shrink-0 flex-col gap-0.5 border-r p-3">
+					<DialogTitle className="px-2 pt-3 pb-4 text-base">
+						Settings
+					</DialogTitle>
+					{PAGES.map(({ id, label, icon }) => (
+						<button
+							key={id}
+							type="button"
+							aria-current={id === page ? "page" : undefined}
+							onClick={() => setPage(id)}
+							className={cn(
+								"flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+								id === page
+									? "bg-accent text-foreground font-medium"
+									: "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+							)}
+						>
+							<HugeiconsIcon icon={icon} className="size-4" />
+							{label}
+						</button>
+					))}
+				</nav>
+				<div className="flex min-w-0 flex-1 flex-col">
+					<header className="border-b px-6 py-5 pr-14">
+						<h2 className="text-base font-semibold">{current.label}</h2>
+						<DialogDescription className="text-xs">
+							{current.summary}
+						</DialogDescription>
+					</header>
+					<div className="flex flex-1 flex-col gap-6 overflow-y-auto px-6 py-5 [&>section+section]:border-t [&>section+section]:pt-6">
+						<SettingsPageContent page={page} />
+					</div>
+				</div>
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+function SettingsPageContent({ page }: { page: SettingsPage }) {
+	const info = useAppInfo();
+	switch (page) {
+		case "general":
+			return (
+				<>
+					<AppearanceSetting />
+					{info?.updates && <UpdatesSetting />}
+					<GpuAccelerationSetting />
+				</>
+			);
+		case "agents":
+			return <AgentsSetting />;
+		case "voices":
+			return <SpeechKeysSetting />;
+		case "privacy":
+			return <CrashReportingSetting />;
+	}
 }
 
 function AppearanceSetting() {

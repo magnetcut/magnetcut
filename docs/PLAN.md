@@ -112,8 +112,9 @@ Not for iOS or Android.
   `soundtouchjs` (LGPL-2.1) is gone: pitch-preserving speed changes use a Rust time-stretch
   (`rust/crates/audio`, WSOLA).
 - **Agents steer it through MCP** (docs/AUTOMATION.md). The open app serves MCP on
-  127.0.0.1, each agent with its own token, added and revoked in Settings; the editor's
-  TypeScript does the work. Off until switched on. Any file the agent names, outside the App
+  127.0.0.1, each agent with its own token, added and revoked in Settings; Connect adds
+  MagnetCut to Claude Code (a plugin, from this repository's marketplace), Codex or OpenCode in
+  one click, outside the App Store edition. The editor's TypeScript does the work. Off until switched on. Any file the agent names, outside the App
   Store's sandbox; projects as `.magnetcut` files; every batch of edits one step of undo.
 - **Name and marks.** OpenCut's guidelines forbid its name or logo on another product, so every
   "OpenCut" goes, logos included, except credits ("Based on OpenCut") and the licence notice.

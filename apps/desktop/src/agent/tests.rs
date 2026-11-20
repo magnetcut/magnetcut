@@ -56,7 +56,7 @@ fn agents_on(port: u16) -> (Agents, Editor) {
 fn serving() -> (Agents, String, u16, Editor) {
     // A port of the test's own: the default may be the app's.
     let (agents, editor) = agents_on(free_port());
-    let token = lock(&agents.0.store).add("Test agent").unwrap().1;
+    let token = lock(&agents.0.store).add("Test agent", None).unwrap().1;
     let port = agents.0.start().unwrap();
     *lock(&agents.0.tools) = Some(json!([]));
     agents.0.tools_ready.notify_all();

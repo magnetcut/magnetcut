@@ -10,6 +10,8 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use super::clients::Client;
+
 /// An agent allowed in: its name, and its token's hash.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +22,9 @@ pub struct Agent {
     /// Seconds since 1970.
     pub created: u64,
     pub last_used: Option<u64>,
+    /// The agent MagnetCut added itself to (Settings, Connect), if it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client: Option<Client>,
 }
 
 /// What's kept between launches.
@@ -93,8 +98,9 @@ impl Store {
         std::fs::rename(&partial, path).map_err(|error| error.to_string())
     }
 
-    /// Adds an agent: its token, which isn't kept.
-    pub fn add(&mut self, name: &str) -> Result<(Agent, String), String> {
+    /// Adds an agent: its token, which isn't kept. `client`: one MagnetCut
+    /// adds itself to.
+    pub fn add(&mut self, name: &str, client: Option<Client>) -> Result<(Agent, String), String> {
         let name = name.trim();
         if name.is_empty() {
             return Err("An agent needs a name".into());
@@ -106,6 +112,7 @@ impl Store {
             hash: hash(&token),
             created: now(),
             last_used: None,
+            client,
         };
         self.agents.push(agent.clone());
         Ok((agent, token))
@@ -154,7 +161,7 @@ mod tests {
     #[test]
     fn keeps_only_a_hash_and_finds_the_agent_by_its_token() {
         let mut store = Store::default();
-        let (agent, token) = store.add("Claude Code").unwrap();
+        let (agent, token) = store.add("Claude Code", None).unwrap();
         assert!(token.starts_with("mc_") && token.len() > 40, "{token}");
         assert_eq!(agent.hash, hash(&token));
         assert_ne!(agent.hash, token);
@@ -173,7 +180,7 @@ mod tests {
             port: 47213,
             ..Store::default()
         };
-        store.add("Codex").unwrap();
+        store.add("Codex", None).unwrap();
         store.save(&path).unwrap();
         assert_eq!(Store::load(&path), store);
         let text = std::fs::read_to_string(&path).unwrap();
@@ -183,6 +190,6 @@ mod tests {
 
     #[test]
     fn needs_a_name() {
-        assert!(Store::default().add("  ").is_err());
+        assert!(Store::default().add("  ", None).is_err());
     }
 }

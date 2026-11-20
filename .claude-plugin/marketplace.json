@@ -1,0 +1,12 @@
+{
+	"name": "magnetcut",
+	"owner": { "name": "MagnetCut" },
+	"description": "MagnetCut, the video editor that keeps everything on your computer, for Claude Code.",
+	"plugins": [
+		{
+			"name": "magnetcut",
+			"source": "./plugins/magnetcut",
+			"description": "Edit and export videos in the MagnetCut app open on this computer."
+		}
+	]
+}

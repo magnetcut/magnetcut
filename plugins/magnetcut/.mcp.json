@@ -1,0 +1,11 @@
+{
+	"mcpServers": {
+		"magnetcut": {
+			"type": "http",
+			"url": "${user_config.magnetcut_url}",
+			"headers": {
+				"Authorization": "Bearer ${user_config.magnetcut_token}"
+			}
+		}
+	}
+}
