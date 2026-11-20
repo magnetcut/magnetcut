@@ -77,6 +77,13 @@ Not for iOS or Android.
   and not for WMV, every default stayed (VLC's, QuickTime Player's, Chrome's), a film opened
   with it closed became a project named after it, and one opened while it ran joined that
   project's media.
+- **Project files open with a double click.** `.magnetcut` is MagnetCut's own: on macOS a type
+  it declares (`it.salamacchine.magnetcut.project`, a kind of JSON) and owns, on Windows the
+  installer's association (here being the default is right), on Linux the MIME type
+  `application/x-magnetcut-project` from a shared-mime-info file the .deb and .rpm install
+  (`apps/desktop/linux/magnetcut.xml`). One opened with MagnetCut opens as File, Open Project…
+  opens it, a project of its own with its media found where they are, through the same code
+  (`openProjectText`); opened twice, it's two projects, as Open Project… makes them.
 - **Subtitles, like Jubler, synced as easily as in YouTube's editor.** A subtitle track on the
   timeline over the waveform, and beside it the list (start, end, duration, reading speed,
   text), editable in place. Open and save SRT, WebVTT, ASS/SSA, SubViewer, MicroDVD, with the

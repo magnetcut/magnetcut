@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MagnetCut's project files (.magnetcut), so that a file manager knows them
+     and opens them with MagnetCut (tauri.linux.conf.json). Installed by the
+     .deb and .rpm, whose shared-mime-info triggers update the database. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-magnetcut-project">
+    <comment>MagnetCut project</comment>
+    <sub-class-of type="application/json"/>
+    <glob pattern="*.magnetcut"/>
+  </mime-type>
+</mime-info>

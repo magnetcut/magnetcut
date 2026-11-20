@@ -96,8 +96,9 @@ function useNativeMenu() {
 }
 
 /**
- * Videos opened with MagnetCut (../opened-files.ts): those it started with,
- * then each lot as the desktop app says they've come, one lot at a time.
+ * Videos and projects opened with MagnetCut (../opened-files.ts): those it
+ * started with, then each lot as the desktop app says they've come, one lot at
+ * a time.
  */
 function useOpenedFiles() {
 	const router = useRouter();

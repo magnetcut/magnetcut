@@ -1,7 +1,21 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
+    "linux": {
+      "deb": {
+        "files": { "/usr/share/mime/packages/magnetcut.xml": "linux/magnetcut.xml" }
+      },
+      "rpm": {
+        "files": { "/usr/share/mime/packages/magnetcut.xml": "linux/magnetcut.xml" }
+      }
+    },
     "fileAssociations": [
+      {
+        "ext": ["magnetcut"],
+        "mimeType": "application/x-magnetcut-project",
+        "name": "MagnetCut project",
+        "role": "Editor"
+      },
       {
         "ext": ["mp4"],
         "mimeType": "video/mp4",

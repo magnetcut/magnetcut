@@ -8,7 +8,8 @@ import { importProjectFile } from "@/project/open-file";
 
 // File, Open Project… and Save Project As… (docs/AUTOMATION.md): a project as
 // a .magnetcut file, its media by where they are, through the system's
-// dialogs (apps/desktop/src/project_file.rs).
+// dialogs (apps/desktop/src/project_file.rs). A project file opened with
+// MagnetCut (./opened-files.ts) opens as Open Project… opens it.
 
 /** Asks for a project file and opens it as a project of its own. */
 export async function openProjectFromDisk({
@@ -16,16 +17,35 @@ export async function openProjectFromDisk({
 }: {
 	navigate: (url: string) => void;
 }): Promise<void> {
+	let picked: { path: string; text: string } | null;
 	try {
-		const picked = await invoke<{ path: string; text: string } | null>(
+		picked = await invoke<{ path: string; text: string } | null>(
 			"pick_project_file",
 		);
-		if (!picked) return;
+	} catch (error) {
+		toast.error("Couldn't open the project", {
+			description: error instanceof Error ? error.message : String(error),
+		});
+		return;
+	}
+	if (picked) await openProjectText({ text: picked.text, navigate });
+}
+
+/** A project file's text opened as a project of its own, its media opened
+ * for the editor already (by apps/desktop/src/project_file.rs). */
+export async function openProjectText({
+	text,
+	navigate,
+}: {
+	text: string;
+	navigate: (url: string) => void;
+}): Promise<void> {
+	try {
 		// The open project is saved before another replaces it: if it can't
 		// be, it stays open.
 		await EditorCore.getInstance().save.flush();
 		const { id, missing } = await importProjectFile({
-			text: picked.text,
+			text,
 			openMedium: async ({ path }) => {
 				const file = await openDiskFile({ path });
 				if (!file) throw new Error("it isn't there");

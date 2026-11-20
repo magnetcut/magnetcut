@@ -3,6 +3,17 @@
   "bundle": {
     "fileAssociations": [
       {
+        "ext": ["magnetcut"],
+        "name": "MagnetCut project",
+        "description": "MagnetCut project",
+        "role": "Editor",
+        "rank": "Owner",
+        "exportedType": {
+          "identifier": "it.salamacchine.magnetcut.project",
+          "conformsTo": ["public.json"]
+        }
+      },
+      {
         "ext": ["mp4"],
         "contentTypes": ["public.mpeg-4"],
         "name": "MPEG-4 movie",

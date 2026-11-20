@@ -1,9 +1,10 @@
 // Projects as files (.magnetcut, docs/AUTOMATION.md), for the user: Open
-// Project… and Save Project As…, through the system's dialogs. The editor gets
-// the file picked and the media in it opened for it, never a path of its own
+// Project… and Save Project As…, through the system's dialogs, and a project
+// file opened with MagnetCut (src/opened.rs). The editor gets the file picked
+// or opened and the media in it opened for it, never a path of its own
 // choosing (as src/media.rs).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
@@ -15,11 +16,26 @@ use crate::media::MediaFiles;
 
 const EXTENSION: &str = "magnetcut";
 
-/// A project file picked: where it is, and what's in it.
+/// A project file picked or opened: where it is, and what's in it.
 #[derive(Serialize)]
 pub struct Picked {
     path: String,
     text: String,
+}
+
+/// Whether a file is a project file, by its extension in any case.
+pub fn is_project_file(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case(EXTENSION))
+}
+
+/// A project file's text, its media opened for the editor.
+pub fn read_project(path: &Path, media: &MediaFiles) -> Result<Picked, String> {
+    let text =
+        std::fs::read_to_string(path).map_err(|error| format!("Couldn't read it: {error}"))?;
+    media.grant(media_paths(&text).into_iter().map(PathBuf::from).collect());
+    let path = path.to_str().map(str::to_owned).ok_or("not a UTF-8 path")?;
+    Ok(Picked { path, text })
 }
 
 /// The open dialog, for a project file: its text, its media opened for the
@@ -42,11 +58,7 @@ pub async fn pick_project_file(
     let Some(path) = picked.and_then(|file| file.into_path().ok()) else {
         return Ok(None);
     };
-    let text =
-        std::fs::read_to_string(&path).map_err(|error| format!("Couldn't read it: {error}"))?;
-    media.grant(media_paths(&text).into_iter().map(PathBuf::from).collect());
-    let path = path.to_str().map(str::to_owned).ok_or("not a UTF-8 path")?;
-    Ok(Some(Picked { path, text }))
+    read_project(&path, &media).map(Some)
 }
 
 /// The save dialog, for a project file, then the file written: where.

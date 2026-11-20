@@ -30,6 +30,14 @@
     "targets": "all",
     "category": "Video",
     "shortDescription": "A video editor that keeps everything on your computer",
+    "fileAssociations": [
+      {
+        "ext": ["magnetcut"],
+        "name": "MagnetCut project",
+        "description": "MagnetCut project",
+        "role": "Editor"
+      }
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

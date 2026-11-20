@@ -6,6 +6,7 @@ import { openOpenedFiles, projectNameFor } from "../opened-files";
 
 // What the desktop app would answer: the files opened with it, once.
 let opened: DiskFileInfo[] = [];
+let projects: Array<{ path: string; text: string }> = [];
 const globals = globalThis as Record<string, unknown>;
 beforeAll(() => {
 	globals.window ??= globalThis;
@@ -16,8 +17,9 @@ beforeAll(() => {
 				if (command !== "take_opened_files") {
 					throw new Error(`unexpected command ${command}`);
 				}
-				const taken = opened;
+				const taken = { media: opened, projects, unreadable: [] };
 				opened = [];
+				projects = [];
 				return taken;
 			}),
 	};
@@ -111,6 +113,29 @@ describe("files opened with MagnetCut", () => {
 
 		expect(made).toEqual(["Trip"]);
 		expect(imported[0]?.project).toBe("new");
+	});
+
+	test("a project file opens as a project of its own, after the media", async () => {
+		globals.location = { pathname: "/editor" };
+		opened = [trip];
+		projects = [{ path: "/Movies/Cut.magnetcut", text: "{ cut }" }];
+		const { editor, imported, importFiles } = makeEditor({ open: "a" });
+		const order: string[] = [];
+
+		await openOpenedFiles({
+			navigate: () => {},
+			editor,
+			importFiles: async (args) => {
+				order.push("media");
+				await importFiles(args);
+			},
+			openProject: async ({ text }) => {
+				order.push(`project ${text}`);
+			},
+		});
+
+		expect(imported[0]?.project).toBe("a");
+		expect(order).toEqual(["media", "project { cut }"]);
 	});
 
 	test("none: nothing happens", async () => {
