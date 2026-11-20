@@ -58,32 +58,14 @@ impl Av1Encoder {
             .start_handler(move |_| priority::set_this_thread(priority))
             .build()
             .map_err(|error| format!("Couldn't start the AV1 encoder: {error}"))?;
-        let rate = f64::from(fps.numerator) / f64::from(fps.denominator);
-        let config = EncoderConfig {
-            width,
-            height,
-            time_base: Rational::new(u64::from(fps.denominator), u64::from(fps.numerator)),
-            bit_depth: 8,
-            chroma_sampling: ChromaSampling::Cs420,
-            pixel_range: PixelRange::Limited,
-            color_description: Some(ColorDescription {
-                color_primaries: ColorPrimaries::BT709,
-                transfer_characteristics: TransferCharacteristics::BT709,
-                matrix_coefficients: MatrixCoefficients::BT709,
-            }),
-            max_key_frame_interval: (key_frame_interval * rate).round().max(1.0) as u64,
-            // A quantizer of 0 is lossless, 255 the coarsest.
-            quantizer: quality.map_or(100, |quality| {
-                (255.0 * (1.0 - quality.clamp(0.0, 1.0))).round().max(1.0) as usize
-            }),
-            bitrate: if quality.is_some() { 0 } else { bitrate as i32 },
-            speed_settings: SpeedSettings::from_preset(SPEED),
-            // Tiles are encoded side by side, one for each core; and without
-            // looking ahead: three and then half again as fast, on an M4.
-            tiles: cores,
-            low_latency: true,
-            ..Default::default()
-        };
+        let config = encoder_config(
+            (width, height),
+            fps,
+            bitrate,
+            quality,
+            key_frame_interval,
+            cores,
+        );
         let context = Config::new()
             .with_encoder_config(config)
             .new_context()
@@ -181,6 +163,48 @@ impl Av1Encoder {
             mark_not_sync(&sample);
         }
         Ok(sample)
+    }
+}
+
+/// rav1e's settings: at `bitrate` bits a second, or at a constant `quality`
+/// from 0 to 1; a key frame at least each `key_frame_interval` seconds; a tile
+/// for each of `cores`.
+fn encoder_config(
+    (width, height): (usize, usize),
+    fps: FrameRate,
+    bitrate: u32,
+    quality: Option<f32>,
+    key_frame_interval: f64,
+    cores: usize,
+) -> EncoderConfig {
+    let rate = f64::from(fps.numerator) / f64::from(fps.denominator);
+    EncoderConfig {
+        width,
+        height,
+        time_base: Rational::new(u64::from(fps.denominator), u64::from(fps.numerator)),
+        bit_depth: 8,
+        chroma_sampling: ChromaSampling::Cs420,
+        pixel_range: PixelRange::Limited,
+        color_description: Some(ColorDescription {
+            color_primaries: ColorPrimaries::BT709,
+            transfer_characteristics: TransferCharacteristics::BT709,
+            matrix_coefficients: MatrixCoefficients::BT709,
+        }),
+        max_key_frame_interval: (key_frame_interval * rate).round().max(1.0) as u64,
+        // A quantizer of 0 is lossless, 255 the coarsest. At a bitrate rav1e
+        // takes it as the coarsest it may go: any lower, and a detailed
+        // picture comes out at several times the bitrate (4K at 44 Mbit/s for
+        // 9), as it can't be compressed enough.
+        quantizer: quality.map_or(255, |quality| {
+            (255.0 * (1.0 - quality.clamp(0.0, 1.0))).round().max(1.0) as usize
+        }),
+        bitrate: if quality.is_some() { 0 } else { bitrate as i32 },
+        speed_settings: SpeedSettings::from_preset(SPEED),
+        // Tiles are encoded side by side, one for each core; and without
+        // looking ahead: three and then half again as fast, on an M4.
+        tiles: cores,
+        low_latency: true,
+        ..Default::default()
     }
 }
 
@@ -283,6 +307,60 @@ mod tests {
         assert_eq!(luma, [235, 16, 63, 126]);
         // The average of the four, in the chroma: red pushes Cr up, Cb down.
         assert!(red[0] > 128 && blue[0] < 128, "{blue:?} {red:?}");
+    }
+
+    /// At a bitrate, the file is about that size, however detailed the
+    /// picture: grain everywhere, which a quantizer capped at rav1e's default
+    /// made at four times the bitrate.
+    #[test]
+    fn keeps_to_its_bitrate_however_detailed_the_picture() {
+        use rav1e::prelude::*;
+
+        let (width, height, frames) = (128, 128, 60);
+        let fps = super::super::settings::FrameRate {
+            numerator: 30,
+            denominator: 1,
+        };
+        let bitrate = 300_000;
+        let config = super::encoder_config((width, height), fps, bitrate, None, 2.0, 4);
+        let mut context: Context<u8> = Config::new()
+            .with_encoder_config(config)
+            .new_context()
+            .unwrap();
+        let mut seed = 1u32;
+        let mut noise = |len: usize| -> Vec<u8> {
+            (0..len)
+                .map(|_| {
+                    seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    // Grain around mid grey, as fine as a picture's.
+                    112 + (seed >> 27) as u8
+                })
+                .collect()
+        };
+        let mut bytes = 0;
+        for _ in 0..frames {
+            let mut frame = context.new_frame();
+            frame.planes[0].copy_from_raw_u8(&noise(width * height), width, 1);
+            frame.planes[1].copy_from_raw_u8(&noise(width * height / 4), width / 2, 1);
+            frame.planes[2].copy_from_raw_u8(&noise(width * height / 4), width / 2, 1);
+            context.send_frame(frame).unwrap();
+            while let Ok(packet) = context.receive_packet() {
+                bytes += packet.data.len();
+            }
+        }
+        context.flush();
+        loop {
+            match context.receive_packet() {
+                Ok(packet) => bytes += packet.data.len(),
+                Err(EncoderStatus::Encoded) => continue,
+                Err(_) => break,
+            }
+        }
+        let made = bytes as f64 * 8.0 / (frames as f64 / 30.0);
+        assert!(
+            made < f64::from(bitrate) * 1.5,
+            "{made:.0} bit/s for {bitrate}"
+        );
     }
 
     /// The encoder's threads take the priority asked for as they start, and
