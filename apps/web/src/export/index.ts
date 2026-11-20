@@ -57,6 +57,8 @@ export interface ExportState {
 	isExporting: boolean;
 	progress: number;
 	result: ExportResult | null;
+	/** When the export being made started, by Date.now(). */
+	startedAt?: number;
 }
 
 export function getExportMimeType({

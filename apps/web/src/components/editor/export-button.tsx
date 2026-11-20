@@ -54,6 +54,11 @@ import {
 	type QualityMode,
 } from "@/export/choices";
 import { useExportChoicesStore } from "@/export/choices-store";
+import {
+	estimateSecondsLeft,
+	formatDuration,
+	formatExportPercent,
+} from "@/export/progress";
 import { openAudioPassthrough } from "@/export/passthrough";
 import {
 	getRevealLabel,
@@ -242,6 +247,33 @@ function ExportPriorityField() {
 				{EXPORT_PRIORITY_DESCRIPTIONS[priority]}
 			</p>
 		</div>
+	);
+}
+
+/** How long the export has taken, and has left at its pace: each second. */
+function ExportTiming({
+	progress,
+	startedAt,
+}: {
+	progress: number;
+	startedAt?: number;
+}) {
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		const timer = setInterval(() => setNow(Date.now()), 1000);
+		return () => clearInterval(timer);
+	}, []);
+	if (startedAt === undefined) return null;
+	const elapsedSeconds = (now - startedAt) / 1000;
+	const left = estimateSecondsLeft({ progress, elapsedSeconds });
+	return (
+		<p className="text-muted-foreground text-xs">
+			{`${formatDuration({ seconds: elapsedSeconds })} so far · ${
+				left === null
+					? "working out the time left"
+					: `about ${formatDuration({ seconds: left })} left`
+			}`}
+		</p>
 	);
 }
 
@@ -1460,11 +1492,15 @@ function ExportPopover({
 								<div className="flex flex-col gap-2">
 									<div className="flex items-center justify-between text-center">
 										<p className="text-muted-foreground text-sm">
-											{Math.round(progress * 100)}%
+											{formatExportPercent({ progress })}
 										</p>
 										<p className="text-muted-foreground text-sm">100%</p>
 									</div>
 									<Progress value={progress * 100} className="w-full" />
+									<ExportTiming
+										progress={progress}
+										startedAt={exportState.startedAt}
+									/>
 								</div>
 
 								{native?.priority && isNativeRunning && <ExportPriorityField />}

@@ -245,7 +245,12 @@ export class ProjectManager {
 
 	async export({ options }: { options: ExportOptions }): Promise<ExportResult> {
 		this.exportCancelRequested = false;
-		this.exportState = { isExporting: true, progress: 0, result: null };
+		this.exportState = {
+			isExporting: true,
+			progress: 0,
+			result: null,
+			startedAt: Date.now(),
+		};
 		this.notify();
 
 		const result = await this.editor.renderer.exportProject({
