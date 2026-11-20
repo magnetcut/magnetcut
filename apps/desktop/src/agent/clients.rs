@@ -38,6 +38,7 @@ const SERVER: &str = "magnetcut";
 /// How long one of Claude Code's commands may take: it clones the marketplace.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 /// How long the login shell may take to say its environment.
+#[cfg(unix)]
 const SHELL_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long a command's output may go on after it ends: a program it started
 /// may hold the pipe.
