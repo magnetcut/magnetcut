@@ -7,6 +7,7 @@ mod activity;
 mod agent;
 mod diagnostics;
 mod dialog;
+mod dropped;
 mod export;
 mod graphics;
 mod media;
@@ -294,6 +295,10 @@ fn main() {
         }
         // Before the first page loads: the window exists, and with_webview
         // runs at once on the main thread, which serves the page.
+        #[cfg(target_os = "macos")]
+        if let Some(window) = app.get_webview_window("main") {
+            window.with_webview(|webview| dropped::watch(webview.inner()))?;
+        }
         #[cfg(target_os = "linux")]
         if let Some(window) = app.get_webview_window("main") {
             let probing = std::env::var_os(PROBE_ENV).is_some();

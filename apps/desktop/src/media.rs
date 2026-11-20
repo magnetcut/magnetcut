@@ -64,9 +64,6 @@ struct Entry {
 pub struct MediaFiles {
     saved: PathBuf,
     entries: Mutex<HashMap<String, Entry>>,
-    /// The drag whose files were last handed over (the drag pasteboard's
-    /// change count): each drag's, once.
-    last_drop: Mutex<Option<isize>>,
 }
 
 impl MediaFiles {
@@ -100,7 +97,6 @@ impl MediaFiles {
         Self {
             saved,
             entries: Mutex::new(entries),
-            last_drop: Mutex::new(None),
         }
     }
 
@@ -195,20 +191,11 @@ pub async fn pick_media_files(
 }
 
 /// The files of the drop the page has just received, which it only sees as
-/// `File`s: their paths are on the drag pasteboard. Each drag's once, since the
-/// pasteboard keeps the last drag made anywhere. None off macOS.
+/// `File`s (dropped.rs notes them as the drop arrives): each drop's, once.
+/// None off macOS.
 #[tauri::command]
 pub fn dropped_media_files(media: State<'_, MediaFiles>) -> Vec<DiskFileInfo> {
-    let Some((drag, paths)) = drag_paths() else {
-        return Vec::new();
-    };
-    let mut last_drop = media.last_drop.lock().unwrap_or_else(|e| e.into_inner());
-    if *last_drop == Some(drag) {
-        return Vec::new();
-    }
-    *last_drop = Some(drag);
-    drop(last_drop);
-    media.grant(paths)
+    media.grant(crate::dropped::take())
 }
 
 /// A file the editor was given before, as it is now; none if it's gone.
@@ -248,32 +235,6 @@ pub fn reveal_media_file(media: State<'_, MediaFiles>, path: String) -> Result<(
         .location(&path)
         .ok_or("not a file MagnetCut was given")?;
     tauri_plugin_opener::reveal_item_in_dir(&location).map_err(|error| error.to_string())
-}
-
-/// The files on the drag pasteboard, and which drag put them there.
-#[cfg(target_os = "macos")]
-fn drag_paths() -> Option<(isize, Vec<PathBuf>)> {
-    use objc2::ClassType;
-    use objc2_app_kit::{NSPasteboard, NSPasteboardNameDrag};
-    use objc2_foundation::{NSArray, NSURL};
-
-    let pasteboard = NSPasteboard::pasteboardWithName(unsafe { NSPasteboardNameDrag });
-    let classes = NSArray::from_slice(&[NSURL::class()]);
-    let items = unsafe { pasteboard.readObjectsForClasses_options(&classes, None) }?;
-    let paths = items
-        .iter()
-        .filter_map(|item| {
-            let url = item.downcast_ref::<NSURL>()?;
-            // A file reference URL (file:///.file/id=...) as a path.
-            Some(PathBuf::from(url.filePathURL()?.path()?.to_string()))
-        })
-        .collect();
-    Some((pasteboard.changeCount(), paths))
-}
-
-#[cfg(not(target_os = "macos"))]
-fn drag_paths() -> Option<(isize, Vec<PathBuf>)> {
-    None
 }
 
 #[cfg(target_os = "macos")]
