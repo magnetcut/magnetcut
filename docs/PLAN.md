@@ -63,6 +63,20 @@ Not for iOS or Android.
   view's own). Not included: DVD and Blu-ray
   ripping (breaking CSS/AACS is unlawful in the EU and US, and the App Store refuses it), and
   input codecs the system can't decode (MPEG-2, WMV and DivX vary by OS).
+- **Open With.** MagnetCut is among the apps a video opens with: MP4, M4V, MOV, MKV, WebM,
+  AVI, AVCHD and 3GP (`bundle.fileAssociations`). On macOS (`tauri.macos.conf.json`) by the
+  system's type for each, as a viewer ranked Alternate, and with no MIME type, from which
+  Tauri would add `public.movie`, every film, those MagnetCut can't read too. On Linux
+  (`tauri.linux.conf.json`) by MIME type, in its .desktop file. Not on Windows yet: Tauri's
+  installer would make it the default where no app was chosen, where an OpenWithProgids entry
+  is what's wanted. A video opened with it goes into the open project's media; with none open,
+  as when MagnetCut starts with it, it becomes a new project of its own, named after it
+  (`apps/desktop/src/opened.rs`, `apps/web/src/desktop/opened-files.ts`). On macOS from the
+  open event, elsewhere from the command line, a second copy's included (the single-instance
+  plugin). Tried on a Mac with a bundle of its own identifier: macOS offered it for all eight
+  and not for WMV, every default stayed (VLC's, QuickTime Player's, Chrome's), a film opened
+  with it closed became a project named after it, and one opened while it ran joined that
+  project's media.
 - **Subtitles, like Jubler, synced as easily as in YouTube's editor.** A subtitle track on the
   timeline over the waveform, and beside it the list (start, end, duration, reading speed,
   text), editable in place. Open and save SRT, WebVTT, ASS/SSA, SubViewer, MicroDVD, with the

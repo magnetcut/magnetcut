@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "fileAssociations": [
+      {
+        "ext": ["mp4"],
+        "mimeType": "video/mp4",
+        "name": "MPEG-4 movie",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["m4v"],
+        "mimeType": "video/x-m4v",
+        "name": "MPEG-4 movie",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["mov"],
+        "mimeType": "video/quicktime",
+        "name": "QuickTime movie",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["mkv"],
+        "mimeType": "video/x-matroska",
+        "name": "Matroska video",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["webm"],
+        "mimeType": "video/webm",
+        "name": "WebM video",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["avi"],
+        "mimeType": "video/x-msvideo",
+        "name": "AVI movie",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["mts", "m2ts"],
+        "mimeType": "video/mp2t",
+        "name": "AVCHD video",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["3gp"],
+        "mimeType": "video/3gpp",
+        "name": "3GPP movie",
+        "role": "Viewer"
+      }
+    ]
+  }
+}

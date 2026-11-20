@@ -7,6 +7,7 @@ import { useEffect } from "react";
 import { AgentBridge } from "@/agent/bridge";
 import { useAppDialogsStore } from "../app-dialogs-store";
 import { openProjectFromDisk, saveProjectToDisk } from "../project-files";
+import { openOpenedFiles } from "../opened-files";
 import type { ProbeOptions } from "../probe-checks";
 import { checkForUpdatesIfDue, checkForUpdatesNow } from "../updates";
 import { AboutDialog } from "./about-dialog";
@@ -24,6 +25,7 @@ export function AppDialogs() {
 	const openDialog = useAppDialogsStore((state) => state.openDialog);
 	const setOpenDialog = useAppDialogsStore((state) => state.setOpenDialog);
 	useNativeMenu();
+	useOpenedFiles();
 	useDailyUpdateCheck();
 	useProbeChecks();
 
@@ -87,6 +89,30 @@ function useNativeMenu() {
 			}
 			if (payload === "save-project") void saveProjectToDisk();
 		});
+		return () => {
+			void unlisten.then((stop) => stop());
+		};
+	}, [router]);
+}
+
+/**
+ * Videos opened with MagnetCut (../opened-files.ts): those it started with,
+ * then each lot as the desktop app says they've come, one lot at a time.
+ */
+function useOpenedFiles() {
+	const router = useRouter();
+	useEffect(() => {
+		if (!isTauri()) return;
+		let opening = Promise.resolve();
+		const open = () => {
+			opening = opening
+				.then(() => openOpenedFiles({ navigate: (url) => router.push(url) }))
+				.catch((error: unknown) =>
+					console.error("Couldn't open the files opened with MagnetCut", error),
+				);
+		};
+		open();
+		const unlisten = listen("files-opened", open);
 		return () => {
 			void unlisten.then((stop) => stop());
 		};

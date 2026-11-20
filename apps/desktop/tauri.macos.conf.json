@@ -1,0 +1,63 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "fileAssociations": [
+      {
+        "ext": ["mp4"],
+        "contentTypes": ["public.mpeg-4"],
+        "name": "MPEG-4 movie",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["m4v"],
+        "contentTypes": ["com.apple.m4v-video"],
+        "name": "MPEG-4 movie",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["mov"],
+        "contentTypes": ["com.apple.quicktime-movie"],
+        "name": "QuickTime movie",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["mkv"],
+        "contentTypes": ["org.matroska.mkv"],
+        "name": "Matroska video",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["webm"],
+        "contentTypes": ["org.webmproject.webm"],
+        "name": "WebM video",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["avi"],
+        "contentTypes": ["public.avi"],
+        "name": "AVI movie",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["mts", "m2ts"],
+        "contentTypes": ["public.avchd-mpeg-2-transport-stream"],
+        "name": "AVCHD video",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "ext": ["3gp"],
+        "contentTypes": ["public.3gpp"],
+        "name": "3GPP movie",
+        "role": "Viewer",
+        "rank": "Alternate"
+      }
+    ]
+  }
+}

@@ -11,6 +11,7 @@ mod export;
 mod graphics;
 mod media;
 mod menu;
+mod opened;
 mod project_file;
 mod render;
 mod speech;
@@ -35,6 +36,7 @@ macro_rules! commands {
             media::media_file_info,
             media::read_media_file,
             media::reveal_media_file,
+            opened::take_opened_files,
             export::pick_export_file,
             export::open_export_file,
             export::write_export_file,
@@ -236,14 +238,20 @@ fn main() {
     // for the dev server's build, which runs beside the app installed, nor for
     // the probe or the agent check.
     if !tauri::is_dev() && !probing && !agent::is_test() {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _| {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             come_forward(app, &args);
+            // Videos opened with it (src/opened.rs), off macOS.
+            let paths = opened::paths_in_args(&args, std::path::Path::new(&cwd));
+            app.state::<opened::OpenedFiles>().receive(app, paths);
         }));
     }
     // Links with target="_blank" open in the browser.
+    // Videos it was started with (src/opened.rs), off macOS.
+    let cwd = std::env::current_dir().unwrap_or_default();
     builder = builder
         .manage(diagnostics)
         .manage(graphics)
+        .manage(opened::OpenedFiles::new(opened::paths_in_args(&args, &cwd)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(
@@ -369,10 +377,20 @@ fn main() {
     builder
         .build(context)
         .expect("error while running MagnetCut")
-        .run(|app, event| {
+        .run(|app, event| match event {
             // Quitting: nothing left half written.
-            if let RunEvent::Exit = event {
-                page_gone(app, true);
+            RunEvent::Exit => page_gone(app, true),
+            // Videos opened with it, on macOS (src/opened.rs): as it starts,
+            // and while it's open.
+            #[cfg(target_os = "macos")]
+            RunEvent::Opened { urls } => {
+                let paths = urls
+                    .iter()
+                    .filter_map(|url| url.to_file_path().ok())
+                    .collect();
+                app.state::<opened::OpenedFiles>().receive(app, paths);
+                come_forward(app, &[]);
             }
+            _ => {}
         });
 }

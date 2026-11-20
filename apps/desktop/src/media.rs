@@ -150,7 +150,7 @@ impl MediaFiles {
     }
 }
 
-fn is_media(path: &Path) -> bool {
+pub fn is_media(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()))
