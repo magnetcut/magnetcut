@@ -57,6 +57,7 @@ macro_rules! commands {
             render::native_export_audio,
             render::native_export_finish,
             render::native_export_cancel,
+            render::native_export_priority,
             agent::agent_settings,
             agent::agent_set_enabled,
             agent::agent_add,

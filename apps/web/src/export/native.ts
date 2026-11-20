@@ -2,6 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { FrameRate } from "magnetcut-wasm";
 import type { FrameDescriptor } from "@/services/renderer/compositor/types";
 import type { ExportFormat } from "./index";
+import { useExportPriorityStore } from "./priority";
 import type { ExportCrop, ExportVideoCodec } from "./settings";
 
 // The desktop app's native export (apps/desktop/src/render/, docs/NATIVE.md):
@@ -33,6 +34,11 @@ export interface NativeCapabilities {
 	audioCopy: boolean;
 	/** Whether subtitle tracks can be written (timed text, on a Mac). */
 	subtitleTracks: boolean;
+	/**
+	 * Whether exports take a priority, and a new one while they run (export/
+	 * priority.ts): on a Mac and on Windows.
+	 */
+	priority: boolean;
 }
 
 let capabilities: Promise<NativeCapabilities | null> | undefined;
@@ -100,17 +106,54 @@ export interface NativeVideoFrame {
 	time: number;
 }
 
+// How many exports the desktop app is making, for the export panel, which
+// then offers to change their priority.
+let running = 0;
+const runningListeners = new Set<() => void>();
+
+function changeRunning({ by }: { by: number }) {
+	running += by;
+	for (const listener of runningListeners) listener();
+}
+
+/** Whether the desktop app is making an export. */
+export function isNativeExportRunning(): boolean {
+	return running > 0;
+}
+
+/** Calls `listener` as exports start and stop; returns how to stop. */
+export function subscribeNativeExports(listener: () => void): () => void {
+	runningListeners.add(listener);
+	return () => {
+		runningListeners.delete(listener);
+	};
+}
+
 /** One export, made by the desktop app; each call waits while it's behind. */
 export class NativeExportSession {
-	private constructor(private readonly id: number) {}
+	private isOpen = true;
+
+	private constructor(private readonly id: number) {
+		changeRunning({ by: 1 });
+	}
 
 	static async start({
 		options,
 	}: {
 		options: NativeExportOptions;
 	}): Promise<NativeExportSession> {
-		const id = await invoke<number>("native_export_start", { options });
+		const { priority } = useExportPriorityStore.getState();
+		const id = await invoke<number>("native_export_start", {
+			options: { ...options, priority },
+		});
 		return new NativeExportSession(id);
+	}
+
+	/** Once it's finished or stopped. */
+	private close() {
+		if (!this.isOpen) return;
+		this.isOpen = false;
+		changeRunning({ by: -1 });
 	}
 
 	/** One of the editor's drawings: RGBA, straight alpha. */
@@ -174,11 +217,19 @@ export class NativeExportSession {
 	}
 
 	async finish() {
-		await invoke("native_export_finish", { session: this.id });
+		try {
+			await invoke("native_export_finish", { session: this.id });
+		} finally {
+			this.close();
+		}
 	}
 
 	/** Stops, deleting what was written. */
 	async cancel() {
-		await invoke("native_export_cancel", { session: this.id });
+		try {
+			await invoke("native_export_cancel", { session: this.id });
+		} finally {
+			this.close();
+		}
 	}
 }

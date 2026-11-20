@@ -3111,6 +3111,7 @@ dependencies = [
  "objc2-core-video",
  "objc2-foundation",
  "rav1e",
+ "rayon",
  "reqwest",
  "sentry",
  "serde",

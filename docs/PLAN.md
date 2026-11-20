@@ -84,6 +84,13 @@ Not for iOS or Android.
   (`apps/desktop/linux/magnetcut.xml`). One opened with MagnetCut opens as File, Open Project…
   opens it, a project of its own with its media found where they are, through the same code
   (`openProjectText`); opened twice, it's two projects, as Open Project… makes them.
+- **Export priority.** The export panel's Priority (Normal, Low, Background), kept for the next
+  export and changed while one runs, which takes it at its next frame
+  (`apps/desktop/src/render/priority.rs`, `apps/web/src/export/priority.ts`). On macOS the
+  export's own threads' quality of service: its thread and the AV1 encoder's, a rayon pool of its
+  own that rav1e works in (the other codecs are the media engine's); on Windows the app's
+  priority class, which Media Foundation's threads share. Not on Linux, where an app may lower a
+  thread's priority but not raise it again, and the encoders' threads are GStreamer's.
 - **Subtitles, like Jubler, synced as easily as in YouTube's editor.** A subtitle track on the
   timeline over the waveform, and beside it the list (start, end, duration, reading speed,
   text), editable in place. Open and save SRT, WebVTT, ASS/SSA, SubViewer, MicroDVD, with the

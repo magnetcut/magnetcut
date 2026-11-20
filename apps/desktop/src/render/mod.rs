@@ -40,6 +40,7 @@ mod mp4_index;
 mod pipeline;
 #[cfg(target_os = "macos")]
 mod pixel_buffer;
+mod priority;
 mod settings;
 #[cfg(target_os = "macos")]
 mod subtitle;
@@ -56,7 +57,7 @@ use std::thread::{self, JoinHandle};
 
 use compositor::FrameDescriptor;
 use gpu::GpuContext;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 use tauri::ipc::{InvokeBody, Request};
 
@@ -66,6 +67,7 @@ use crate::media::MediaFiles;
 use decode::VideoReader;
 use encode::Writer;
 use frames::{Crop, FrameRenderer, Pixels, UploadedFrames};
+use priority::Priority;
 use settings::{
     Audio, AudioSettings, Capabilities, Container, FrameRate, SourceInfo, SubtitleTrack,
     VideoCodec, VideoSettings,
@@ -125,12 +127,33 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// What the native export can make on this computer, and how.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Offered {
+    #[serde(flatten)]
+    capabilities: Capabilities,
+    /// Whether exports take a priority, and a new one while they run.
+    priority: bool,
+}
+
 /// What the native export can make on this computer.
 #[tauri::command]
-pub async fn native_export_capabilities() -> Result<Capabilities, String> {
-    tauri::async_runtime::spawn_blocking(encode::capabilities)
+pub async fn native_export_capabilities() -> Result<Offered, String> {
+    let capabilities = tauri::async_runtime::spawn_blocking(encode::capabilities)
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    Ok(Offered {
+        capabilities,
+        priority: priority::SUPPORTED,
+    })
+}
+
+/// Runs the exports being made, and those to come, at `priority`: each takes
+/// it at its next frame.
+#[tauri::command]
+pub fn native_export_priority(priority: Priority) {
+    priority::set_wanted(priority);
 }
 
 /// What each source is, by the path the editor knows it by: none for one
@@ -184,6 +207,10 @@ pub struct StartOptions {
     /// Subtitle tracks, as timed text.
     #[serde(default)]
     subtitles: Vec<SubtitleTrack>,
+    /// How much of the computer it takes (priority.rs): this one's, and every
+    /// other export's being made.
+    #[serde(default)]
+    priority: Priority,
 }
 
 #[derive(Deserialize)]
@@ -214,6 +241,7 @@ pub async fn native_export_start(
     }
     let path = PathBuf::from(&options.path);
     exports.take_pick(&path)?;
+    priority::set_wanted(options.priority);
     // The file picked stays as it was until the export has finished. The
     // encoders make the file again where they write it.
     let (partial, _) = export::create_partial(&path)?;
@@ -490,6 +518,8 @@ fn run(
     ready: &mpsc::Sender<Result<(), String>>,
     failure: &Mutex<Option<String>>,
 ) {
+    // Before the encoder, whose threads start at it.
+    let mut priority = priority::ExportThread::start();
     let mut worker = match Worker::new(partial, options) {
         Ok(worker) => worker,
         Err(error) => {
@@ -501,6 +531,7 @@ fn run(
     };
     let _ = ready.send(Ok(()));
     for message in receiver {
+        priority.follow();
         let result = match message {
             Message::Finish(reply) => {
                 let result = match worker.finish() {

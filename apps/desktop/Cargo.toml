@@ -89,6 +89,9 @@ objc2-core-video = "0.3"
 objc2-core-audio-types = "0.3"
 objc2-core-foundation = "0.3"
 block2 = "0.6"
+# The AV1 encoder's threads, its own so they take the export's priority
+# (src/render/priority.rs). The version rav1e uses.
+rayon = "1"
 
 # AV1, which no Mac encodes in hardware, in software (BSD-2). Its assembly on
 # Apple silicon is built with cc; on Intel it would need nasm.

@@ -20,6 +20,7 @@ use objc2_foundation::{NSData, NSString};
 use rav1e::prelude::*;
 
 use super::av::{any, bridged, cf_dictionary, dictionary, fraction, packet_sample};
+use super::priority::{self, Priority};
 use super::settings::FrameRate;
 
 // rav1e's fastest: AV1 in software is slow enough.
@@ -27,6 +28,11 @@ const SPEED: u8 = 10;
 
 pub struct Av1Encoder {
     context: Context<u8>,
+    /// The threads rav1e works on: its own, at the export's priority. rav1e
+    /// works on the threads of the pool it's called from.
+    threads: rayon::ThreadPool,
+    /// The priority they're at.
+    priority: Priority,
     format: CFRetained<CMFormatDescription>,
     fps: FrameRate,
     width: usize,
@@ -44,6 +50,14 @@ impl Av1Encoder {
         key_frame_interval: f64,
     ) -> Result<Self, String> {
         let (width, height) = (width as usize, height as usize);
+        let cores = std::thread::available_parallelism().map_or(1, |cores| cores.get());
+        let priority = priority::wanted();
+        let threads = rayon::ThreadPoolBuilder::new()
+            .num_threads(cores)
+            .thread_name(|index| format!("AV1 encoder {index}"))
+            .start_handler(move |_| priority::set_this_thread(priority))
+            .build()
+            .map_err(|error| format!("Couldn't start the AV1 encoder: {error}"))?;
         let rate = f64::from(fps.numerator) / f64::from(fps.denominator);
         let config = EncoderConfig {
             width,
@@ -66,7 +80,7 @@ impl Av1Encoder {
             speed_settings: SpeedSettings::from_preset(SPEED),
             // Tiles are encoded side by side, one for each core; and without
             // looking ahead: three and then half again as fast, on an M4.
-            tiles: std::thread::available_parallelism().map_or(1, |cores| cores.get()),
+            tiles: cores,
             low_latency: true,
             ..Default::default()
         };
@@ -77,6 +91,8 @@ impl Av1Encoder {
         let format = format_description(&context.container_sequence_header(), width, height)?;
         Ok(Self {
             context,
+            threads,
+            priority,
             format,
             fps,
             width,
@@ -112,8 +128,10 @@ impl Av1Encoder {
         };
         unsafe { CVPixelBufferUnlockBaseAddress(frame, lock) };
         result?;
-        self.context
-            .send_frame(planes)
+        self.follow_priority();
+        let context = &mut self.context;
+        self.threads
+            .install(|| context.send_frame(planes))
             .map_err(|error| format!("Couldn't encode a frame: {error}"))
     }
 
@@ -124,13 +142,26 @@ impl Av1Encoder {
 
     /// The next packet, as a sample buffer: none until there's one ready.
     pub fn receive(&mut self) -> Result<Option<CFRetained<CMSampleBuffer>>, String> {
+        self.follow_priority();
         loop {
-            match self.context.receive_packet() {
+            let context = &mut self.context;
+            match self.threads.install(|| context.receive_packet()) {
                 Ok(packet) => return self.sample(&packet).map(Some),
                 Err(EncoderStatus::Encoded) => continue,
                 Err(EncoderStatus::NeedMoreData | EncoderStatus::LimitReached) => return Ok(None),
                 Err(error) => return Err(format!("Couldn't encode a frame: {error}")),
             }
+        }
+    }
+
+    /// Puts its threads at the priority asked for, if it's changed: between
+    /// frames, when they're idle, each takes it at once.
+    fn follow_priority(&mut self) {
+        let wanted = priority::wanted();
+        if wanted != self.priority {
+            self.threads
+                .broadcast(|_| priority::set_this_thread(wanted));
+            self.priority = wanted;
         }
     }
 
@@ -252,5 +283,54 @@ mod tests {
         assert_eq!(luma, [235, 16, 63, 126]);
         // The average of the four, in the chroma: red pushes Cr up, Cb down.
         assert!(red[0] > 128 && blue[0] < 128, "{blue:?} {red:?}");
+    }
+
+    /// The encoder's threads take the priority asked for as they start, and
+    /// a new one between frames, down and back up: an export's, changed while
+    /// it runs.
+    #[test]
+    fn its_threads_follow_the_export_priority() {
+        use super::super::priority::{self, Priority};
+        use super::super::settings::FrameRate;
+
+        fn classes(encoder: &super::Av1Encoder) -> Vec<u32> {
+            encoder.threads.broadcast(|_| {
+                let mut class = libc::qos_class_t::QOS_CLASS_UNSPECIFIED;
+                let mut relative = 0;
+                // SAFETY: this thread's own class, into these.
+                unsafe {
+                    libc::pthread_get_qos_class_np(libc::pthread_self(), &mut class, &mut relative)
+                };
+                class as u32
+            })
+        }
+
+        let fps = FrameRate {
+            numerator: 30,
+            denominator: 1,
+        };
+        priority::set_wanted(Priority::Low);
+        let mut encoder = super::Av1Encoder::new((64, 64), fps, 100_000, None, 2.0).unwrap();
+        let utility = libc::qos_class_t::QOS_CLASS_UTILITY as u32;
+        assert!(classes(&encoder).iter().all(|&class| class == utility));
+
+        for (wanted, class) in [
+            (
+                Priority::Background,
+                libc::qos_class_t::QOS_CLASS_BACKGROUND,
+            ),
+            (
+                Priority::Normal,
+                libc::qos_class_t::QOS_CLASS_USER_INITIATED,
+            ),
+        ] {
+            priority::set_wanted(wanted);
+            encoder.follow_priority();
+            let class = class as u32;
+            assert!(
+                classes(&encoder).iter().all(|&found| found == class),
+                "{wanted:?}"
+            );
+        }
     }
 }

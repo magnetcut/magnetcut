@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { TransitionTopIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -87,8 +87,17 @@ import {
 } from "@/export/settings";
 import {
 	getNativeCapabilities,
+	isNativeExportRunning,
+	subscribeNativeExports,
 	type NativeCapabilities,
 } from "@/export/native";
+import {
+	EXPORT_PRIORITIES,
+	EXPORT_PRIORITY_DESCRIPTIONS,
+	EXPORT_PRIORITY_LABELS,
+	isExportPriority,
+	useExportPriorityStore,
+} from "@/export/priority";
 import {
 	FILTER_STRENGTHS,
 	hasFilters,
@@ -197,6 +206,42 @@ function FilterStrengthSelect({
 				))}
 			</SelectContent>
 		</Select>
+	);
+}
+
+/**
+ * How much of the computer the desktop app's export takes: before it starts,
+ * and while it runs, which takes a new one at its next frame.
+ */
+function ExportPriorityField() {
+	const priority = useExportPriorityStore((state) => state.priority);
+	const setPriority = useExportPriorityStore((state) => state.setPriority);
+	return (
+		<div className="flex flex-col gap-1.5">
+			<div className="flex items-center justify-between gap-3">
+				<Label>Priority</Label>
+				<Select
+					value={priority}
+					onValueChange={(next) => {
+						if (isExportPriority(next)) setPriority({ priority: next });
+					}}
+				>
+					<SelectTrigger variant="outline" className="w-36">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent position="popper">
+						{EXPORT_PRIORITIES.map((value) => (
+							<SelectItem key={value} value={value}>
+								{EXPORT_PRIORITY_LABELS[value]}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+			</div>
+			<p className="text-muted-foreground text-xs">
+				{EXPORT_PRIORITY_DESCRIPTIONS[priority]}
+			</p>
+		</div>
 	);
 }
 
@@ -665,6 +710,11 @@ function ExportPopover({
 	const outputSize = fitExportSize({ canvas: canvasSize, shortSide, crop });
 	const encodable = useEncodableCodecs({ ...outputSize, format });
 	const native = useNativeCapabilities();
+	const isNativeRunning = useSyncExternalStore(
+		subscribeNativeExports,
+		isNativeExportRunning,
+		() => false,
+	);
 	// QuickTime takes them from the Mac's own export only.
 	const canTrackSubtitles =
 		canHoldSubtitleTracks({ format }) ||
@@ -1389,6 +1439,7 @@ function ExportPopover({
 								</div>
 
 								<div className="flex flex-col gap-2 p-3 pt-0">
+									{native?.priority && !isFast && <ExportPriorityField />}
 									<p className="text-muted-foreground text-xs">
 										{isFast ? getFastSummary({ info: fastInfo, choices }) : summary}
 									</p>
@@ -1415,6 +1466,8 @@ function ExportPopover({
 									</div>
 									<Progress value={progress * 100} className="w-full" />
 								</div>
+
+								{native?.priority && isNativeRunning && <ExportPriorityField />}
 
 								<Button
 									variant="outline"
