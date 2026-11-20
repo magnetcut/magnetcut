@@ -4,6 +4,7 @@ import { getAppInfo } from "@/desktop/app-info";
 import { EXPORT_FORMAT_VALUES, type ExportFormat } from "@/export";
 import { DEFAULT_EXPORT_CHOICES, getChosenOptions } from "@/export/choices";
 import { findEncodableCodecs } from "@/export/encodable";
+import { estimateSecondsLeft, formatDuration } from "@/export/progress";
 import { FRAME_RATE_PRESETS } from "@/export/settings";
 import {
 	applyWizardAnswers,
@@ -586,10 +587,29 @@ const exportTool: Tool = {
 			projectFps: frameRateToFloat(current.settings.fps),
 		});
 		const options = { ...getChosenOptions({ choices }), path: target };
+		// Each tenth of a percent, once, with the time left: a long export (AV1
+		// takes hours) moves a whole percent only every few minutes.
+		let reported = -1;
 		const stopWatching = editor.project.subscribe(() => {
 			const state = editor.project.getExportState();
-			if (state.isExporting) {
-				progress({ progress: Math.round(state.progress * 100), total: 100 });
+			const tenths = Math.floor(state.progress * 1000);
+			if (state.isExporting && tenths !== reported) {
+				reported = tenths;
+				const left = estimateSecondsLeft({
+					progress: state.progress,
+					elapsedSeconds:
+						state.startedAt === undefined
+							? 0
+							: (Date.now() - state.startedAt) / 1000,
+				});
+				progress({
+					progress: tenths / 10,
+					total: 100,
+					message:
+						left === null
+							? undefined
+							: `about ${formatDuration({ seconds: left })} left`,
+				});
 			}
 			if (isStopped()) editor.project.cancelExport();
 		});
