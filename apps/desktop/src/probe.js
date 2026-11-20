@@ -253,8 +253,8 @@
 	// recorded from a stand-in microphone, and from the real one when
 	// MAGNETCUT_PROBE_MICROPHONE is set (main.rs); the system's voices, and
 	// ElevenLabs' and OpenAI's when MAGNETCUT_PROBE_PROVIDERS is; a translation
-	// dubbed; shots found; clips converted to match and joined by Fast mode; a
-	// proxy made.
+	// dubbed; shots found; a project's thumbnail and the preview's frame held;
+	// clips converted to match and joined by Fast mode; a proxy made.
 	report.app = await attempt(async () => {
 		for (let waited = 0; !window.__magnetcutProbe; waited += 100) {
 			if (waited >= 20000) return "the editor's checks never showed up";

@@ -16,8 +16,6 @@ import { DEFAULT_BACKGROUND_COLOR } from "@/background/color";
 import { DEFAULT_CANVAS_SIZE } from "@/canvas/sizes";
 import { DEFAULT_FPS } from "@/fps/defaults";
 import { buildDefaultScene, getProjectDurationFromScenes } from "@/timeline/scenes";
-import { buildScene } from "@/services/renderer/scene-builder";
-import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
 import {
 	CURRENT_PROJECT_VERSION,
 	migrations,
@@ -197,7 +195,7 @@ export class ProjectManager {
 
 			if (!project.metadata.thumbnail) {
 				try {
-					const didUpdateThumbnail = await this.updateThumbnailFromTimeline();
+					const didUpdateThumbnail = await this.editor.thumbnail.refresh();
 					if (didUpdateThumbnail) {
 						await this.saveCurrentProject();
 					}
@@ -560,7 +558,12 @@ export class ProjectManager {
 		return nextFps;
 	}
 
-	async updateThumbnail({ thumbnail }: { thumbnail: string }): Promise<void> {
+	/** None for an empty timeline: the projects page shows a placeholder. */
+	async updateThumbnail({
+		thumbnail,
+	}: {
+		thumbnail: string | undefined;
+	}): Promise<void> {
 		if (!this.active) return;
 
 		const updatedProject: TProject = {
@@ -578,7 +581,7 @@ export class ProjectManager {
 		if (!this.active) return;
 
 		try {
-			await this.updateThumbnailFromTimeline();
+			await this.editor.thumbnail.refresh();
 		} catch (error) {
 			console.error("Failed to generate project thumbnail on exit:", error);
 		}
@@ -696,44 +699,6 @@ export class ProjectManager {
 	subscribe(listener: () => void): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
-	}
-
-	private async updateThumbnailFromTimeline(): Promise<boolean> {
-		if (!this.active) return false;
-
-		const tracks = this.editor.scenes.getActiveScene().tracks;
-		const mediaAssets = this.editor.media.getAssets();
-		const duration = this.editor.timeline.getTotalDuration();
-		const { canvasSize, background } = this.active.settings;
-
-		const scene = buildScene({
-			tracks,
-			mediaAssets,
-			duration: duration || 1,
-			canvasSize,
-			background,
-		});
-
-		const renderer = new CanvasRenderer({
-			width: canvasSize.width,
-			height: canvasSize.height,
-			fps: this.active.settings.fps,
-		});
-
-		const tempCanvas = document.createElement("canvas");
-		tempCanvas.width = canvasSize.width;
-		tempCanvas.height = canvasSize.height;
-
-		await renderer.renderToCanvas({
-			node: scene,
-			time: 0,
-			targetCanvas: tempCanvas,
-		});
-
-		const thumbnailDataUrl = tempCanvas.toDataURL("image/png");
-
-		await this.updateThumbnail({ thumbnail: thumbnailDataUrl });
-		return true;
 	}
 
 	private updateMetadata(project: TProject): void {

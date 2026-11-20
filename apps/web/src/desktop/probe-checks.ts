@@ -33,6 +33,9 @@ import { processMediaAssets } from "@/media/processing";
 import { makeProxy } from "@/media/proxy";
 import type { MediaAsset } from "@/media/types";
 import { initializeGpuRenderer } from "@/services/renderer/gpu-renderer";
+import { CanvasRenderer } from "@/services/renderer/canvas-renderer";
+import { wasmCompositor } from "@/services/renderer/compositor/wasm-compositor";
+import { buildScene } from "@/services/renderer/scene-builder";
 import { FILE_CHUNK_SIZE } from "@/services/renderer/scene-exporter";
 import {
 	addTranslationTrack,
@@ -65,9 +68,10 @@ import {
  * The web view probe's checks of the editor's own code (apps/desktop/src/
  * probe.js, which calls them in each system's web view): a take recorded from
  * a stand-in microphone and from the real one, the system's voices, a
- * translation dubbed, the cut between two pictures found, clips converted to
- * match and joined by Fast mode, and a proxy made, each written where the
- * desktop app writes them. Never run outside the probe.
+ * translation dubbed, the cut between two pictures found, a project's
+ * thumbnail and the preview's frame held, clips converted to match and joined
+ * by Fast mode, and a proxy made, each written where the desktop app writes
+ * them. Never run outside the probe.
  */
 
 export interface ProbeOptions {
@@ -102,6 +106,10 @@ export async function runProbeChecks({
 			seconds: 90,
 		}),
 		shots: await attempt({ check: () => checkShots({ folder }), seconds: 120 }),
+		thumbnail: await attempt({
+			check: () => checkThumbnail({ folder }),
+			seconds: 60,
+		}),
 		conform: await attempt({
 			check: () => checkConform({ folder }),
 			seconds: 90,
@@ -538,6 +546,130 @@ async function checkShots({ folder }: { folder: string }) {
 		cuts: found,
 		allAtTheMeeting: found.every((cuts) => cuts === "5.00"),
 	};
+}
+
+/**
+ * A project's thumbnail (core/managers/thumbnail-manager.ts), taken by itself
+ * once the timeline has been still a moment: of a black picture for 2 s, then
+ * a light one, it should be the light one. Then the preview's frame, held
+ * while a frame is drawn for someone else (compositor/output-hold.ts): the
+ * copy laid over the preview, made once the frame has been shown, should be
+ * the light picture, not black.
+ */
+async function checkThumbnail({ folder }: { folder: string }) {
+	const editor = EditorCore.getInstance();
+	if (editor.project.getActiveOrNull()) throw new Error("a project is open");
+	await initializeGpuRenderer();
+	const id = await editor.project.createNewProject({
+		name: "Probe: thumbnail",
+	});
+	try {
+		// As the editor's page does.
+		await editor.project.loadProject({ id });
+		const emptyThumbnail = editor.project.getActive().metadata.thumbnail;
+		const files = [
+			await writePicture({ folder, name: "black.png", grey: 0 }),
+			await writePicture({ folder, name: "light.png", grey: 240 }),
+		];
+		const assets = await processMediaAssets({ files });
+		for (const [index, asset] of assets.entries()) {
+			const added = await editor.media.addMediaAsset({ projectId: id, asset });
+			if (!added) throw new Error(`${asset.name} wasn't added`);
+			editor.timeline.insertElement({
+				element: buildElementFromMedia({
+					mediaId: added.id,
+					mediaType: added.type,
+					name: added.name,
+					duration: mediaTimeFromSeconds({ seconds: index === 0 ? 2 : 5 }),
+					startTime: mediaTime({ ticks: editor.timeline.getTotalDuration() }),
+				}),
+				placement: { mode: "auto" },
+			});
+		}
+		let thumbnail: string | undefined;
+		for (let waited = 0; !thumbnail && waited < 15_000; waited += 250) {
+			await new Promise((resolve) => setTimeout(resolve, 250));
+			thumbnail = editor.project.getActive().metadata.thumbnail;
+		}
+		const thumbnailGrey = thumbnail
+			? await readImageGrey({ url: thumbnail })
+			: null;
+
+		// The preview's frame, shown on the page as the preview shows it, then
+		// one for someone else.
+		const { canvasSize, background, fps } = editor.project.getActive().settings;
+		const scene = buildScene({
+			tracks: editor.scenes.getActiveScene().tracks,
+			mediaAssets: editor.media.getAssets(),
+			duration: editor.timeline.getTotalDuration(),
+			canvasSize,
+			background,
+		});
+		const preview = new CanvasRenderer({ ...canvasSize, fps, isPreview: true });
+		const light = mediaTimeFromSeconds({ seconds: 3 });
+		const output = preview.getOutputCanvas();
+		const parent = output.parentElement;
+		if (!parent) document.body.appendChild(output);
+		await preview.render({ node: scene, time: light });
+		for (let frame = 0; frame < 3; frame++) {
+			await new Promise((resolve) => requestAnimationFrame(resolve));
+		}
+		const target = document.createElement("canvas");
+		target.width = 64;
+		target.height = 36;
+		await new CanvasRenderer({ ...canvasSize, fps }).renderToCanvas({
+			node: scene,
+			time: 0,
+			targetCanvas: target,
+		});
+		const heldGrey = readCanvasGrey({ canvas: wasmCompositor.getHoldCover() });
+		// The preview's own frame again: the canvas is shown.
+		await preview.render({ node: scene, time: light });
+		if (!parent) output.remove();
+
+		return {
+			emptyTimelineHasNone: emptyThumbnail === undefined,
+			thumbnailGrey,
+			isTheLightPicture: thumbnailGrey !== null && thumbnailGrey > 200,
+			heldGrey,
+			heldFrameKept: heldGrey !== null && heldGrey > 200,
+		};
+	} finally {
+		await editor.save.flush();
+		editor.project.closeProject();
+		await editor.project.deleteProjects({ ids: [id] });
+		editor.command.clear();
+	}
+}
+
+/** The grey at the middle of a picture. */
+async function readImageGrey({ url }: { url: string }): Promise<number | null> {
+	const image = new Image();
+	image.src = url;
+	await image.decode();
+	const canvas = document.createElement("canvas");
+	canvas.width = image.naturalWidth;
+	canvas.height = image.naturalHeight;
+	canvas.getContext("2d")?.drawImage(image, 0, 0);
+	return readCanvasGrey({ canvas });
+}
+
+/** The grey at the middle of a canvas: null for an empty one. */
+function readCanvasGrey({
+	canvas,
+}: {
+	canvas: HTMLCanvasElement;
+}): number | null {
+	if (canvas.width === 0 || canvas.height === 0) return null;
+	const context = canvas.getContext("2d");
+	if (!context) return null;
+	const [red = 0, green = 0, blue = 0] = context.getImageData(
+		Math.floor(canvas.width / 2),
+		Math.floor(canvas.height / 2),
+		1,
+		1,
+	).data;
+	return Math.round((red + green + blue) / 3);
 }
 
 function toAsset({
