@@ -12,7 +12,8 @@ name: Release builds
 # with its own macOS app.
 #
 # The keys are the release environment's secrets (Settings → Environments →
-# release), so a pull request's workflows never see them:
+# release), which only main may deploy to: a pull request's workflows, or this
+# one changed on a branch, never see them.
 #   MACOS_CERT_P12_BASE64, MACOS_CERT_PASSWORD   the Developer ID Application
 #                                                certificate, exported as .p12
 #   APPLE_API_KEY_B64, APPLE_API_KEY_ID,         an App Store Connect API key,
@@ -178,7 +179,7 @@ jobs:
   # The macOS files, as release.sh --mac makes them: built while the
   # installers are.
   macos:
-    if: inputs.mac
+    if: inputs.mac && github.ref == 'refs/heads/main'
     runs-on: macos-26
     environment: release
     steps:
@@ -291,7 +292,7 @@ jobs:
   # Every update signed with the updater's key (release.sh --sign), latest.json,
   # and the draft release (--upload).
   draft:
-    if: inputs.mac
+    if: inputs.mac && github.ref == 'refs/heads/main'
     needs: [installers, macos]
     runs-on: macos-26
     environment: release

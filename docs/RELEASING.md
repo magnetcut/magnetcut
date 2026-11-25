@@ -26,8 +26,8 @@ updater at all: the App Store updates its own apps.
 ## Once: keys and credentials
 
 The release workflow (`.github/workflows/release.yml`) signs with the secrets of the repository's
-`release` environment (Settings → Environments), which only its own jobs read, never a pull
-request's workflows:
+`release` environment (Settings → Environments). Only main may deploy to it (its deployment
+branches), so neither a pull request's workflows nor this one changed on a branch can read them:
 
 - `MACOS_CERT_P12_BASE64` and `MACOS_CERT_PASSWORD`: the team's **Developer ID Application**
   certificate with its private key, exported from Keychain Access as .p12, in base64, and that
@@ -44,8 +44,8 @@ request's workflows:
 - `SENTRY_AUTH_TOKEN`, a repository secret, optional: the symbols and source maps for crash
   reports.
 
-Whoever can run a workflow can sign with them: required reviewers on the environment make each
-release wait for an approval.
+Whoever can push to main can still sign with them: required reviewers on the environment make
+each release wait for an approval.
 
 To release from a Mac instead, `apps/desktop/release.env` (copy
 `apps/desktop/release.env.example`): `TEAM_ID`, with the Developer ID certificate in the login

@@ -169,7 +169,8 @@ upload() {
     head=$(git rev-parse HEAD)
     [ "$built" = "$head" ] || die "$OUT was made from $built, not HEAD ($head)"
     git fetch -q origin
-    git branch -r --contains "$head" | grep -q . || die "push $head first: the release's tag points at it"
+    git merge-base --is-ancestor "$head" origin/main \
+        || die "$head isn't on main: a release is made from main, and its tag points at the commit"
     if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
         # A published release's files are what people downloaded and what
         # the feed points at: a new build is a new version.
