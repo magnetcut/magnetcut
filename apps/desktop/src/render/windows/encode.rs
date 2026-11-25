@@ -15,7 +15,8 @@ use windows::Win32::Media::MediaFoundation::{
     MF_SOURCE_READER_FIRST_AUDIO_STREAM, MF_SOURCE_READERF_ENDOFSTREAM, MF_TRANSCODE_CONTAINERTYPE,
     MFAudioFormat_AAC, MFAudioFormat_PCM, MFCreateSinkWriterFromURL, MFCreateSourceReaderFromURL,
     MFMediaType_Video, MFNominalRange_0_255, MFNominalRange_16_235, MFT_CATEGORY_VIDEO_ENCODER,
-    MFTranscodeContainerType_MPEG4, MFVideoFormat_H264, MFVideoFormat_HEVC, MFVideoFormat_RGB32,
+    MFT_ENUM_FLAG, MFT_ENUM_FLAG_ALL, MFT_ENUM_FLAG_HARDWARE, MFTranscodeContainerType_MPEG4,
+    MFVideoFormat_H264, MFVideoFormat_HEVC, MFVideoFormat_RGB32,
     eAVEncCommonRateControlMode_Quality, eAVEncCommonRateControlMode_UnconstrainedVBR,
     eAVEncH264VProfile_High, eAVEncH265VProfile_Main_420_8,
 };
@@ -23,13 +24,13 @@ use windows::core::{GUID, PCWSTR};
 
 use super::frames::FrameBuffer;
 use super::media_foundation::{
-    TICKS_PER_SECOND, attributes, audio_type, buffer, encoders, hd_colors, sample, start, text,
-    video_type, wide,
+    TICKS_PER_SECOND, attributes, audio_type, buffer, hd_colors, list_encoders, sample, start,
+    text, video_type, wide,
 };
 use super::mp4_index;
 use super::settings::{
-    Audio, AudioSettings, Capabilities, Container, KEY_FRAME_INTERVAL, SubtitleTrack, VideoCodec,
-    VideoSettings,
+    Audio, AudioSettings, Capabilities, Container, FileTags, KEY_FRAME_INTERVAL, SubtitleTrack,
+    VideoCodec, VideoSettings,
 };
 
 // A sound sample's length, in seconds: short, so the sound and the pictures
@@ -59,21 +60,38 @@ fn subtype(codec: VideoCodec) -> Option<GUID> {
     }
 }
 
+/// Whether Media Foundation has an encoder for `codec`, of those `flags`
+/// take.
+fn has_encoder(codec: VideoCodec, flags: MFT_ENUM_FLAG) -> bool {
+    subtype(codec).is_some_and(|subtype| {
+        list_encoders(
+            MFT_CATEGORY_VIDEO_ENCODER,
+            MFMediaType_Video,
+            subtype,
+            flags,
+        )
+        .is_ok_and(|names| !names.is_empty())
+    })
+}
+
 /// What the native export makes on this computer: the codecs it has
 /// encoders for.
 pub fn capabilities() -> Capabilities {
-    let video_codecs = [VideoCodec::Avc, VideoCodec::Hevc]
+    let video_codecs: Vec<VideoCodec> = [VideoCodec::Avc, VideoCodec::Hevc]
         .into_iter()
-        .filter(|&codec| {
-            subtype(codec).is_some_and(|subtype| {
-                encoders(MFT_CATEGORY_VIDEO_ENCODER, MFMediaType_Video, subtype)
-                    .is_ok_and(|names| !names.is_empty())
-            })
-        })
+        .filter(|&codec| has_encoder(codec, MFT_ENUM_FLAG_ALL))
+        .collect();
+    // In hardware where Media Foundation has a hardware encoder (NVENC, AMF,
+    // Quick Sync), which the sink writer then takes.
+    let hardware_codecs = video_codecs
+        .iter()
+        .copied()
+        .filter(|&codec| has_encoder(codec, MFT_ENUM_FLAG_HARDWARE))
         .collect();
     Capabilities {
         formats: vec![Container::Mp4],
         video_codecs,
+        hardware_codecs,
         constant_quality: constant_quality(),
         audio_copy: true,
         // Added once the file's finished (`mp4_index.rs`).
@@ -211,6 +229,8 @@ pub struct Writer {
     copy: Option<CopiedSound>,
     /// Added as timed text once Media Foundation has finished the file.
     subtitles: Vec<SubtitleTrack>,
+    /// The film's details, added then too.
+    tags: FileTags,
     size: (u32, u32),
     fps: (u32, u32),
     frames: i64,
@@ -226,17 +246,19 @@ impl Writer {
         video: &VideoSettings,
         audio: Option<Audio>,
     ) -> Result<Self, String> {
-        Self::with_subtitles(path, container, video, audio, &[])
+        Self::with_subtitles(path, container, video, audio, &[], &FileTags::default())
     }
 
     /// Starts a file at `path`, replacing what's there, with subtitle tracks
-    /// as timed text, added once it's finished.
+    /// as timed text and the film's details, `tags`, added once it's
+    /// finished.
     pub fn with_subtitles(
         path: &Path,
         container: Container,
         video: &VideoSettings,
         audio: Option<Audio>,
         subtitles: &[SubtitleTrack],
+        tags: &FileTags,
     ) -> Result<Self, String> {
         if container != Container::Mp4 {
             return Err("Windows's own export makes only MP4 files".into());
@@ -369,6 +391,7 @@ impl Writer {
             sound,
             copy,
             subtitles: subtitles.to_vec(),
+            tags: tags.clone(),
             size,
             fps,
             frames: 0,
@@ -472,7 +495,7 @@ impl Writer {
         }
         unsafe { self.writer.Finalize() }
             .map_err(|error| format!("Couldn't finish the file: {error}"))?;
-        mp4_index::finish(&self.path, &self.subtitles, self.size)
+        mp4_index::finish(&self.path, &self.subtitles, self.size, &self.tags)
     }
 
     /// Stops, leaving the file for the caller to delete: closed, so it can be.

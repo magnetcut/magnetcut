@@ -313,6 +313,7 @@ fn draws_a_source_into_a_film_cut_and_scaled() {
         video_codec: codec,
         video_bitrate: 1_000_000,
         priority: Default::default(),
+        tags: Default::default(),
         video_quality: None,
         audio: Some(AudioSettings {
             channels: 2,
@@ -463,6 +464,95 @@ fn says_what_wrote_the_film() {
     }
 }
 
+/// Whether a box of `kind` holds `text`.
+fn has_box_with(file: &[u8], kind: &[u8; 4], text: &str) -> bool {
+    (4..file.len().saturating_sub(4))
+        .filter(|&at| &file[at..at + 4] == kind)
+        .any(|at| {
+            let size = u32::from_be_bytes(file[at - 4..at].try_into().unwrap()) as usize;
+            file[at - 4..(at - 4 + size).min(file.len())]
+                .windows(text.len())
+                .any(|window| window == text.as_bytes())
+        })
+}
+
+#[test]
+fn writes_the_films_details() {
+    let video = VideoSettings {
+        codec: VideoCodec::Avc,
+        width: 64,
+        height: 64,
+        bitrate: 1_000_000,
+        quality: None,
+        fps: FPS,
+    };
+    use super::settings::{FileTag, FileTags};
+    let tags: FileTags = [
+        (FileTag::Title, "  A walk by the river "),
+        (FileTag::Artist, "Someone"),
+        (FileTag::Date, "2026-11-13"),
+        (FileTag::Genre, "Travel"),
+        (FileTag::Description, "An afternoon's walk"),
+        (FileTag::Comment, "First cut"),
+        (FileTag::Location, "+48.8584+002.2945+035.000/"),
+        (FileTag::Make, "Apple"),
+        (FileTag::Model, "iPhone 17 Pro"),
+    ]
+    .into_iter()
+    .collect();
+    for container in super::encode::capabilities().formats {
+        let path = temporary(&format!("details.{container:?}"));
+        let mut writer =
+            Writer::with_subtitles(&path, container, &video, None, &[], &tags).unwrap();
+        for i in 0..5 {
+            add_drawn(&mut writer, (64, 64), |pixels, _| {
+                for pixel in pixels.as_chunks_mut::<4>().0 {
+                    *pixel = [grey(i), grey(i), grey(i), 255];
+                }
+            })
+            .unwrap();
+        }
+        writer.finish().unwrap();
+        let file = std::fs::read(&path).unwrap();
+        let boxes = metadata_boxes(&path);
+        // Trimmed, as players show it; who wrote it, still.
+        assert!(
+            has_box_with(&file, b"\xa9nam", "A walk by the river")
+                && !has_box_with(&file, b"\xa9nam", "  A walk"),
+            "{container:?}: {boxes:?}"
+        );
+        assert!(
+            written_by(&path)
+                .iter()
+                .any(|name| name == super::settings::WRITING_APP)
+        );
+        // The day as a date and time, which Apple's frameworks read as a
+        // date; the place and the camera in QuickTime's user data, where
+        // they, Android's and ffmpeg read them.
+        for (kind, text) in [
+            (b"\xa9ART", "Someone"),
+            (b"\xa9day", "2026-11-13T12:00:00Z"),
+            (b"\xa9cmt", "First cut"),
+            (b"\xa9xyz", "+48.8584+002.2945+035.000/"),
+            (b"\xa9mak", "Apple"),
+            (b"\xa9mod", "iPhone 17 Pro"),
+        ] {
+            assert!(
+                has_box_with(&file, kind, text),
+                "{container:?} {text}: {boxes:?}"
+            );
+        }
+        // An MP4's place and day where Apple's frameworks read them there.
+        if container == Container::Mp4 {
+            assert!(
+                has_box_with(&file, b"date", "2026-11-13T12:00:00Z")
+                    && has_box_with(&file, b"loci", "earth"),
+                "{boxes:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn a_cancelled_export_leaves_no_file_and_the_one_it_was_to_replace() {
     let path = temporary("cancelled.mp4");
@@ -480,6 +570,7 @@ fn a_cancelled_export_leaves_no_file_and_the_one_it_was_to_replace() {
         video_codec: VideoCodec::Avc,
         video_bitrate: 1_000_000,
         priority: Default::default(),
+        tags: Default::default(),
         video_quality: None,
         audio: None,
         audio_copy: None,
@@ -764,6 +855,7 @@ fn copies_a_files_sound_as_it_is() {
         video_codec: DRAWN.2,
         video_bitrate: 1_000_000,
         priority: Default::default(),
+        tags: Default::default(),
         video_quality: None,
         audio: None,
         audio_copy: Some(super::AudioCopy {
@@ -864,6 +956,7 @@ fn turns_a_source_as_it_is_shown() {
         video_codec: VideoCodec::Avc,
         video_bitrate: 1_000_000,
         priority: Default::default(),
+        tags: Default::default(),
         video_quality: None,
         audio: None,
         audio_copy: None,
@@ -964,6 +1057,7 @@ fn native_speed() {
             video_codec: codec,
             video_bitrate: 20_000_000,
             priority: Default::default(),
+            tags: Default::default(),
             video_quality: None,
             audio: None,
             audio_copy: None,
@@ -1225,6 +1319,7 @@ fn encodes_av1_with_rav1e() {
         video_codec: VideoCodec::Av1,
         video_bitrate: 500_000,
         priority: Default::default(),
+        tags: Default::default(),
         video_quality: None,
         audio: Some(AudioSettings {
             channels: 2,
@@ -1383,7 +1478,7 @@ fn adds_timed_text_that_avfoundation_reads() {
             cues: vec![line(0.1, 0.4, "Bonjour")],
         },
     ];
-    super::mp4_index::finish(&path, &tracks, (64, 64)).unwrap();
+    super::mp4_index::finish(&path, &tracks, (64, 64), &Default::default()).unwrap();
     let samples = stored_subtitles(&path);
     let lines: Vec<&str> = samples
         .iter()
@@ -1423,6 +1518,7 @@ fn writes_subtitle_tracks_as_timed_text() {
             video_codec: VideoCodec::Avc,
             video_bitrate: 1_000_000,
             priority: Default::default(),
+            tags: Default::default(),
             video_quality: None,
             audio: None,
             audio_copy: None,
@@ -1480,4 +1576,15 @@ fn writes_subtitle_tracks_as_timed_text() {
         let (_, picture) = reader.frame_at(0.5).unwrap().unwrap();
         assert_grey(middle(picture), grey(15));
     }
+}
+
+/// What's encoded in hardware, as VideoToolbox says: on Apple silicon H.264
+/// and HEVC are the media engine's; AV1 never is, being rav1e's.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+fn knows_what_the_hardware_encodes() {
+    let made = super::encode::capabilities().hardware_codecs;
+    assert!(made.contains(&VideoCodec::Avc), "{made:?}");
+    assert!(made.contains(&VideoCodec::Hevc), "{made:?}");
+    assert!(!made.contains(&VideoCodec::Av1), "{made:?}");
 }

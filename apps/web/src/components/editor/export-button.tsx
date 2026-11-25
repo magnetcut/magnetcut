@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from "react";
 import { toast } from "sonner";
 import { TransitionTopIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -50,6 +56,7 @@ import {
 	MIN_SHORT_SIDE,
 	QUALITY_MODES,
 	getChosenOptions,
+	getPresetChoices,
 	isSameExport,
 	type QualityMode,
 } from "@/export/choices";
@@ -59,7 +66,10 @@ import {
 	formatDuration,
 	formatExportPercent,
 } from "@/export/progress";
-import { openAudioPassthrough } from "@/export/passthrough";
+import {
+	describeAudioPassthrough,
+	type PassthroughSound,
+} from "@/export/passthrough";
 import {
 	getRevealLabel,
 	isSamePath,
@@ -67,7 +77,16 @@ import {
 	revealExportFile,
 } from "@/export/disk-target";
 import { canReadDiskFiles } from "@/media/disk-file";
-import { findEncodableCodecs } from "@/export/encodable";
+import {
+	firstHardwareCodec,
+	getCodecAvailability,
+	getEncoderSpeed,
+	getHardwareCodecs,
+	getSoftwareCodecs,
+	isOffered,
+	useHardwareOnlyStore,
+	type CodecAvailability,
+} from "@/export/hardware";
 import {
 	AUDIO_BITRATES,
 	AUDIO_CODEC_NAMES,
@@ -77,12 +96,10 @@ import {
 	FRAME_RATE_PRESETS,
 	SIZE_PRESETS,
 	VIDEO_CODEC_NAMES,
-	estimateExportBytes,
-	fitAudioCodec,
+	fitAudioChoice,
 	fitExportSize,
 	fitVideoCodec,
 	getCroppedSize,
-	getVideoBitrate,
 	isCropped,
 	isNativeOnlyCodec,
 	LOUDNESS_TARGETS,
@@ -91,11 +108,15 @@ import {
 	type ExportVideoCodec,
 } from "@/export/settings";
 import {
-	getNativeCapabilities,
 	isNativeExportRunning,
 	subscribeNativeExports,
-	type NativeCapabilities,
 } from "@/export/native";
+import {
+	getChannelsName,
+	getCodecName,
+	getCopiedSound,
+	summarizeExport,
+} from "@/export/summary";
 import {
 	EXPORT_PRIORITIES,
 	EXPORT_PRIORITY_DESCRIPTIONS,
@@ -103,25 +124,25 @@ import {
 	isExportPriority,
 	useExportPriorityStore,
 } from "@/export/priority";
-import {
-	FILTER_STRENGTHS,
-	hasFilters,
-	type FilterStrength,
-} from "@/export/filters";
+import { FILTER_STRENGTHS, type FilterStrength } from "@/export/filters";
 import {
 	EXPORT_SUBTITLE_MODES,
 	SUBTITLE_MODE_NAMES,
 	canHoldSubtitleTracks,
 } from "@/export/subtitles";
 import { getSubtitleTracks } from "@/subtitles/track";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ExportSimple } from "./export-simple";
 import {
+	ExportSummary,
+	HardwareOnlyField,
+	SegmentedChoice,
+} from "./export-parts";
+import {
 	ExportFast,
-	FastModePicker,
 	getFastSummary,
 	useFastExportInfo,
 } from "./export-fast";
+import { useEncodableCodecs, useNativeCapabilities } from "./use-export-codecs";
 import { frameRateToFloat } from "@/fps/utils";
 import { TICKS_PER_SECOND } from "@/wasm";
 
@@ -138,10 +159,16 @@ export function ExportButton() {
 	const editor = useEditor();
 	const activeProject = useEditor((e) => e.project.getActiveOrNull());
 	const hasProject = !!activeProject;
+	// Anyone's export: the panel's, or an agent's.
+	const { isExporting, progress } = useEditor((e) =>
+		e.project.getExportState(),
+	);
 
+	// Closing the panel only hides it: an export goes on, its progress on the
+	// button, until it's cancelled in the panel. What's left of one that
+	// ended (its error) goes with the panel.
 	const handlePopoverOpenChange = ({ open }: { open: boolean }) => {
-		if (!open) {
-			editor.project.cancelExport();
+		if (!open && !editor.project.getExportState().isExporting) {
 			editor.project.clearExportState();
 		}
 		setIsExportPopoverOpen(open);
@@ -156,7 +183,7 @@ export function ExportButton() {
 			<PopoverTrigger asChild>
 				<Button
 					size="sm"
-					className="h-8 gap-1.5 rounded-sm px-3"
+					className="relative h-8 gap-1.5 overflow-hidden rounded-sm px-3 tabular-nums"
 					onClick={hasProject ? () => setIsExportPopoverOpen(true) : undefined}
 					disabled={!hasProject}
 					onKeyDown={(event) => {
@@ -166,11 +193,29 @@ export function ExportButton() {
 						}
 					}}
 				>
-					<HugeiconsIcon icon={TransitionTopIcon} className="size-3.5!" />
-					Export
+					{isExporting ? (
+						<>
+							{`Exporting ${formatExportPercent({ progress })}`}
+							<span
+								aria-hidden
+								className="bg-primary-foreground/50 absolute bottom-0 left-0 h-0.5"
+								style={{ width: `${progress * 100}%` }}
+							/>
+						</>
+					) : (
+						<>
+							<HugeiconsIcon icon={TransitionTopIcon} className="size-3.5!" />
+							Export
+						</>
+					)}
 				</Button>
 			</PopoverTrigger>
-			{hasProject && <ExportPopover onOpenChange={setIsExportPopoverOpen} />}
+			{hasProject && (
+				<ExportPopover
+					isOpen={isExportPopoverOpen}
+					onOpenChange={setIsExportPopoverOpen}
+				/>
+			)}
 		</Popover>
 	);
 }
@@ -288,80 +333,22 @@ function isQualityMode(value: string): value is QualityMode {
 	return QUALITY_MODES.some((mode) => mode === value);
 }
 
-/** In decimal megabytes, as Finder and Explorer count them. */
-function formatMegabytes({ bytes }: { bytes: number }): string {
-	const megabytes = bytes / 1_000_000;
-	if (megabytes >= 1000) return `${(megabytes / 1000).toFixed(1)} GB`;
-	return `${megabytes < 10 ? megabytes.toFixed(1) : Math.round(megabytes)} MB`;
-}
-
-/**
- * The codecs this computer encodes at the size chosen: those the web view's
- * encoders take, and those the app's own export makes in this format (AV1
- * only in MP4). ProRes counts whatever the format, as Simple's master file
- * moves to QuickTime for it.
- */
-function useEncodableCodecs({
-	width,
-	height,
-	format,
+/** Beside a codec, or a preset in it: why it can't be chosen, or that it's
+ * slow. */
+function getCodecNote({
+	availability,
 }: {
-	width: number;
-	height: number;
-	format: ExportFormat;
-}): Set<ExportVideoCodec> | null {
-	const [encodable, setEncodable] = useState<Set<ExportVideoCodec> | null>(
-		null,
-	);
-	useEffect(() => {
-		let isCurrent = true;
-		void findEncodableCodecs({ width, height, format }).then((found) => {
-			if (isCurrent) setEncodable(found);
-		});
-		return () => {
-			isCurrent = false;
-		};
-	}, [width, height, format]);
-	return encodable;
-}
-
-/** What the desktop app's native export can do here: null where there's none. */
-function useNativeCapabilities(): NativeCapabilities | null {
-	const [capabilities, setCapabilities] = useState<NativeCapabilities | null>(
-		null,
-	);
-	useEffect(() => {
-		let isCurrent = true;
-		void getNativeCapabilities().then((found) => {
-			if (isCurrent) setCapabilities(found);
-		});
-		return () => {
-			isCurrent = false;
-		};
-	}, []);
-	return capabilities;
-}
-
-/** What Export would copy of the source's sound. */
-interface PassthroughInfo {
-	codec: string;
-	numberOfChannels: number;
-	sampleRate: number;
-	bitrate: number;
-}
-
-const SOURCE_AUDIO_CODEC_NAMES: Record<string, string> = {
-	aac: "AAC",
-	opus: "Opus",
-	mp3: "MP3",
-	ac3: "AC-3",
-	eac3: "E-AC-3",
-	flac: "FLAC",
-	vorbis: "Vorbis",
-};
-
-function getSourceCodecName({ codec }: { codec: string }): string {
-	return SOURCE_AUDIO_CODEC_NAMES[codec] ?? codec.toUpperCase();
+	availability: CodecAvailability;
+}): string {
+	switch (availability) {
+		case "unavailable":
+			return " (not on this computer)";
+		case "software":
+		case "left-out":
+			return " (in software)";
+		case "available":
+			return "";
+	}
 }
 
 /**
@@ -373,28 +360,19 @@ function usePassthroughInfo({
 	format,
 }: {
 	format: ExportFormat;
-}): PassthroughInfo | null {
+}): PassthroughSound | null {
 	const editor = useEditor();
-	const [info, setInfo] = useState<PassthroughInfo | null>(null);
+	const [info, setInfo] = useState<PassthroughSound | null>(null);
 	useEffect(() => {
 		let isCurrent = true;
-		openAudioPassthrough({
+		describeAudioPassthrough({
 			tracks: editor.scenes.getActiveScene().tracks,
 			mediaAssets: editor.media.getAssets(),
 			duration: editor.timeline.getTotalDuration(),
 			format,
 		})
-			.then((passthrough) => {
-				passthrough?.close();
-				if (!isCurrent) return;
-				setInfo(
-					passthrough && {
-						codec: passthrough.codec,
-						numberOfChannels: passthrough.numberOfChannels,
-						sampleRate: passthrough.sampleRate,
-						bitrate: passthrough.bitrate,
-					},
-				);
+			.then((found) => {
+				if (isCurrent) setInfo(found);
 			})
 			.catch((error: unknown) => {
 				console.error("Couldn't read the source's sound:", error);
@@ -569,9 +547,16 @@ function CropFields({
 
 /** The presets, built in and your own: chosen from, saved and removed. */
 function ExportPresetPicker({
-	encodable,
+	availabilityOf,
 }: {
-	encodable: Set<ExportVideoCodec> | null;
+	/** How a codec is to be had here in a format (`getCodecAvailability`). */
+	availabilityOf: ({
+		codec,
+		format,
+	}: {
+		codec: ExportVideoCodec;
+		format: ExportFormat;
+	}) => CodecAvailability;
 }) {
 	const choices = useExportChoicesStore((state) => state.choices);
 	const presets = useExportChoicesStore((state) => state.presets);
@@ -599,13 +584,15 @@ function ExportPresetPicker({
 	};
 
 	return (
-		<div className="flex flex-col gap-2 border-b p-3">
+		<div className="flex flex-col gap-2 border-b px-4 py-4">
 			<div className="flex gap-2">
 				<Select
 					value={current?.id ?? "custom"}
 					onValueChange={(id) => {
 						const preset = allPresets.find((candidate) => candidate.id === id);
-						if (preset) setChoices({ choices: preset.choices });
+						if (preset) {
+							setChoices({ choices: getPresetChoices({ preset, choices }) });
+						}
 					}}
 				>
 					<SelectTrigger variant="outline" className="w-full">
@@ -626,16 +613,18 @@ function ExportPresetPicker({
 						<SelectGroup>
 							<SelectLabel>Built in</SelectLabel>
 							{BUILT_IN_PRESETS.map((preset) => {
-								const isUnavailable =
-									!!encodable && !encodable.has(preset.choices.videoCodec);
+								const availability = availabilityOf({
+									codec: preset.choices.videoCodec,
+									format: preset.choices.format,
+								});
 								return (
 									<SelectItem
 										key={preset.id}
 										value={preset.id}
-										disabled={isUnavailable}
+										disabled={!isOffered({ availability })}
 									>
 										{preset.name}
-										{isUnavailable ? " (not on this computer)" : ""}
+										{getCodecNote({ availability })}
 									</SelectItem>
 								);
 							})}
@@ -685,11 +674,19 @@ function ExportPresetPicker({
 }
 
 function ExportPopover({
+	isOpen,
 	onOpenChange,
 }: {
+	isOpen: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
 	const editor = useEditor();
+	// Whether it's open as an export ends: one that fails with the panel
+	// closed says so where it's seen.
+	const isOpenRef = useRef(isOpen);
+	useEffect(() => {
+		isOpenRef.current = isOpen;
+	}, [isOpen]);
 	const activeProject = useEditor((e) => e.project.getActive());
 	const exportState = useEditor((e) => e.project.getExportState());
 	const { isExporting, progress, result: exportResult } = exportState;
@@ -715,18 +712,17 @@ function ExportPopover({
 		sharpen,
 		subtitles,
 		panelMode,
-		fastMode,
 	} = choices;
 	const options = getChosenOptions({ choices });
-	const { quality, shortSide, audio, filters } = options;
+	const { quality, shortSide, audio, filters, fastMode = "off" } = options;
 	const sceneTracks = useEditor((e) => e.scenes.getActiveScene().tracks);
 	const hasSubtitles = getSubtitleTracks({ tracks: sceneTracks }).length > 0;
-	const isFast = fastMode !== "off";
+	const isFast = panelMode === "fast";
 	const fastInfo = useFastExportInfo({
 		tracks: sceneTracks,
 		mode: fastMode,
 		format,
-		copiesSound: hasAudio && audioPassthrough && loudness === null,
+		copiesSound: !!audio?.passthrough,
 	});
 
 	// The crop is the film's, not the settings': it starts afresh each time.
@@ -740,8 +736,42 @@ function ExportPopover({
 	const picture = getCroppedSize({ canvas: canvasSize, crop });
 	const pictureShortSide = Math.min(picture.width, picture.height);
 	const outputSize = fitExportSize({ canvas: canvasSize, shortSide, crop });
-	const encodable = useEncodableCodecs({ ...outputSize, format });
+	const allEncodable = useEncodableCodecs({ ...outputSize, format });
 	const native = useNativeCapabilities();
+	const hardwareOnly = useHardwareOnlyStore((state) => state.hardwareOnly);
+	const setHardwareOnly = useHardwareOnlyStore(
+		(state) => state.setHardwareOnly,
+	);
+	// The codecs encoded in hardware here, in this format: none known where
+	// the app's own export doesn't make it.
+	const hardware = useMemo(
+		() => getHardwareCodecs({ native, format }),
+		[native, format],
+	);
+	/** How a codec is to be had here, in this format or a preset's. */
+	const availabilityOf = ({
+		codec,
+		format: of,
+	}: {
+		codec: ExportVideoCodec;
+		format: ExportFormat;
+	}) =>
+		getCodecAvailability({
+			codec,
+			encodable: allEncodable,
+			hardware:
+				of === format ? hardware : getHardwareCodecs({ native, format: of }),
+			hardwareOnly,
+		});
+	const availability = availabilityOf({ codec: videoCodec, format });
+	// This format's codecs encoded in software, which keeping to hardware
+	// leaves out: the switch is shown only when there are some.
+	const softwareNames = getSoftwareCodecs({
+		format,
+		encodable: allEncodable,
+		hardware,
+	}).map((codec) => VIDEO_CODEC_NAMES[codec]);
+	const speed = getEncoderSpeed({ codec: videoCodec, hardware });
 	const isNativeRunning = useSyncExternalStore(
 		subscribeNativeExports,
 		isNativeExportRunning,
@@ -762,37 +792,43 @@ function ExportPopover({
 	);
 	const fps = options.fps ?? activeProject.settings.fps;
 	const passthroughInfo = usePassthroughInfo({ format });
-	const copied =
-		hasAudio && audioPassthrough && loudness === null ? passthroughInfo : null;
+	const copied = getCopiedSound({ choices, passthrough: passthroughInfo });
 	const duration = editor.timeline.getTotalDuration() / TICKS_PER_SECOND;
-	const audioBitrate = copied
-		? copied.bitrate
-		: audio
-			? audio.kbps * 1000
-			: 0;
-	const videoBitrate = getVideoBitrate({
-		quality,
-		codec: videoCodec,
-		...outputSize,
-		fps: frameRateToFloat(fps),
-		duration,
-		audioBitrate,
-	});
-	const estimatedBytes = estimateExportBytes({
-		videoBitrate,
-		audioBitrate,
-		duration,
-	});
-	const canEncode = !encodable || encodable.has(videoCodec);
+	const canEncode = isOffered({ availability });
+	const cantEncodeReason =
+		availability === "left-out"
+			? `${VIDEO_CODEC_NAMES[videoCodec]} is encoded in software here: choose another codec, or turn off Hardware-accelerated only.`
+			: availability === "unavailable"
+				? `This computer can't encode ${VIDEO_CODEC_NAMES[videoCodec]} at ${outputSize.width}×${outputSize.height}.`
+				: null;
+
+	const handleHardwareOnly = ({ checked }: { checked: boolean }) => {
+		setHardwareOnly({ hardwareOnly: checked });
+		// The Simple mode picks again by itself; Advanced keeps its codec
+		// unless it's one now left out, for the first of the format's in
+		// hardware.
+		if (checked && panelMode === "advanced" && availability === "software") {
+			const codec = firstHardwareCodec({
+				format,
+				encodable: allEncodable,
+				hardware,
+			});
+			if (codec) setChoices({ choices: { videoCodec: codec } });
+		}
+	};
 
 	const handleFormatChange = ({ value }: { value: ExportFormat }) => {
-		const codec = fitAudioCodec({ format: value, codec: audioCodec });
+		const audioChoice = fitAudioChoice({
+			format: value,
+			codec: audioCodec,
+			kbps: audioKbps,
+		});
 		setChoices({
 			choices: {
 				format: value,
 				videoCodec: fitVideoCodec({ format: value, codec: videoCodec }),
-				audioCodec: codec,
-				audioKbps: codec === audioCodec ? audioKbps : DEFAULT_AUDIO_KBPS[codec],
+				audioCodec: audioChoice.codec,
+				audioKbps: audioChoice.kbps,
 			},
 		});
 	};
@@ -844,6 +880,16 @@ function ExportPopover({
 			editor.project.clearExportState();
 			return;
 		}
+		if (!result.success) {
+			// The panel shows the error; closed, it's said, and opens on it.
+			if (!isOpenRef.current) {
+				toast.error("The export failed", {
+					description: result.error,
+					action: { label: "Show", onClick: () => onOpenChange(true) },
+				});
+			}
+			return;
+		}
 
 		if (result.success && result.path) {
 			const savedPath = result.path;
@@ -879,43 +925,25 @@ function ExportPopover({
 	};
 
 	const projectFps = frameRateToFloat(activeProject.settings.fps);
-	// In the Simple mode, what it'll be like rather than what it's made with.
 	const isSimple = panelMode === "simple";
-	const fpsText = +frameRateToFloat(fps).toFixed(3);
-	const summary = [
-		isSimple
-			? `${outputSize.width}×${outputSize.height} at ${fpsText} frames a second`
-			: `${VIDEO_CODEC_NAMES[videoCodec]}, ${outputSize.width}×${outputSize.height}, ${fpsText} fps`,
-		copied
-			? isSimple
-				? `the original sound (${copied.numberOfChannels === 6 ? "5.1" : copied.numberOfChannels === 1 ? "mono" : "stereo"})`
-				: `${getSourceCodecName(copied)} copied`
-			: audio
-				? isSimple
-					? `${audio.channels === 1 ? "mono" : "stereo"} sound`
-					: `${AUDIO_CODEC_NAMES[audio.codec]} ${audio.kbps} kbit/s${audio.channels === 1 ? " mono" : ""}`
-				: "no sound",
-		filters && hasFilters({ filters })
-			? [
-					deinterlace && "deinterlaced",
-					denoise !== "off" && `denoised (${denoise})`,
-					sharpen !== "off" && `sharpened (${sharpen})`,
-				]
-					.filter(Boolean)
-					.join(", ")
-			: null,
-		qualityMode === "constant" && canKeepQuality && !isProRes
-			? "size varies with the picture"
-			: `about ${formatMegabytes({ bytes: estimatedBytes })}`,
-	]
-		.filter(Boolean)
-		.join(" · ");
+	const keepsQuality = qualityMode === "constant" && canKeepQuality && !isProRes;
+	const summary = summarizeExport({
+		choices,
+		picture,
+		output: outputSize,
+		fps: frameRateToFloat(fps),
+		duration,
+		passthrough: passthroughInfo,
+		keepsQuality,
+		tags: activeProject.metadata.tags ?? {},
+	});
 
 	return (
 		<PopoverContent
-			className="bg-background mr-4 flex max-h-(--radix-popover-content-available-height) w-96 flex-col overflow-y-auto p-0"
-			// The panel itself, not its first control: that's Fast mode's (i),
-			// whose tooltip would cover the panel as it opens.
+			className="bg-background mr-4 flex max-h-(--radix-popover-content-available-height) w-[400px] flex-col overflow-y-auto p-0"
+			// The panel itself, not its first control, the modes' switch, which
+			// would show its focus ring each time the panel opens: Tab moves into
+			// the controls from here.
 			onOpenAutoFocus={(event) => {
 				event.preventDefault();
 				if (event.currentTarget instanceof HTMLElement) event.currentTarget.focus();
@@ -928,22 +956,28 @@ function ExportPopover({
 				/>
 			) : (
 				<>
-					<div className="flex items-center justify-between p-3 border-b">
-						<h3 className="font-medium text-sm">
-							{isExporting ? "Exporting project" : "Export project"}
+					<div className="flex items-center justify-between border-b px-4 py-3">
+						<h3 className="text-sm font-medium">
+							{isExporting ? "Exporting" : "Export"}
 						</h3>
 					</div>
 
-					<div className="flex flex-col gap-4">
+					<div className="flex flex-col">
 						{!isExporting && (
 							<>
 								<div className="flex flex-col">
-									<FastModePicker
-										value={fastMode}
-										onChange={({ mode }) =>
-											setChoices({ choices: { fastMode: mode } })
-										}
-									/>
+									<div className="px-4 pt-4">
+										<SegmentedChoice
+											label="How to export"
+											value={panelMode}
+											options={[
+												{ value: "simple", label: "Simple" },
+												{ value: "advanced", label: "Advanced" },
+												{ value: "fast", label: "Fast" },
+											]}
+											onChange={({ value }) => setChoices({ choices: { panelMode: value } })}
+										/>
+									</div>
 									{isFast ? (
 										<ExportFast
 											choices={choices}
@@ -953,36 +987,19 @@ function ExportPopover({
 										/>
 									) : (
 									<>
-									<div className="flex justify-center px-3 pt-3">
-										<ToggleGroup
-											type="single"
-											variant="outline"
-											value={panelMode}
-											onValueChange={(value) => {
-												if (value === "simple" || value === "advanced") {
-													setChoices({ choices: { panelMode: value } });
-												}
-											}}
-										>
-											<ToggleGroupItem value="simple" className="px-3">
-												Simple
-											</ToggleGroupItem>
-											<ToggleGroupItem value="advanced" className="px-3">
-												Advanced
-											</ToggleGroupItem>
-										</ToggleGroup>
-									</div>
 									{isSimple ? (
 										<ExportSimple
 											choices={choices}
 											setChoices={setChoices}
-											encodable={encodable}
+											native={native}
 											picture={picture}
 											projectFps={projectFps}
+											duration={duration}
+											copiedBitrate={passthroughInfo?.bitrate ?? null}
 										/>
 									) : (
 										<>
-										<ExportPresetPicker encodable={encodable} />
+										<ExportPresetPicker availabilityOf={availabilityOf} />
 										<Section
 											collapsible
 											defaultOpen={false}
@@ -1028,18 +1045,19 @@ function ExportPopover({
 																<SelectValue />
 															</SelectTrigger>
 															<SelectContent position="popper">
-																{FORMAT_CODECS[format].video.map((codec) => (
-																	<SelectItem
-																		key={codec}
-																		value={codec}
-																		disabled={!!encodable && !encodable.has(codec)}
-																	>
-																		{VIDEO_CODEC_NAMES[codec]}
-																		{encodable && !encodable.has(codec)
-																			? " (not on this computer)"
-																			: ""}
-																	</SelectItem>
-																))}
+																{FORMAT_CODECS[format].video.map((codec) => {
+																	const offer = availabilityOf({ codec, format });
+																	return (
+																		<SelectItem
+																			key={codec}
+																			value={codec}
+																			disabled={!isOffered({ availability: offer })}
+																		>
+																			{VIDEO_CODEC_NAMES[codec]}
+																			{getCodecNote({ availability: offer })}
+																		</SelectItem>
+																	);
+																})}
 															</SelectContent>
 														</Select>
 													</SectionField>
@@ -1086,7 +1104,7 @@ function ExportPopover({
 												<SectionFields>
 													{isProRes ? (
 														<p className="text-muted-foreground text-xs">
-															{`ProRes keeps its own quality: about ${Math.round(videoBitrate / 1_000_000)} Mbit/s.`}
+															{`ProRes keeps its own quality: about ${Math.round(summary.videoBitrate / 1_000_000)} Mbit/s.`}
 														</p>
 													) : (
 														<>
@@ -1360,7 +1378,7 @@ function ExportPopover({
 															{audioPassthrough && (
 																<p className="text-muted-foreground text-xs">
 																	{copied
-																		? `Copies the ${getSourceCodecName(copied)} sound as it is: ${copied.numberOfChannels === 1 ? "mono" : `${copied.numberOfChannels} channels`}, ${copied.sampleRate / 1000} kHz, about ${Math.round(copied.bitrate / 1000)} kbit/s.`
+																		? `Copies the ${getCodecName({ codec: copied.codec })} sound as it is: ${getChannelsName({ count: copied.numberOfChannels })}, ${copied.sampleRate / 1000} kHz, about ${Math.round(copied.bitrate / 1000)} kbit/s.`
 																		: "Only when the whole soundtrack is one file's sound, uncut, in a codec this container takes. Otherwise:"}
 																</p>
 															)}
@@ -1470,11 +1488,53 @@ function ExportPopover({
 									)}
 								</div>
 
-								<div className="flex flex-col gap-2 p-3 pt-0">
-									{native?.priority && !isFast && <ExportPriorityField />}
-									<p className="text-muted-foreground text-xs">
-										{isFast ? getFastSummary({ info: fastInfo, choices }) : summary}
-									</p>
+								<div className="bg-muted/30 flex flex-col gap-4 border-t px-4 py-4">
+									{isFast ? (
+										<ExportSummary
+											details={getFastSummary({ info: fastInfo, choices })}
+										/>
+									) : (
+										<div className="flex flex-col gap-2">
+											<ExportSummary
+												title={VIDEO_CODEC_NAMES[videoCodec]}
+												details={summary.details}
+												size={summary.size}
+												speed={speed}
+											/>
+											{summary.limitWarning && (
+												<p className="text-xs text-amber-700 dark:text-amber-300">
+													{summary.limitWarning}
+												</p>
+											)}
+											{cantEncodeReason && (
+												<p className="text-xs text-amber-700 dark:text-amber-300">
+													{cantEncodeReason}
+												</p>
+											)}
+										</div>
+									)}
+									{summary.tags && (
+										<div className="flex flex-col gap-0.5 text-xs">
+											<p className="text-muted-foreground">{summary.tags.text}</p>
+											{summary.tags.warning && (
+												<p className="text-amber-700 dark:text-amber-300">
+													{summary.tags.warning}
+												</p>
+											)}
+										</div>
+									)}
+									{!isFast && (softwareNames.length > 0 || native?.priority) && (
+										<div className="flex flex-col gap-3 border-t pt-3">
+											{softwareNames.length > 0 && (
+												<HardwareOnlyField
+													checked={hardwareOnly}
+													leftOut={softwareNames}
+													onChange={handleHardwareOnly}
+												/>
+											)}
+											{native?.priority && <ExportPriorityField />}
+										</div>
+									)}
 									<Button
 										onClick={handleExport}
 										className="w-full gap-2"
@@ -1488,29 +1548,28 @@ function ExportPopover({
 						)}
 
 						{isExporting && (
-							<div className="space-y-4 p-3">
+							<div className="flex flex-col gap-4 px-4 py-4">
 								<div className="flex flex-col gap-2">
-									<div className="flex items-center justify-between text-center">
-										<p className="text-muted-foreground text-sm">
+									<div className="flex items-baseline justify-between gap-3">
+										<span className="text-3xl font-semibold tabular-nums">
 											{formatExportPercent({ progress })}
-										</p>
-										<p className="text-muted-foreground text-sm">100%</p>
+										</span>
+										<ExportTiming
+											progress={progress}
+											startedAt={exportState.startedAt}
+										/>
 									</div>
 									<Progress value={progress * 100} className="w-full" />
-									<ExportTiming
-										progress={progress}
-										startedAt={exportState.startedAt}
-									/>
 								</div>
 
 								{native?.priority && isNativeRunning && <ExportPriorityField />}
 
 								<Button
 									variant="outline"
-									className="w-full rounded-md"
+									className="w-full"
 									onClick={handleCancel}
 								>
-									Cancel
+									Cancel export
 								</Button>
 							</div>
 						)}

@@ -2,9 +2,10 @@
 
 Export's Fast mode is for computers with little CPU or memory, and for keeping the original
 quality: the main track's video clips are copied out of their files, one after another, as
-Avidemux does, instead of each frame being drawn and encoded again. It's always there, beside
-Off; the panel lists what the timeline has that won't be in the file, before it starts. The
-code is in `apps/web/src/export/fast`.
+Avidemux does, instead of each frame being drawn and encoded again. It's one of the export
+panel's three modes, beside Simple and Advanced, and always there; how it copies (one of the
+two options below) is kept while another mode is chosen. The panel lists what the timeline has
+that won't be in the file, before it starts. The code is in `apps/web/src/export/fast`.
 
 ## The two options
 

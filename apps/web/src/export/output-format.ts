@@ -6,6 +6,7 @@ import {
 	type MetadataTags,
 	type OutputFormat,
 } from "mediabunny";
+import { getDateTime, type FileTags } from "@/project/file-tags";
 import type { ExportFormat } from "./index";
 
 /** The container, with MP4's and MOV's index at the end when written to a file as it goes, and
@@ -32,22 +33,53 @@ export function createOutputFormat({
 	}
 }
 
-/** The program that wrote the file, where ffprobe and MediaInfo look for it: MP4's encoding
- * tool (©too), QuickTime's software (©swr), Matroska's ENCODER tag. */
-export function getWritingAppTags({
+// Where the program that wrote the file goes, as ffprobe and MediaInfo
+// look for it: MP4's encoding tool, QuickTime's software, Matroska's ENCODER
+// tag.
+const WRITING_APP_KEYS: Record<ExportFormat, string> = {
+	mp4: "©too",
+	mov: "©swr",
+	mkv: "ENCODER",
+	webm: "ENCODER",
+};
+
+/**
+ * The tags written: the program that wrote the file (`WRITING_APP_KEYS`), and
+ * the project's details. In a QuickTime file they're its user data (©nam and
+ * the others), the place and the camera too (©xyz, ©mak, ©mod), as Apple's
+ * frameworks read them, and the day as a date and time, as they misread a day
+ * alone. In an MP4 they're iTunes' items, where Apple's frameworks and
+ * Android's read no place or camera: the desktop app writes an MP4's details
+ * itself as it puts the file in place (`ExportFile.commit`), and these are
+ * for one downloaded. Matroska has no tags for the place or the camera.
+ */
+export function getOutputTags({
 	format,
 	writingApp,
+	tags = {},
 }: {
 	format: ExportFormat;
 	writingApp: string;
+	tags?: FileTags;
 }): MetadataTags {
-	switch (format) {
-		case "mp4":
-			return { raw: { "©too": writingApp } };
-		case "mov":
-			return { raw: { "©swr": writingApp } };
-		case "mkv":
-		case "webm":
-			return { raw: { ENCODER: writingApp } };
+	const raw: Record<string, string> = {
+		[WRITING_APP_KEYS[format]]: writingApp,
+	};
+	const isQuickTime = format === "mov";
+	if (format === "mp4" || isQuickTime) {
+		if (tags.location) raw["©xyz"] = tags.location;
+		if (tags.make) raw["©mak"] = tags.make;
+		if (tags.model) raw["©mod"] = tags.model;
 	}
+	if (isQuickTime && tags.date) raw["©day"] = getDateTime({ day: tags.date });
+	return {
+		...(tags.title && { title: tags.title }),
+		...(tags.artist && { artist: tags.artist }),
+		...(tags.genre && { genre: tags.genre }),
+		...(tags.description && { description: tags.description }),
+		...(tags.comment && { comment: tags.comment }),
+		...(tags.date &&
+			!isQuickTime && { date: new Date(getDateTime({ day: tags.date })) }),
+		raw,
+	};
 }

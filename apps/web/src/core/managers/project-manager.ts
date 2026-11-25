@@ -8,6 +8,7 @@ import type {
 	TTimelineViewState,
 } from "@/project/types";
 import type { ExportOptions, ExportResult, ExportState } from "@/export";
+import { normalizeFileTags, type FileTags } from "@/project/file-tags";
 import { storageService } from "@/services/storage/service";
 import { toast } from "sonner";
 import { generateUUID } from "@/utils/id";
@@ -27,6 +28,16 @@ import { DEFAULTS } from "@/timeline/defaults";
 import { getElementFontFamilies } from "@/timeline/element-utils";
 import { getRaisedProjectFpsForImportedMedia } from "@/fps/utils";
 import type { MediaAsset } from "@/media/types";
+
+/** How an export ended, told to whatever listens (`onExportEnd`): the
+ * desktop app's notification, say. */
+export interface ExportEnd {
+	result: ExportResult;
+	/** The project's name as the export started. */
+	name: string;
+	/** How long it took, in seconds. */
+	seconds: number;
+}
 
 export interface MigrationState {
 	isMigrating: boolean;
@@ -60,6 +71,9 @@ export class ProjectManager {
 		result: null,
 	};
 	private exportCancelRequested = false;
+	/** The export under way: one at a time, the panel's or an agent's. */
+	private runningExport: Promise<ExportResult> | null = null;
+	private exportEndListeners = new Set<(end: ExportEnd) => void>();
 
 	constructor(private editor: EditorCore) {}
 
@@ -84,7 +98,8 @@ export class ProjectManager {
 
 	async createNewProject({ name }: { name: string }): Promise<string> {
 		// The open project's last changes are saved before it's replaced, and
-		// its undo history goes with it.
+		// its undo history goes with it; an export of it stops first.
+		await this.stopExport();
 		await this.editor.save.flush();
 		this.editor.command.clear();
 		const mainScene = buildDefaultScene({ name: "Main scene", isMain: true });
@@ -134,6 +149,9 @@ export class ProjectManager {
 
 	async loadProject({ id }: { id: string }): Promise<void> {
 		this.loadError = null;
+		// An export of the open project reads its media, which goes: it stops
+		// first.
+		await this.stopExport();
 		// The open project's last changes are saved before its scenes go: if
 		// they can't be, nothing goes.
 		try {
@@ -218,23 +236,26 @@ export class ProjectManager {
 	}
 
 	async saveCurrentProject(): Promise<void> {
-		if (!this.active) return;
+		const saved = this.active;
+		if (!saved) return;
 
 		try {
 			const scenes = this.editor.scenes.getScenes();
 			const updatedProject = {
-				...this.active,
+				...saved,
 				scenes,
 				metadata: {
-					...this.active.metadata,
+					...saved.metadata,
 					duration: getProjectDurationFromScenes({ scenes }),
 					updatedAt: new Date(),
 				},
 			};
 
 			await storageService.saveProject({ project: updatedProject });
-			// Closed or deleted while it saved: it isn't brought back.
-			if (this.active?.metadata.id !== updatedProject.metadata.id) return;
+			// Closed or deleted while it saved: it isn't brought back. Changed
+			// while it saved (its details, say): the change stays, for the save
+			// it asked for, rather than this older copy.
+			if (this.active !== saved) return;
 			this.active = updatedProject;
 			this.updateMetadata(updatedProject);
 		} catch (error) {
@@ -243,24 +264,60 @@ export class ProjectManager {
 		}
 	}
 
+	/**
+	 * Makes an export: one at a time, the panel's or an agent's, another
+	 * refused while it runs. Its state says how far it's got and how it ended;
+	 * whatever listens is told it ended (`onExportEnd`).
+	 */
 	async export({ options }: { options: ExportOptions }): Promise<ExportResult> {
+		if (this.runningExport) {
+			return {
+				success: false,
+				error: "Another export is running: wait for it to end, or cancel it",
+			};
+		}
+		const running = this.runExport({ options });
+		this.runningExport = running;
+		try {
+			return await running;
+		} finally {
+			this.runningExport = null;
+		}
+	}
+
+	private async runExport({
+		options,
+	}: {
+		options: ExportOptions;
+	}): Promise<ExportResult> {
 		this.exportCancelRequested = false;
+		const startedAt = Date.now();
+		const name = this.active?.metadata.name ?? "The film";
 		this.exportState = {
 			isExporting: true,
 			progress: 0,
 			result: null,
-			startedAt: Date.now(),
+			startedAt,
 		};
 		this.notify();
 
-		const result = await this.editor.renderer.exportProject({
-			options,
-			onProgress: ({ progress }) => {
-				this.exportState = { ...this.exportState, progress };
-				this.notify();
-			},
-			onCancel: () => this.exportCancelRequested,
-		});
+		let result: ExportResult;
+		try {
+			result = await this.editor.renderer.exportProject({
+				options,
+				onProgress: ({ progress }) => {
+					this.exportState = { ...this.exportState, progress };
+					this.notify();
+				},
+				onCancel: () => this.exportCancelRequested,
+			});
+		} catch (error) {
+			// Ended all the same: never left running.
+			result = {
+				success: false,
+				error: error instanceof Error ? error.message : String(error),
+			};
+		}
 
 		this.exportState = {
 			isExporting: false,
@@ -268,15 +325,70 @@ export class ProjectManager {
 			result,
 		};
 		this.notify();
-
+		const end: ExportEnd = {
+			result,
+			name,
+			seconds: (Date.now() - startedAt) / 1000,
+		};
+		for (const listener of this.exportEndListeners) {
+			try {
+				listener(end);
+			} catch (error) {
+				console.error("Couldn't say the export ended:", error);
+			}
+		}
 		return result;
+	}
+
+	/** Calls `listener` as each export ends, until the function returned is
+	 * called. */
+	onExportEnd(listener: (end: ExportEnd) => void): () => void {
+		this.exportEndListeners.add(listener);
+		return () => {
+			this.exportEndListeners.delete(listener);
+		};
+	}
+
+	/** Cancels the export under way, if there's one, and waits for it to end:
+	 * before what it reads (the project, its media) goes. */
+	async stopExport(): Promise<void> {
+		const running = this.runningExport;
+		if (!running) return;
+		this.exportCancelRequested = true;
+		await running.catch(() => undefined);
+	}
+
+	/**
+	 * The details of the project `projectId`, written into its exports, if
+	 * it's still the one open: saved as its other changes are.
+	 */
+	setFileTags({
+		projectId,
+		tags,
+	}: {
+		projectId: string;
+		tags: FileTags;
+	}): void {
+		if (this.active?.metadata.id !== projectId) return;
+		this.active = {
+			...this.active,
+			metadata: {
+				...this.active.metadata,
+				tags: normalizeFileTags({ raw: tags }),
+			},
+		};
+		this.notify();
+		this.editor.save.markDirty();
 	}
 
 	cancelExport(): void {
 		this.exportCancelRequested = true;
 	}
 
+	/** Forgets how the last export ended: not while one runs, whose progress
+	 * is still being said. */
 	clearExportState(): void {
+		if (this.runningExport) return;
 		this.exportState = { isExporting: false, progress: 0, result: null };
 		this.notify();
 	}
@@ -322,6 +434,8 @@ export class ProjectManager {
 		const deletesActive =
 			this.active !== null && idSet.has(this.active.metadata.id);
 		if (deletesActive) {
+			// An export of it reads its media, which goes too.
+			await this.stopExport();
 			this.editor.save.pause();
 			await this.editor.save.discard();
 		}
@@ -358,7 +472,10 @@ export class ProjectManager {
 		}
 	}
 
+	/** Closes the open project: an export of it is stopped first, with
+	 * `stopExport`; one still running is told to stop at its next frame. */
 	closeProject(): void {
+		if (this.runningExport) this.exportCancelRequested = true;
 		this.active = null;
 		this.notify();
 

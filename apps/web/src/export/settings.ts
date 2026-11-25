@@ -85,9 +85,22 @@ const CODEC_EFFICIENCY: Record<WebVideoCodec, number> = {
 	av1: 0.4,
 };
 
-// What a file takes besides its video and audio, about.
-const CONTAINER_OVERHEAD = 0.01;
-const MIN_VIDEO_BITRATE = 100_000;
+// What a file takes besides its video and sound: its index, about 12 bytes
+// for each video frame (its size, when it's shown, where it is) and 4 for
+// each of AAC's, 47 a second; and a few kilobytes of headers and details. At
+// a low bitrate and a high frame rate, that's a few percent of the file.
+const INDEX_BYTES_PER_FRAME = 12;
+const INDEX_BYTES_PER_SOUND_SECOND = 4 * (48_000 / 1024);
+const HEADER_BYTES = 16_000;
+// How far over their bitrates the encoders may run: VideoToolbox's HEVC and
+// AAC ran 3% over (a 100 MB limit, asked for 99 MB, came out 102 MB), and a
+// bit more to spare.
+const ENCODER_MARGIN = 0.04;
+// The least a picture is given, whatever the file's size.
+export const MIN_VIDEO_BITRATE = 100_000;
+// The most: far above any encoder's (H.264's highest level takes 800
+// Mbit/s), and within the 32 bits the desktop app reads it in.
+const MAX_VIDEO_BITRATE = 1_000_000_000;
 
 // ProRes's rates in bits a pixel, from Apple's: 147 and 220 Mbit/s at
 // 1920x1080 and 29.97 (30000/1001) frames a second.
@@ -113,6 +126,117 @@ export function getLevelBitrate({
 	height: number;
 }): number {
 	return scaledBitrate({ factor: LEVEL_FACTORS[level], codec, width, height });
+}
+
+/** About what a file takes besides its video and sound, in bytes
+ * (`INDEX_BYTES_PER_FRAME`). */
+function getContainerBytes({
+	duration,
+	fps,
+	hasSound,
+}: {
+	duration: number;
+	fps: number;
+	hasSound: boolean;
+}): number {
+	const perSecond =
+		fps * INDEX_BYTES_PER_FRAME + (hasSound ? INDEX_BYTES_PER_SOUND_SECOND : 0);
+	return HEADER_BYTES + duration * perSecond;
+}
+
+/**
+ * The bitrate, in bits a second, of the video and sound of a file that must
+ * fit in `megabytes`: what the container takes left out, and a margin for
+ * the encoders, which run a little over what they're asked, so the file
+ * comes out under the limit.
+ */
+export function getSizeLimitBitrate({
+	megabytes,
+	duration,
+	fps,
+	hasSound,
+}: {
+	megabytes: number;
+	/** In seconds. */
+	duration: number;
+	/** Frames a second. */
+	fps: number;
+	hasSound: boolean;
+}): number {
+	const bytes =
+		megabytes * 1_000_000 - getContainerBytes({ duration, fps, hasSound });
+	return Math.max(
+		0,
+		(bytes * 8) / (1 + ENCODER_MARGIN) / Math.max(duration, 1),
+	);
+}
+
+/** What a size limit leaves the picture, in bits a second, once the sound
+ * has `audioBitrate`: less than `MIN_VIDEO_BITRATE` where the film can't fit. */
+function getSizeLimitVideoBitrate({
+	megabytes,
+	duration,
+	fps,
+	audioBitrate,
+}: {
+	megabytes: number;
+	duration: number;
+	fps: number;
+	audioBitrate: number;
+}): number {
+	const total = getSizeLimitBitrate({
+		megabytes,
+		duration,
+		fps,
+		hasSound: audioBitrate > 0,
+	});
+	return total - audioBitrate;
+}
+
+/** A video bitrate within what's given a picture: `MIN_VIDEO_BITRATE` at
+ * the least, `MAX_VIDEO_BITRATE` at most. */
+function clampVideoBitrate({ bitrate }: { bitrate: number }): number {
+	return Math.min(MAX_VIDEO_BITRATE, Math.max(MIN_VIDEO_BITRATE, bitrate));
+}
+
+/** How a film fits a size limit (`getSizeLimitFit`). */
+export type SizeLimitFit = "fits" | "starved" | "over";
+
+/**
+ * How a film fits a size limit, at a size with a codec, with the sound's
+ * `audioBitrate`: "fits"; "starved" where what's left for the picture is
+ * less than the low quality level's bitrate there, which a hardware encoder
+ * doesn't keep to (100 MB for 33 minutes of 4K came out 60% over); "over"
+ * where it's less than the least a picture is given (`MIN_VIDEO_BITRATE`),
+ * so that the file comes out bigger than the limit.
+ */
+export function getSizeLimitFit({
+	megabytes,
+	duration,
+	fps,
+	codec,
+	width,
+	height,
+	audioBitrate,
+}: {
+	megabytes: number;
+	duration: number;
+	fps: number;
+	codec: WebVideoCodec;
+	width: number;
+	height: number;
+	audioBitrate: number;
+}): SizeLimitFit {
+	const left = getSizeLimitVideoBitrate({
+		megabytes,
+		duration,
+		fps,
+		audioBitrate,
+	});
+	if (left < MIN_VIDEO_BITRATE) return "over";
+	return left < getLevelBitrate({ level: "low", codec, width, height })
+		? "starved"
+		: "fits";
 }
 
 /**
@@ -187,28 +311,37 @@ export function getVideoBitrate({
 				height,
 			});
 		case "bitrate":
-			return Math.round(quality.kbps * 1000);
+			return clampVideoBitrate({ bitrate: Math.round(quality.kbps * 1000) });
 		case "size": {
-			// What's left for the video once the audio and the container have theirs.
-			const bits = quality.megabytes * 8_000_000 * (1 - CONTAINER_OVERHEAD);
-			const bitrate = bits / Math.max(duration, 1) - audioBitrate;
-			return Math.max(MIN_VIDEO_BITRATE, Math.floor(bitrate));
+			const bitrate = getSizeLimitVideoBitrate({
+				megabytes: quality.megabytes,
+				duration,
+				fps,
+				audioBitrate,
+			});
+			return clampVideoBitrate({ bitrate: Math.floor(bitrate) });
 		}
 	}
 }
 
-/** About how big the file will be, in bytes. */
+/** About how big the file will be, in bytes: the encoders a little over
+ * their bitrates (`ENCODER_MARGIN`), and the container's own. */
 export function estimateExportBytes({
 	videoBitrate,
 	audioBitrate,
 	duration,
+	fps,
 }: {
 	videoBitrate: number;
 	audioBitrate: number;
 	duration: number;
+	/** Frames a second. */
+	fps: number;
 }): number {
+	const streams = ((videoBitrate + audioBitrate) * duration) / 8;
 	return (
-		(((videoBitrate + audioBitrate) * duration) / 8) * (1 + CONTAINER_OVERHEAD)
+		streams * (1 + ENCODER_MARGIN) +
+		getContainerBytes({ duration, fps, hasSound: audioBitrate > 0 })
 	);
 }
 
@@ -219,6 +352,8 @@ export const SIZE_PRESETS = [
 	{ shortSide: 1080, label: "1080p" },
 	{ shortSide: 720, label: "720p" },
 	{ shortSide: 480, label: "480p" },
+	{ shortSide: 360, label: "360p" },
+	{ shortSide: 240, label: "240p" },
 ] as const;
 
 /** What's cut from each side of the picture, in the project's pixels. */
@@ -329,6 +464,24 @@ export function fitAudioCodec({
 }): ExportAudioCodec {
 	const codecs = FORMAT_CODECS[format].audio;
 	return codecs.includes(codec) ? codec : codecs[0];
+}
+
+/** A container's audio codec and bitrate for those chosen: the same if it
+ * takes the codec, else its first at that one's usual bitrate. */
+export function fitAudioChoice({
+	format,
+	codec,
+	kbps,
+}: {
+	format: ExportFormat;
+	codec: ExportAudioCodec;
+	kbps: number;
+}): { codec: ExportAudioCodec; kbps: number } {
+	const fitted = fitAudioCodec({ format, codec });
+	return {
+		codec: fitted,
+		kbps: fitted === codec ? kbps : DEFAULT_AUDIO_KBPS[fitted],
+	};
 }
 
 /** A container's video codec for the one chosen: the same if it takes it. */

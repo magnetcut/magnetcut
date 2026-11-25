@@ -3,6 +3,7 @@ import {
 	BUILT_IN_PRESETS,
 	DEFAULT_EXPORT_CHOICES,
 	getChosenOptions,
+	getPresetChoices,
 	isSameExport,
 	sanitizeChoices,
 	sanitizePresets,
@@ -28,9 +29,24 @@ describe("sanitizeChoices", () => {
 			deinterlace: true,
 			denoise: "strong",
 			sharpen: "light",
-			fastMode: "smart",
+			copyMode: "smart",
+			panelMode: "fast",
 		};
 		expect(sanitizeChoices({ value: choices })).toEqual(choices);
+	});
+
+	test("Fast, a setting of the other modes' once, is a mode of its own", () => {
+		// As MagnetCut 0.1.6 kept them: Fast on in the Advanced mode, or off.
+		expect(
+			sanitizeChoices({ value: { panelMode: "advanced", fastMode: "smart" } }),
+		).toMatchObject({ panelMode: "fast", copyMode: "smart" });
+		expect(
+			sanitizeChoices({ value: { panelMode: "advanced", fastMode: "off" } }),
+		).toMatchObject({ panelMode: "advanced", copyMode: "copy" });
+		// As they're kept now: how Fast copies, kept while another mode's chosen.
+		expect(
+			sanitizeChoices({ value: { panelMode: "simple", copyMode: "smart" } }),
+		).toMatchObject({ panelMode: "simple", copyMode: "smart" });
 	});
 
 	test("gives the defaults for what isn't there or isn't valid", () => {
@@ -139,7 +155,40 @@ describe("isSameExport", () => {
 	});
 });
 
+describe("getPresetChoices", () => {
+	test("takes the preset's export, and keeps the panel's own choices", () => {
+		const preset = BUILT_IN_PRESETS.find((one) => one.id === "web-1080p");
+		if (!preset) throw new Error("No WebM preset");
+		const choices: ExportChoices = {
+			...DEFAULT_EXPORT_CHOICES,
+			panelMode: "advanced",
+			copyMode: "smart",
+			wizard: { ...DEFAULT_EXPORT_CHOICES.wizard, maxMegabytes: 50 },
+		};
+		const applied = getPresetChoices({ preset, choices });
+		expect(applied).toMatchObject({
+			format: "webm",
+			videoCodec: "vp9",
+			panelMode: "advanced",
+			copyMode: "smart",
+		});
+		expect(applied.wizard.maxMegabytes).toBe(50);
+		expect(isSameExport({ a: applied, b: preset.choices })).toBe(true);
+	});
+});
+
 describe("getChosenOptions", () => {
+	test("copies the clips in the Fast mode alone", () => {
+		const choices: ExportChoices = {
+			...DEFAULT_EXPORT_CHOICES,
+			copyMode: "smart",
+		};
+		expect(getChosenOptions({ choices }).fastMode).toBe("off");
+		expect(
+			getChosenOptions({ choices: { ...choices, panelMode: "fast" } }).fastMode,
+		).toBe("smart");
+	});
+
 	test("is the export the choices make", () => {
 		expect(
 			getChosenOptions({

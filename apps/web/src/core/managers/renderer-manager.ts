@@ -41,6 +41,7 @@ import {
 import { exportFast } from "@/export/fast/exporter";
 import { formatTimecode } from "magnetcut-wasm";
 import { TICKS_PER_SECOND } from "@/wasm";
+import type { FileTags } from "@/project/file-tags";
 import { frameRateToFloat } from "@/fps/utils";
 import { downloadBlob } from "@/utils/browser";
 
@@ -198,12 +199,24 @@ export class RendererManager {
 			path,
 			fastMode = "off",
 		} = options;
+		const activeProject = this.editor.project.getActiveOrNull();
+		if (!activeProject) {
+			return { success: false, error: "No active project" };
+		}
+		// The project's details, written into the file: an MP4's on disk by
+		// the desktop app as it's put in place, where Apple's frameworks and
+		// Android's read them (`ExportFile.commit`); else by the muxer.
+		const tags = activeProject.metadata.tags;
+		const committedTags = path && format === "mp4" ? tags : undefined;
+		const muxedTags = committedTags ? undefined : tags;
 		if (fastMode !== "off") {
 			return await this.exportFast({
 				mode: fastMode,
 				format,
 				audio,
 				path,
+				muxedTags,
+				committedTags,
 				onProgress,
 				onCancel,
 			});
@@ -218,11 +231,6 @@ export class RendererManager {
 		try {
 			const tracks = this.editor.scenes.getActiveScene().tracks;
 			const mediaAssets = this.editor.media.getAssets();
-			const activeProject = this.editor.project.getActive();
-
-			if (!activeProject) {
-				return { success: false, error: "No active project" };
-			}
 
 			const duration = this.editor.timeline.getTotalDuration();
 			if (duration === 0) {
@@ -327,6 +335,7 @@ export class RendererManager {
 								: null,
 						audioCopy,
 						subtitles: subtitleTracks,
+						tags,
 					},
 					onProgress,
 					onCancel,
@@ -387,6 +396,7 @@ export class RendererManager {
 				file: path ? await openExportFile({ path }) : undefined,
 				filters: filterPasses,
 				subtitles: subtitleFiles,
+				tags: muxedTags,
 			});
 
 			exporter.on("progress", (progress) => {
@@ -418,7 +428,7 @@ export class RendererManager {
 				}
 
 				if ("buffer" in output) return { success: true, buffer: output.buffer };
-				await output.file.commit();
+				await output.file.commit({ tags: committedTags });
 				return { success: true, path };
 			} finally {
 				clearInterval(cancelInterval);
@@ -439,6 +449,8 @@ export class RendererManager {
 		format,
 		audio,
 		path,
+		muxedTags,
+		committedTags,
 		onProgress,
 		onCancel,
 	}: {
@@ -446,6 +458,10 @@ export class RendererManager {
 		format: ExportOptions["format"];
 		audio: ExportOptions["audio"];
 		path?: string;
+		/** The details the muxer writes, and those written as it's put in
+		 * place (`exportProject`). */
+		muxedTags?: FileTags;
+		committedTags?: FileTags;
 		onProgress?: ({ progress }: { progress: number }) => void;
 		onCancel?: () => boolean;
 	}): Promise<ExportResult> {
@@ -457,12 +473,13 @@ export class RendererManager {
 				format,
 				audio,
 				file: path ? await openExportFile({ path }) : undefined,
+				tags: muxedTags,
 				onProgress: (progress) => onProgress?.({ progress }),
 				isCancelled: () => !!onCancel?.(),
 			});
 			if (!output) return { success: false, cancelled: true };
 			if ("buffer" in output) return { success: true, buffer: output.buffer };
-			await output.file.commit();
+			await output.file.commit({ tags: committedTags });
 			return { success: true, path };
 		} catch (error) {
 			console.error("Fast export failed:", error);

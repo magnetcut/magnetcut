@@ -91,6 +91,49 @@ Not for iOS or Android.
   own that rav1e works in (the other codecs are the media engine's); on Windows the app's
   priority class, which Media Foundation's threads share. Not on Linux, where an app may lower a
   thread's priority but not raise it again, and the encoders' threads are GStreamer's.
+- **Hardware-accelerated exports, said and kept to.** Each system says which codecs it encodes
+  in hardware (`hardware_codecs`: VideoToolbox's list on macOS, where AV1 is rav1e's and never is;
+  Media Foundation's hardware encoders on Windows; VA-API's on Linux). The export panel's
+  summary, the same in Simple and Advanced, names the codec and says whether it's
+  hardware-accelerated or encoded in software, and much slower. "Hardware-accelerated only", on
+  by default and shown where it leaves something out, offers only the codecs in hardware: the
+  smallest file is then HEVC on a Mac, not AV1 (hours for a long 4K film); the agent's export keeps
+  to it too (`apps/web/src/export/hardware.ts`). Of WebM and Matroska, which the web view's
+  encoders make, nothing is said: which of those are in hardware isn't known. The panel redone:
+  one switch for Simple, Advanced and Fast (a mode of its own, how it copies kept while another's
+  chosen); the Simple mode's destinations as cards and its questions as rows; the summary and the
+  size at the foot (`apps/web/src/export/summary.ts`); the export's progress on the Export button,
+  which closing the panel no longer cancels, and a failed export said where it's seen.
+- **A size limit, worked back from and kept to.** The Simple mode's limit sets the rest, where the
+  destination's own quality would come out over it (under it, that's kept: the limit isn't a
+  target): the sound gets at most a quarter of it (AAC's 96 kbit/s at least; copied, its own
+  bitrate), and the picture the largest size at which what's left carries the low quality level
+  (`fitToSize`, `apps/web/src/export/wizard.ts`), down to 240p; a master file with a limit is HEVC,
+  ProRes having its own rate. The summary says "854×480 to fit 100 MB". Every size limit leaves
+  the encoders a margin, as VideoToolbox's HEVC and AAC ran 3% over (100 MB asked came out 102),
+  and counts the file's index (12 bytes a frame), so the file comes out under it; the panel, and
+  the agent's export, say when the film can't fit at all, or when a limit leaves the picture too
+  little at its size (`getSizeLimitFit`, `apps/web/src/export/settings.ts`).
+- **An export's end, said.** When the window isn't in front, a finished or failed export shows a
+  notification and bounces the Dock icon (the taskbar button flashes on Windows): the app's own
+  `show_notice` (`apps/desktop/src/notice.rs`), Notification Center's framework on macOS (only
+  in a bundled .app: `cargo tauri dev`'s binary shows none), a toast on Windows and the desktop's
+  notification service on Linux (notify-rust); `apps/web/src/desktop/export-notice.ts`. The
+  panel's exports and the agent's both.
+- **The project's details, written into its exports.** "Details", beside the project's name,
+  opens a panel of what every export of the project says of itself: title, made by, date, genre,
+  description, comment, camera and place (`apps/web/src/project/file-tags.ts`, kept with the
+  project). Each field offers what the media library's clips say (an iPhone's: the day filmed, the
+  place, the camera; `clip-tags.ts`, read with mediabunny) and takes the user's own; "Fill in from
+  the clips" fills the empty ones, never the place, which is written only when chosen, with a
+  warning; the export panel's summary says which details a file gets. Written by every export: in
+  an MP4 as iTunes' items, the place and camera also as QuickTime's user data of old (©xyz, ©mak,
+  ©mod), which ffmpeg and Android read, and the day and place as 3GPP's `date` and `loci`, which
+  Apple's frameworks read (they read no camera from an MP4); by `mp4_index.rs` for every MP4 the
+  desktop app writes, its own on all three systems and mediabunny's in Fast mode. In a Mac's
+  QuickTime file as QuickTime's metadata, as an iPhone writes it, and its user data; the day
+  written as noon in UTC, which every reader takes for that day. Matroska and WebM, through
+  mediabunny, have no place or camera; a download from the browser, mediabunny's tags.
 - **Subtitles, like Jubler, synced as easily as in YouTube's editor.** A subtitle track on the
   timeline over the waveform, and beside it the list (start, end, duration, reading speed,
   text), editable in place. Open and save SRT, WebVTT, ASS/SSA, SubViewer, MicroDVD, with the

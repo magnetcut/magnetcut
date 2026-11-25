@@ -5,7 +5,7 @@
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -16,8 +16,8 @@ use super::frames::FrameBuffer;
 use super::mp4_index;
 use super::pipeline::{by_name, clock_time, failure, first_element, launch, play};
 use super::settings::{
-    Audio, AudioSettings, Capabilities, Container, KEY_FRAME_INTERVAL, SubtitleTrack, VideoCodec,
-    VideoSettings, WRITING_APP,
+    Audio, AudioSettings, Capabilities, Container, FileTags, KEY_FRAME_INTERVAL, SubtitleTrack,
+    VideoCodec, VideoSettings, WRITING_APP,
 };
 
 // A sound buffer's length, in seconds: short, so the sound and the pictures
@@ -36,6 +36,8 @@ const STALL: gst::ClockTime = gst::ClockTime::from_seconds(60);
 const H264_ENCODERS: [&str; 4] = ["vah264enc", "vaapih264enc", "x264enc", "openh264enc"];
 const HEVC_ENCODERS: [&str; 3] = ["vah265enc", "vaapih265enc", "x265enc"];
 const AAC_ENCODERS: [&str; 4] = ["fdkaacenc", "avenc_aac", "voaacenc", "faac"];
+// Those of them that are the GPU's.
+const HARDWARE_ENCODERS: [&str; 4] = ["vah264enc", "vaapih264enc", "vah265enc", "vaapih265enc"];
 
 /// Whether H.264 and HEVC take a constant quality here: where the encoders
 /// for both are x264's and x265's, by their rate factor.
@@ -56,13 +58,22 @@ fn encoders(codec: VideoCodec) -> &'static [&'static str] {
 /// encoders for, in MP4.
 pub fn capabilities() -> Capabilities {
     let can_mux = first_element(&["mp4mux"]).is_some();
-    let video_codecs = [VideoCodec::Avc, VideoCodec::Hevc]
+    let video_codecs: Vec<VideoCodec> = [VideoCodec::Avc, VideoCodec::Hevc]
         .into_iter()
         .filter(|&codec| can_mux && first_element(encoders(codec)).is_some())
+        .collect();
+    // In hardware where the encoder found first is the GPU's.
+    let hardware_codecs = video_codecs
+        .iter()
+        .copied()
+        .filter(|&codec| {
+            first_element(encoders(codec)).is_some_and(|name| HARDWARE_ENCODERS.contains(&name))
+        })
         .collect();
     Capabilities {
         formats: vec![Container::Mp4],
         video_codecs,
+        hardware_codecs,
         constant_quality: constant_quality(),
         audio_copy: can_mux && first_element(&["aacparse"]).is_some(),
         // As timed text (tx3g), which mp4mux writes, as on a Mac.
@@ -106,11 +117,16 @@ struct Sound {
 
 pub struct Writer {
     pipeline: gst::Pipeline,
+    path: PathBuf,
     video: AppSrc,
     sound: Option<Sound>,
     size: (u32, u32),
     fps: (u32, u32),
     frames: u64,
+    /// Written once it's finished (`mp4_index.rs`), as on the other
+    /// systems: mp4mux writes only some of them, and the day as GStreamer
+    /// sees fit.
+    tags: FileTags,
 }
 
 impl Writer {
@@ -123,17 +139,18 @@ impl Writer {
         video: &VideoSettings,
         audio: Option<Audio>,
     ) -> Result<Self, String> {
-        Self::with_subtitles(path, container, video, audio, &[])
+        Self::with_subtitles(path, container, video, audio, &[], &FileTags::default())
     }
 
     /// Starts a file at `path`, replacing what's there, with subtitle tracks
-    /// as timed text.
+    /// as timed text, and the film's details, `tags`.
     pub fn with_subtitles(
         path: &Path,
         container: Container,
         video: &VideoSettings,
         audio: Option<Audio>,
         subtitles: &[SubtitleTrack],
+        tags: &FileTags,
     ) -> Result<Self, String> {
         if container != Container::Mp4 {
             return Err("Linux's own export makes only MP4 files".into());
@@ -197,12 +214,15 @@ impl Writer {
         let pipeline = launch(&description)?;
         let sink = pipeline.by_name("sink").ok_or("no sink")?;
         sink.set_property("location", path.to_str().ok_or("not a UTF-8 path")?);
-        // The program that wrote the film: MP4's encoding tool (©too).
+        // The program that wrote the film: MP4's encoding tool (©too). The
+        // streams' tags aren't the film's: a copied sound's would bring the
+        // source's title and the rest in.
         let mux = pipeline.by_name("mux").ok_or("no muxer")?;
-        let tags = mux
+        let setter = mux
             .dynamic_cast_ref::<gst::TagSetter>()
             .ok_or("the muxer takes no tags")?;
-        tags.add_tag::<gst::tags::Encoder>(&WRITING_APP, gst::TagMergeMode::Replace);
+        setter.set_tag_merge_mode(gst::TagMergeMode::KeepAll);
+        setter.add_tag::<gst::tags::Encoder>(&WRITING_APP, gst::TagMergeMode::Replace);
         configure_encoder(&pipeline, encoder, video, fps)?;
 
         let video_source: AppSrc = by_name(&pipeline, "video")?;
@@ -247,11 +267,13 @@ impl Writer {
         }
         let writer = Self {
             pipeline,
+            path: path.to_owned(),
             video: video_source,
             sound,
             size,
             fps,
             frames: 0,
+            tags: tags.clone(),
         };
         play(&writer.pipeline)?;
         for (index, track) in subtitles.iter().enumerate() {
@@ -385,7 +407,8 @@ impl Writer {
             _ => Err("The file took too long to finish".into()),
         };
         let _ = self.pipeline.set_state(gst::State::Null);
-        result
+        result?;
+        mp4_index::finish(&self.path, &[], (0, 0), &self.tags)
     }
 
     /// Stops, leaving the file for the caller to delete.

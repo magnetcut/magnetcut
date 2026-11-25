@@ -9,11 +9,14 @@ import {
 import {
 	EXPORT_VIDEO_CODECS,
 	estimateExportBytes,
+	fitAudioChoice,
 	fitAudioCodec,
 	fitExportSize,
 	fitVideoCodec,
 	getConstantQualityBitrate,
 	getLevelBitrate,
+	getSizeLimitBitrate,
+	getSizeLimitFit,
 	getVideoBitrate,
 	isNativeOnlyCodec,
 } from "../settings";
@@ -118,7 +121,7 @@ describe("getVideoBitrate", () => {
 		expect(bitrate).toBe(4_500_000);
 	});
 
-	test("a file size leaves room for the audio and comes out at that size", () => {
+	test("a file size leaves room for the audio, and comes out under it", () => {
 		const audioBitrate = 192_000;
 		const duration = 60;
 		const videoBitrate = getVideoBitrate({
@@ -130,8 +133,14 @@ describe("getVideoBitrate", () => {
 			duration,
 			audioBitrate,
 		});
-		expect(videoBitrate).toBe(3_108_000);
-		const bytes = estimateExportBytes({ videoBitrate, audioBitrate, duration });
+		expect(videoBitrate).toBe(3_006_865);
+		// Under it with the encoders over as they run, and the index.
+		const bytes = estimateExportBytes({
+			videoBitrate,
+			audioBitrate,
+			duration,
+			fps: 30,
+		});
 		expect(bytes).toBeLessThanOrEqual(25_000_000);
 		expect(bytes).toBeGreaterThan(24_900_000);
 	});
@@ -206,6 +215,70 @@ describe("getVideoBitrate", () => {
 		});
 		expect(bitrate).toBe(100_000);
 	});
+
+	test("a file size for a short film gives no more than a picture takes", () => {
+		// 10 GB for a second: within the 32 bits the desktop app reads it in.
+		const bitrate = getVideoBitrate({
+			quality: { mode: "size", megabytes: 10_000 },
+			codec: "avc",
+			width: 1920,
+			height: 1080,
+			fps: 30,
+			duration: 1,
+			audioBitrate: 192_000,
+		});
+		expect(bitrate).toBe(1_000_000_000);
+		expect(bitrate).toBeLessThan(2 ** 32);
+	});
+});
+
+describe("getSizeLimitFit", () => {
+	// 33 minutes at 30 frames a second, the sound at AAC's least.
+	const film = {
+		duration: 33 * 60 + 15,
+		fps: 30,
+		codec: "hevc" as const,
+		audioBitrate: 96_000,
+	};
+
+	test("fits where the picture gets the low level's bitrate at its size", () => {
+		expect(
+			getSizeLimitFit({ ...film, megabytes: 100, width: 854, height: 480 }),
+		).toBe("fits");
+	});
+
+	test("starved where it gets less, which a hardware encoder doesn't keep to", () => {
+		expect(
+			getSizeLimitFit({ ...film, megabytes: 100, width: 3840, height: 2160 }),
+		).toBe("starved");
+	});
+
+	test("over where it gets less than the least a picture's given", () => {
+		expect(
+			getSizeLimitFit({ ...film, megabytes: 10, width: 854, height: 480 }),
+		).toBe("over");
+		// The sound alone more than the limit.
+		expect(
+			getSizeLimitFit({
+				...film,
+				megabytes: 20,
+				audioBitrate: 192_000,
+				width: 854,
+				height: 480,
+			}),
+		).toBe("over");
+	});
+
+	test("the index counts: the more frames, the less a limit leaves", () => {
+		const at = (fps: number) =>
+			getSizeLimitBitrate({
+				megabytes: 10,
+				duration: 600,
+				fps,
+				hasSound: true,
+			});
+		expect(at(60)).toBeLessThan(at(24));
+	});
 });
 
 describe("codecs a container takes", () => {
@@ -219,5 +292,16 @@ describe("codecs a container takes", () => {
 		expect(fitVideoCodec({ format: "mov", codec: "av1" })).toBe("avc");
 		expect(fitAudioCodec({ format: "webm", codec: "aac" })).toBe("opus");
 		expect(fitAudioCodec({ format: "mov", codec: "opus" })).toBe("aac");
+	});
+
+	test("keep the sound's bitrate with its codec, else take the new one's usual", () => {
+		expect(fitAudioChoice({ format: "mkv", codec: "opus", kbps: 96 })).toEqual({
+			codec: "opus",
+			kbps: 96,
+		});
+		expect(fitAudioChoice({ format: "mov", codec: "opus", kbps: 96 })).toEqual({
+			codec: "aac",
+			kbps: 192,
+		});
 	});
 });

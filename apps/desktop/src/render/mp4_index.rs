@@ -2,16 +2,18 @@
 // timed text (3GPP tx3g, the "mov_text" players show), for Media
 // Foundation's sink, which can't write them; the program that wrote the
 // film, which neither that sink nor AVFoundation (before macOS 27) writes in
-// an MP4; and the index moved to the front, so the film plays as it
-// downloads. The lines go in a new mdat in the index's place, where it's at
-// the end as those writers put it, and the index follows them with a track
-// for each; elsewhere, the old index is left as free space.
+// an MP4, and the film's details (title, date, place...), the same whoever
+// wrote it (AVFoundation, Media Foundation, GStreamer, mediabunny); and the
+// index moved to the front, so the film plays as it downloads. The lines go
+// in a new mdat in the index's place, where it's at the end as those writers
+// put it, and the index follows them with a track for each; elsewhere, the
+// old index is left as free space.
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
-use super::settings::{SubtitleCue, SubtitleTrack, WRITING_APP};
+use super::settings::{FileTag, FileTags, Place, SubtitleCue, SubtitleTrack, WRITING_APP};
 
 // The subtitle tracks' time scale: milliseconds.
 const TIMESCALE: u32 = 1000;
@@ -38,14 +40,22 @@ pub fn samples(cues: &[SubtitleCue]) -> Vec<(f64, f64, String)> {
     samples
 }
 
+/// The most of `text` that's at most `max` bytes long, whole characters.
+fn utf8_prefix(text: &str, max: usize) -> &str {
+    let mut end = text.len().min(max);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
 /// A timed text sample: the text's length in bytes, big end first, then the
-/// text in UTF-8; empty, it clears the screen.
+/// text in UTF-8 (as much as 16 bits count); empty, it clears the screen.
 fn sample_data(text: &str) -> Vec<u8> {
-    let bytes = text.as_bytes();
-    let length = bytes.len().min(usize::from(u16::MAX));
-    let mut data = Vec::with_capacity(length + 2);
-    data.extend((length as u16).to_be_bytes());
-    data.extend(&bytes[..length]);
+    let text = utf8_prefix(text, usize::from(u16::MAX));
+    let mut data = Vec::with_capacity(text.len() + 2);
+    data.extend((text.len() as u16).to_be_bytes());
+    data.extend(text.as_bytes());
     data
 }
 
@@ -70,21 +80,23 @@ fn full_box(kind: &[u8; 4], version: u8, flags: u32, content: &[u8]) -> Vec<u8> 
 fn children(data: &[u8]) -> Result<Vec<([u8; 4], usize, usize)>, String> {
     let mut boxes = Vec::new();
     let mut at = 0;
-    while at + 8 <= data.len() {
+    while data.len() - at >= 8 {
         let size = u32::from_be_bytes(data[at..at + 4].try_into().unwrap_or_default()) as usize;
         let kind: [u8; 4] = data[at + 4..at + 8].try_into().unwrap_or_default();
         let size = match size {
             0 => data.len() - at,
-            1 if at + 16 <= data.len() => {
-                u64::from_be_bytes(data[at + 8..at + 16].try_into().unwrap_or_default()) as usize
+            1 if data.len() - at >= 16 => {
+                let size = u64::from_be_bytes(data[at + 8..at + 16].try_into().unwrap_or_default());
+                usize::try_from(size).unwrap_or(usize::MAX)
             }
             size => size,
         };
-        if size < 8 || at + size > data.len() {
-            return Err("the film's index is damaged".into());
-        }
-        boxes.push((kind, at, at + size));
-        at += size;
+        let end = at
+            .checked_add(size)
+            .filter(|&end| size >= 8 && end <= data.len())
+            .ok_or("the film's index is damaged")?;
+        boxes.push((kind, at, end));
+        at = end;
     }
     Ok(boxes)
 }
@@ -237,42 +249,151 @@ fn track(
     boxed(b"trak", &[tkhd, mdia].concat())
 }
 
+/// One of the film's details in an MP4's user data (moov/udta).
+enum DetailBox {
+    /// An item of iTunes' metadata (meta/ilst), where ffprobe, MediaInfo
+    /// and Apple's frameworks read them; beside metadata of another kind,
+    /// left as it is, QuickTime's user data text instead.
+    Item([u8; 4], String),
+    /// QuickTime's user data text of old, where Android and ffmpeg read a
+    /// place and a camera.
+    Text([u8; 4], String),
+    /// A box of its own (its type, then the whole box): where Apple's
+    /// frameworks read a place and a day in an MP4.
+    Own([u8; 4], Vec<u8>),
+}
+
+/// Where each of the film's details goes in an MP4: the day as a date and
+/// time (`FileTags::date_time`), which Apple's frameworks read as a date,
+/// also in ISO's date box (`date`); the place in QuickTime's user data and
+/// in 3GPP's location box (`loci`).
+fn detail_boxes(tags: &FileTags) -> Vec<DetailBox> {
+    let mut boxes = Vec::new();
+    for (tag, text) in tags.iter() {
+        let item = |kind: &[u8; 4]| DetailBox::Item(*kind, text.to_owned());
+        let user_text = |kind: &[u8; 4]| DetailBox::Text(*kind, text.to_owned());
+        match tag {
+            FileTag::Title => boxes.push(item(b"\xa9nam")),
+            FileTag::Artist => boxes.push(item(b"\xa9ART")),
+            FileTag::Date => {
+                let date_time = tags.date_time().unwrap_or_default();
+                boxes.push(DetailBox::Own(
+                    *b"date",
+                    boxed(b"date", date_time.as_bytes()),
+                ));
+                boxes.push(DetailBox::Item(*b"\xa9day", date_time));
+            }
+            FileTag::Genre => boxes.push(item(b"\xa9gen")),
+            FileTag::Description => boxes.push(item(b"\xa9des")),
+            FileTag::Comment => boxes.push(item(b"\xa9cmt")),
+            FileTag::Location => {
+                boxes.push(user_text(b"\xa9xyz"));
+                if let Some(place) = tags.place() {
+                    boxes.push(DetailBox::Own(*b"loci", location(place)));
+                }
+            }
+            FileTag::Make => boxes.push(user_text(b"\xa9mak")),
+            FileTag::Model => boxes.push(user_text(b"\xa9mod")),
+        }
+    }
+    boxes
+}
+
+/// 3GPP's location box (TS 26.244): no name, the place it was filmed (role
+/// 0), on Earth; its longitude, latitude and height in 16.16 fixed point.
+fn location(place: Place) -> Vec<u8> {
+    let fixed = |value: f64| ((value * 65536.0).round() as i32).to_be_bytes();
+    // Its language undetermined, an empty name, the role.
+    let mut content = 0x55c4u16.to_be_bytes().to_vec();
+    content.extend([0, 0]);
+    content.extend(fixed(place.longitude));
+    content.extend(fixed(place.latitude));
+    content.extend(fixed(place.height.unwrap_or(0.0)));
+    // The astronomical body, and no notes.
+    content.extend(b"earth\0\0");
+    full_box(b"loci", 0, 0, &content)
+}
+
+/// An iTunes metadata item: its value as UTF-8 (type 1), in no locale.
+fn item(kind: &[u8; 4], text: &str) -> Vec<u8> {
+    let mut value = 1u32.to_be_bytes().to_vec();
+    value.extend(0u32.to_be_bytes());
+    value.extend(text.as_bytes());
+    boxed(kind, &boxed(b"data", &value))
+}
+
+/// QuickTime's user data text: its length, its language (undetermined) and
+/// the text, as much as 16 bits count.
+fn user_text(kind: &[u8; 4], text: &str) -> Vec<u8> {
+    let text = utf8_prefix(text, usize::from(u16::MAX));
+    let mut value = (text.len() as u16).to_be_bytes().to_vec();
+    value.extend(0x55c4u16.to_be_bytes());
+    value.extend(text.as_bytes());
+    boxed(kind, &value)
+}
+
 /// The film's user data, `old` (its boxes), with the program that wrote the
-/// film in iTunes' metadata, where ffprobe and MediaInfo look for it: the
-/// encoding tool (©too). What's there stays, a name there already too.
-fn user_data(old: &[u8]) -> Result<Vec<u8>, String> {
-    let mut others = Vec::new();
+/// film, where ffprobe and MediaInfo look for it: the encoding tool (©too),
+/// a name there already staying; and the film's details, `tags`, each in
+/// place of one there (`detail_boxes`).
+fn user_data(old: &[u8], tags: &FileTags) -> Result<Vec<u8>, String> {
+    let mut old_boxes = Vec::new();
     let mut meta: &[u8] = &[];
     for (kind, start, end) in children(old)? {
         if &kind == b"meta" && meta.is_empty() {
             // After its version and flags.
             meta = old.get(start + 12..end).unwrap_or_default();
         } else {
-            others.extend(&old[start..end]);
+            old_boxes.push((kind, &old[start..end]));
         }
     }
-    let (mut handler, mut items, mut rest) = (None, Vec::new(), Vec::new());
+    let (mut handler, mut items, mut rest) = (None, &[][..], Vec::new());
     for (kind, start, end) in children(meta)? {
         match &kind {
             b"hdlr" if handler.is_none() => handler = Some(&meta[start..end]),
-            b"ilst" if items.is_empty() => items = meta[start + 8..end].to_vec(),
+            b"ilst" if items.is_empty() => items = &meta[start + 8..end],
             _ => rest.extend(&meta[start..end]),
         }
     }
-    // Metadata of another kind than iTunes': left as it is.
-    if handler.is_some_and(|hdlr| hdlr.get(16..20) != Some(b"mdir")) {
-        return Ok(boxed(b"udta", old));
+    let old_items = children(items)?;
+    // iTunes' metadata, or none yet: else metadata of another kind.
+    let is_itunes = handler.is_none_or(|hdlr| hdlr.get(16..20) == Some(b"mdir"));
+
+    let mut details = detail_boxes(tags);
+    let has_tool = old_items.iter().any(|(kind, _, _)| kind == b"\xa9too")
+        || old_boxes.iter().any(|(kind, _)| kind == b"\xa9too");
+    if !has_tool {
+        details.push(DetailBox::Item(*b"\xa9too", WRITING_APP.to_owned()));
     }
-    if !children(&items)?
+    let (mut new_items, mut new_boxes) = (Vec::new(), Vec::new());
+    for detail in details {
+        match detail {
+            DetailBox::Item(kind, text) if is_itunes => new_items.push((kind, item(&kind, &text))),
+            DetailBox::Item(kind, text) | DetailBox::Text(kind, text) => {
+                new_boxes.push((kind, user_text(&kind, &text)));
+            }
+            DetailBox::Own(kind, data) => new_boxes.push((kind, data)),
+        }
+    }
+    let is_new =
+        |list: &[([u8; 4], Vec<u8>)], kind: &[u8; 4]| list.iter().any(|(new, _)| new == kind);
+
+    let mut user_data: Vec<u8> = old_boxes
         .iter()
-        .any(|(kind, _, _)| kind == b"\xa9too")
-    {
-        // UTF-8 (type 1), in no locale.
-        let mut value = 1u32.to_be_bytes().to_vec();
-        value.extend(0u32.to_be_bytes());
-        value.extend(WRITING_APP.as_bytes());
-        items.extend(boxed(b"\xa9too", &boxed(b"data", &value)));
+        .filter(|(kind, _)| !is_new(&new_boxes, kind))
+        .flat_map(|(_, data)| data.iter().copied())
+        .collect();
+    user_data.extend(new_boxes.into_iter().flat_map(|(_, data)| data));
+    if !is_itunes {
+        user_data.extend(full_box(b"meta", 0, 0, meta));
+        return Ok(boxed(b"udta", &user_data));
     }
+    let mut all_items: Vec<u8> = old_items
+        .iter()
+        .filter(|(kind, _, _)| !is_new(&new_items, kind))
+        .flat_map(|&(_, start, end)| items[start..end].iter().copied())
+        .collect();
+    all_items.extend(new_items.into_iter().flat_map(|(_, data)| data));
     // iTunes' handler: no predefined value, the type and its maker, two
     // reserved words and an empty name.
     let hdlr = handler.map_or_else(
@@ -284,13 +405,13 @@ fn user_data(old: &[u8]) -> Result<Vec<u8>, String> {
         },
         <[u8]>::to_vec,
     );
-    let meta = full_box(
+    user_data.extend(full_box(
         b"meta",
         0,
         0,
-        &[hdlr, rest, boxed(b"ilst", &items)].concat(),
-    );
-    Ok(boxed(b"udta", &[others, meta].concat()))
+        &[hdlr, rest, boxed(b"ilst", &all_items)].concat(),
+    ));
+    Ok(boxed(b"udta", &user_data))
 }
 
 fn failed(error: std::io::Error) -> String {
@@ -313,7 +434,7 @@ fn open(path: &Path) -> Result<(File, u64), String> {
 fn top_level(file: &mut File, length: u64) -> Result<Vec<([u8; 4], u64, u64)>, String> {
     let mut boxes = Vec::new();
     let mut at = 0u64;
-    while at + 8 <= length {
+    while length - at >= 8 {
         let mut header = [0u8; 16];
         file.seek(SeekFrom::Start(at)).map_err(failed)?;
         file.read_exact(&mut header[..8]).map_err(failed)?;
@@ -326,18 +447,24 @@ fn top_level(file: &mut File, length: u64) -> Result<Vec<([u8; 4], u64, u64)>, S
         } else if size == 0 {
             size = length - at;
         }
-        if size < 8 || at + size > length {
-            return Err("the film isn't a whole MP4".into());
-        }
+        let end = at
+            .checked_add(size)
+            .filter(|&end| size >= 8 && end <= length)
+            .ok_or("the film isn't a whole MP4")?;
         boxes.push((header[4..8].try_into().unwrap_or_default(), at, size));
-        at += size;
+        at = end;
     }
     Ok(boxes)
 }
 
 /// Finishes the MP4 at `path`: its subtitle tracks, for a picture of
-/// `size`, and the program that wrote it.
-pub fn finish(path: &Path, tracks: &[SubtitleTrack], size: (u32, u32)) -> Result<(), String> {
+/// `size`, the program that wrote it, and its details, `tags`.
+pub fn finish(
+    path: &Path,
+    tracks: &[SubtitleTrack],
+    size: (u32, u32),
+    tags: &FileTags,
+) -> Result<(), String> {
     let (mut file, length) = open(path)?;
     let boxes = top_level(&mut file, length)?;
     let (_, moov_at, moov_size) = *boxes
@@ -405,7 +532,7 @@ pub fn finish(path: &Path, tracks: &[SubtitleTrack], size: (u32, u32)) -> Result
         }
     }
     rest.extend(traks);
-    rest.extend(user_data(old_user_data)?);
+    rest.extend(user_data(old_user_data, tags)?);
     let new_index = boxed(b"moov", &rest);
 
     if is_last {
@@ -548,8 +675,9 @@ fn move_index(path: &Path, chunk: u64) -> Result<(), String> {
 }
 
 /// The subtitle tracks of an MP4 as this module writes them: each sample's
-/// start, end and text, track by track.
-#[cfg(test)]
+/// start, end and text, track by track. Not on Linux, where mp4mux writes
+/// them.
+#[cfg(all(test, not(target_os = "linux")))]
 pub fn read_tracks(path: &Path) -> Vec<Vec<(f64, f64, String)>> {
     let file = std::fs::read(path).unwrap();
     let top = children(&file).unwrap();
@@ -617,7 +745,102 @@ pub fn read_tracks(path: &Path) -> Vec<Vec<(f64, f64, String)>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SubtitleCue, boxed, children, chunk_offsets, full_box, move_index, samples};
+    use super::{
+        FileTag, FileTags, SubtitleCue, boxed, children, chunk_offsets, full_box, move_index,
+        samples, user_data, user_text,
+    };
+
+    /// The boxes in user data `udta`, by type, each with what's in it.
+    fn user_boxes(udta: &[u8]) -> Vec<([u8; 4], Vec<u8>)> {
+        children(&udta[8..])
+            .unwrap()
+            .into_iter()
+            .map(|(kind, start, end)| (kind, udta[8 + start + 8..8 + end].to_vec()))
+            .collect()
+    }
+
+    fn details() -> FileTags {
+        [
+            (FileTag::Title, "A walk"),
+            (FileTag::Date, "2026-11-13"),
+            (FileTag::Location, "+48.8584-002.2945+035.000/"),
+            (FileTag::Make, "Apple"),
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    #[test]
+    fn writes_each_detail_where_it_is_read() {
+        let found = user_boxes(&user_data(&[], &details()).unwrap());
+        let kinds: Vec<[u8; 4]> = found.iter().map(|(kind, _)| *kind).collect();
+        assert_eq!(
+            kinds,
+            [*b"date", *b"\xa9xyz", *b"loci", *b"\xa9mak", *b"meta"]
+        );
+        assert_eq!(found[0].1, b"2026-11-13T12:00:00Z");
+        // 3GPP's place: after its version and flags, language, name and
+        // role, the longitude, latitude and height in 16.16.
+        let loci = &found[2].1;
+        let number = |at: usize| {
+            f64::from(i32::from_be_bytes(loci[at..at + 4].try_into().unwrap())) / 65536.0
+        };
+        assert!((number(8) + 2.2945).abs() < 1e-4, "{}", number(8));
+        assert!((number(12) - 48.8584).abs() < 1e-4, "{}", number(12));
+        assert!((number(16) - 35.0).abs() < 1e-4, "{}", number(16));
+        assert_eq!(&loci[20..], b"earth\0\0");
+        // iTunes' items: the title, the day as a date and time, the program.
+        let meta = &found[4].1;
+        let has = |kind: &[u8], text: &str| {
+            meta.windows(4).any(|window| window == kind)
+                && meta
+                    .windows(text.len())
+                    .any(|window| window == text.as_bytes())
+        };
+        assert!(has(b"\xa9nam", "A walk"));
+        assert!(has(b"\xa9day", "2026-11-13T12:00:00Z"));
+        assert!(has(b"\xa9too", super::WRITING_APP));
+    }
+
+    #[test]
+    fn beside_metadata_of_another_kind_the_details_are_user_data() {
+        let handler = [&[0u8; 4][..], b"ID32", &[0u8; 13]].concat();
+        let meta = full_box(b"meta", 0, 0, &full_box(b"hdlr", 0, 0, &handler));
+        let found = user_boxes(&user_data(&meta, &details()).unwrap());
+        let kinds: Vec<[u8; 4]> = found.iter().map(|(kind, _)| *kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                *b"\xa9nam",
+                *b"date",
+                *b"\xa9day",
+                *b"\xa9xyz",
+                *b"loci",
+                *b"\xa9mak",
+                *b"\xa9too",
+                *b"meta"
+            ]
+        );
+        // QuickTime's text: its length, its language, then the text.
+        assert_eq!(found[0].1, [&[0, 6, 0x55, 0xc4][..], b"A walk"].concat());
+        // The other metadata, as it was.
+        assert_eq!(found[7].1, meta[8..]);
+    }
+
+    #[test]
+    fn text_too_long_for_its_box_keeps_whole_characters() {
+        let data = user_text(b"\xa9cmt", &"é".repeat(40_000));
+        assert_eq!(u16::from_be_bytes([data[8], data[9]]), 65_534);
+        assert!(std::str::from_utf8(&data[12..]).is_ok());
+    }
+
+    #[test]
+    fn a_box_longer_than_its_parent_is_damage() {
+        let mut data = 1u32.to_be_bytes().to_vec();
+        data.extend(b"free");
+        data.extend(u64::MAX.to_be_bytes());
+        assert!(children(&data).is_err());
+    }
 
     #[test]
     fn fills_the_stretches_between_lines() {

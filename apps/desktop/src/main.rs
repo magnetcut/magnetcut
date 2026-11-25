@@ -12,6 +12,7 @@ mod export;
 mod graphics;
 mod media;
 mod menu;
+mod notice;
 mod opened;
 mod project_file;
 mod render;
@@ -38,6 +39,7 @@ macro_rules! commands {
             media::read_media_file,
             media::reveal_media_file,
             opened::take_opened_files,
+            notice::show_notice,
             export::pick_export_file,
             export::open_export_file,
             export::write_export_file,

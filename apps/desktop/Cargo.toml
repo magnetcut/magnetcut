@@ -77,7 +77,7 @@ libc = "0.2"
 # versions Tauri itself uses.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSArray", "NSData", "NSError", "NSProcessInfo", "NSString", "NSURL"] }
+objc2-foundation = { version = "0.3", features = ["NSArray", "NSBundle", "NSData", "NSError", "NSProcessInfo", "NSString", "NSURL"] }
 objc2-app-kit = { version = "0.3", features = ["NSPasteboard"] }
 # The native export on macOS (src/render/): AVFoundation decodes the sources
 # and encodes the film.
@@ -89,6 +89,10 @@ objc2-core-video = "0.3"
 objc2-core-audio-types = "0.3"
 objc2-core-foundation = "0.3"
 block2 = "0.6"
+# The notification an export's end shows when the window isn't in front
+# (src/notice.rs): Notification Center's own framework, as an app is to use
+# it, sandboxed too.
+objc2-user-notifications = { version = "0.3", features = ["block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"] }
 # The AV1 encoder's threads, its own so they take the export's priority
 # (src/render/priority.rs). The version rav1e uses.
 rayon = "1"
@@ -99,6 +103,11 @@ rayon = "1"
 rav1e = { version = "0.8", default-features = false, features = ["threading", "asm"] }
 [target.'cfg(all(target_os = "macos", not(target_arch = "aarch64")))'.dependencies]
 rav1e = { version = "0.8", default-features = false, features = ["threading"] }
+
+# That notification elsewhere (src/notice.rs): a toast on Windows, the
+# desktop's notification service on Linux, through zbus (no libdbus).
+[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
+notify-rust = "4.18"
 
 # Media Foundation, for the native export on Windows (src/render/windows/),
 # the power requests that keep an export going (src/activity.rs), and the

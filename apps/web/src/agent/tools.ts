@@ -2,10 +2,22 @@ import { invoke } from "@tauri-apps/api/core";
 import type { EditorCore } from "@/core";
 import { getAppInfo } from "@/desktop/app-info";
 import { EXPORT_FORMAT_VALUES, type ExportFormat } from "@/export";
-import { DEFAULT_EXPORT_CHOICES, getChosenOptions } from "@/export/choices";
+import {
+	DEFAULT_EXPORT_CHOICES,
+	MIN_SHORT_SIDE,
+	getChosenOptions,
+} from "@/export/choices";
 import { findEncodableCodecs } from "@/export/encodable";
+import {
+	getHardwareCodecs,
+	keepToHardware,
+	useHardwareOnlyStore,
+} from "@/export/hardware";
+import { getNativeCapabilities } from "@/export/native";
+import { describeAudioPassthrough } from "@/export/passthrough";
 import { estimateSecondsLeft, formatDuration } from "@/export/progress";
-import { FRAME_RATE_PRESETS } from "@/export/settings";
+import { FRAME_RATE_PRESETS, fitExportSize } from "@/export/settings";
+import { summarizeExport } from "@/export/summary";
 import {
 	applyWizardAnswers,
 	DEFAULT_WIZARD_ANSWERS,
@@ -71,6 +83,37 @@ function summaryInput({ editor }: { editor: EditorCore }): SummaryInput {
 		assets: editor.media.getAssets(),
 		tracks,
 	};
+}
+
+/** Refuses while an export runs, the panel's or an agent's: one at a time,
+ * and the project it reads stays open until it ends. */
+function needNoExport({ editor }: { editor: EditorCore }): void {
+	if (editor.project.getExportState().isExporting) {
+		throw new ToolError(
+			"An export is running: wait for it to end, or cancel it in the Export panel",
+		);
+	}
+}
+
+/** A number of `args`', none where it isn't given: refused, with what it
+ * is (`what`), where it isn't one `isValid` takes. */
+function optionalNumber({
+	args,
+	key,
+	isValid,
+	what,
+}: {
+	args: Record<string, unknown>;
+	key: string;
+	isValid: (value: number) => boolean;
+	what: string;
+}): number | null {
+	const value = args[key];
+	if (value === undefined || value === null) return null;
+	if (typeof value !== "number" || !Number.isFinite(value) || !isValid(value)) {
+		throw new ToolError(`${key} is ${what}`);
+	}
+	return value;
 }
 
 /** The open project saved before another opens: if it can't be, it stays open. */
@@ -232,6 +275,7 @@ const project: Tool = {
 								.join("\n"),
 				);
 			case "new": {
+				needNoExport({ editor });
 				const id = await editor.project.createNewProject({
 					name: string({ args, key: "name" }) ?? "New project",
 				});
@@ -279,6 +323,7 @@ const project: Tool = {
 				);
 			}
 			case "open": {
+				needNoExport({ editor });
 				const path = string({ args, key: "path" });
 				if (path) {
 					await saveFirst({ editor });
@@ -538,9 +583,10 @@ const exportTool: Tool = {
 				description:
 					"anything: plays everywhere; upload: for sites; small: the smallest; master: to keep or edit",
 			},
-			maxMegabytes: { type: "number" },
+			maxMegabytes: { type: "number", exclusiveMinimum: 0 },
 			shortSide: {
 				type: "number",
+				minimum: MIN_SHORT_SIDE,
 				description: "e.g. 1080 or 720; the project's by default",
 			},
 			fps: {
@@ -555,7 +601,38 @@ const exportTool: Tool = {
 		const current = needProject({ editor });
 		const path = string({ args, key: "path" });
 		if (!path) throw new ToolError("export needs a path");
+		needNoExport({ editor });
 		const format = formatOf({ path });
+		// Checked before the App Store edition asks the user where it goes.
+		const destination = DESTINATIONS.find(
+			(value) => value === args.destination,
+		);
+		const sound = SOUND_CHOICES.find((value) => value === args.sound);
+		const fps = FRAME_RATE_PRESETS.find((preset) => preset.label === args.fps);
+		if (args.fps !== undefined && args.fps !== null && !fps) {
+			throw new ToolError(
+				`fps is one of ${FRAME_RATE_PRESETS.map((preset) => preset.label).join(", ")}`,
+			);
+		}
+		const answers = {
+			...DEFAULT_WIZARD_ANSWERS,
+			destination: (destination ??
+				DEFAULT_WIZARD_ANSWERS.destination) as Destination,
+			maxMegabytes: optionalNumber({
+				args,
+				key: "maxMegabytes",
+				isValid: (value) => value > 0,
+				what: "the most the file may take, in megabytes: more than 0",
+			}),
+			shortSide: optionalNumber({
+				args,
+				key: "shortSide",
+				isValid: (value) => value >= MIN_SHORT_SIDE,
+				what: `the picture's shorter side, in pixels: ${MIN_SHORT_SIDE} or more`,
+			}),
+			fpsLabel: fps?.label ?? null,
+			sound: (sound ?? DEFAULT_WIZARD_ANSWERS.sound) as SoundChoice,
+		};
 		// Where it's written: where the agent said, or, in the App Store
 		// edition, where the user picked.
 		const target = await invoke<string>("agent_export_to", {
@@ -565,28 +642,55 @@ const exportTool: Tool = {
 		}).catch((error: unknown) => {
 			throw new ToolError(String(error));
 		});
-		const destination = DESTINATIONS.find(
-			(value) => value === args.destination,
-		);
-		const sound = SOUND_CHOICES.find((value) => value === args.sound);
 		const { canvasSize } = current.settings;
+		const ticks = editor.timeline.getTotalDuration();
+		const duration = ticks / TICKS_PER_SECOND;
+		const native = await getNativeCapabilities();
+		// The source's sound, where it's to be copied: a size limit leaves
+		// it its own bitrate.
+		const passthrough =
+			answers.sound === "original"
+				? await describeAudioPassthrough({
+						tracks: editor.scenes.getActiveScene().tracks,
+						mediaAssets: editor.media.getAssets(),
+						duration: ticks,
+						format,
+					}).catch(() => null)
+				: null;
 		const choices = applyWizardAnswers({
-			answers: {
-				...DEFAULT_WIZARD_ANSWERS,
-				destination: (destination ??
-					DEFAULT_WIZARD_ANSWERS.destination) as Destination,
-				maxMegabytes:
-					typeof args.maxMegabytes === "number" ? args.maxMegabytes : null,
-				shortSide: typeof args.shortSide === "number" ? args.shortSide : null,
-				fpsLabel: typeof args.fps === "string" ? args.fps : null,
-				sound: (sound ?? DEFAULT_WIZARD_ANSWERS.sound) as SoundChoice,
-			},
-			choices: { ...DEFAULT_EXPORT_CHOICES, format },
-			encodable: await findEncodableCodecs({ ...canvasSize, format }),
-			projectShortSide: Math.min(canvasSize.width, canvasSize.height),
+			answers,
+			choices: DEFAULT_EXPORT_CHOICES,
+			// Kept to the codecs encoded in hardware, as the panel is, while
+			// that's on.
+			encodable: keepToHardware({
+				encodable: await findEncodableCodecs({ ...canvasSize, format }),
+				hardware: getHardwareCodecs({ native, format }),
+				hardwareOnly: useHardwareOnlyStore.getState().hardwareOnly,
+			}),
 			projectFps: frameRateToFloat(current.settings.fps),
+			// A size limit's worked back from these.
+			picture: canvasSize,
+			duration,
+			copiedBitrate: passthrough?.bitrate ?? null,
+			// The container the file's extension says.
+			format,
 		});
 		const options = { ...getChosenOptions({ choices }), path: target };
+		// What the panel would say of it: what's wrong with its size limit,
+		// and the project's details written into it.
+		const said = summarizeExport({
+			choices,
+			picture: canvasSize,
+			output: fitExportSize({
+				canvas: canvasSize,
+				shortSide: choices.shortSide ?? undefined,
+			}),
+			fps: frameRateToFloat(options.fps ?? current.settings.fps),
+			duration,
+			passthrough,
+			keepsQuality: false,
+			tags: current.metadata.tags ?? {},
+		});
 		// Each tenth of a percent, once, with the time left: a long export (AV1
 		// takes hours) moves a whole percent only every few minutes.
 		let reported = -1;
@@ -622,7 +726,14 @@ const exportTool: Tool = {
 				);
 			}
 			return text(
-				`exported ${result.path ?? target}: ${format}, ${choices.videoCodec}, ${formatTime({ ticks: editor.timeline.getTotalDuration() })}`,
+				[
+					`exported ${result.path ?? target}: ${format}, ${choices.videoCodec}, ${formatTime({ ticks })}`,
+					said.tags &&
+						`${said.tags.text}${said.tags.warning ? `: ${said.tags.warning}` : ""}`,
+					said.limitWarning,
+				]
+					.filter(Boolean)
+					.join("\n"),
 			);
 		} finally {
 			stopWatching();

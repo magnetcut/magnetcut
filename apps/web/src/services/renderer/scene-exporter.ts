@@ -18,7 +18,8 @@ import { frameRateToFloat } from "@/fps/utils";
 import type { RootNode } from "./nodes/root-node";
 import type { ExportFormat } from "@/export";
 import type { ExportFile } from "@/export/disk-target";
-import { createOutputFormat, getWritingAppTags } from "@/export/output-format";
+import { createOutputFormat, getOutputTags } from "@/export/output-format";
+import type { FileTags } from "@/project/file-tags";
 import { getWritingApp } from "@/desktop/app-info";
 import type { FilterPasses } from "@/export/filters";
 import type { AudioPassthrough } from "@/export/passthrough";
@@ -59,6 +60,8 @@ type ExportParams = {
 	filters?: FilterPasses;
 	/** Subtitle tracks, as WebVTT (`export/subtitles.ts`). */
 	subtitles?: Array<{ name: string; vtt: string }>;
+	/** The project's details, written into the file. */
+	tags?: FileTags;
 };
 
 /** An export in memory, or the file it was written to. */
@@ -220,6 +223,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 	private file?: ExportFile;
 	private filters?: FilterPasses;
 	private subtitles: Array<{ name: string; vtt: string }>;
+	private tags?: FileTags;
 
 	private isCancelled = false;
 
@@ -239,6 +243,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		file,
 		filters,
 		subtitles,
+		tags,
 	}: ExportParams) {
 		super();
 		this.renderer = new CanvasRenderer({
@@ -259,6 +264,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		this.file = file;
 		this.filters = filters;
 		this.subtitles = subtitles ?? [];
+		this.tags = tags;
 	}
 
 	cancel(): void {
@@ -311,7 +317,7 @@ export class SceneExporter extends EventEmitter<SceneExporterEvents> {
 		checkEncoderColour();
 		const output = new Output({ format: outputFormat, target });
 		output.setMetadataTags(
-			getWritingAppTags({ format: this.format, writingApp }),
+			getOutputTags({ format: this.format, writingApp, tags: this.tags }),
 		);
 
 		// The composited frame, or a copy cropped and scaled to the size encoded.

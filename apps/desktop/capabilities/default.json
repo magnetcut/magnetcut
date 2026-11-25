@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "core:window:allow-destroy",
+    "core:window:allow-request-user-attention",
     "opener:allow-open-url",
     "opener:allow-default-urls"
   ]

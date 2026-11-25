@@ -154,11 +154,26 @@ function EditorRuntimeBindings() {
 	}, [editor]);
 
 	// In the app, closing the window saves first. A save that fails keeps it
-	// open, once, to say so: closing it again closes it without.
+	// open, once, to say so: closing it again closes it without. So does an
+	// export under way, which would end with it: closing again cancels it.
 	useEffect(() => {
 		if (!isTauri()) return;
 		let hasWarned = false;
+		let exportWarned = false;
 		const unlisten = getCurrentWindow().onCloseRequested(async (event) => {
+			if (!editor.project.getExportState().isExporting) {
+				exportWarned = false;
+			} else if (!exportWarned) {
+				exportWarned = true;
+				event.preventDefault();
+				toast.warning("An export is running", {
+					description:
+						"Close the window again to cancel it, or wait for it to end.",
+				});
+				return;
+			} else {
+				await editor.project.stopExport();
+			}
 			try {
 				await editor.save.flush();
 			} catch (error) {

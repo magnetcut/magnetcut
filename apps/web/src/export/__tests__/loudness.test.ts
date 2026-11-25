@@ -75,8 +75,10 @@ describe("loudness at export", () => {
 				answers: { ...DEFAULT_WIZARD_ANSWERS, destination },
 				choices: { ...DEFAULT_EXPORT_CHOICES, loudness: -23 },
 				encodable: new Set(["avc", "hevc"] as const),
-				projectShortSide: 1080,
+				picture: { width: 1920, height: 1080 },
 				projectFps: 30,
+				duration: 60,
+				copiedBitrate: null,
 			});
 		expect(choicesFor("upload").loudness).toBe(-14);
 		expect(choicesFor("master").loudness).toBeNull();

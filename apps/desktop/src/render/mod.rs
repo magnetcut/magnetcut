@@ -30,10 +30,10 @@ mod frames;
 #[cfg(windows)]
 #[path = "windows/media_foundation.rs"]
 mod media_foundation;
-// Finishes an MP4's index after its writer: on Windows, subtitle tracks
-// and the program that wrote it; on a Mac, that and the index moved to the
-// front. Its subtitle samples, Linux's too.
-#[cfg_attr(target_os = "linux", allow(dead_code))]
+// Finishes an MP4's index after its writer: the film's details and the
+// program that wrote it, on every system and in mediabunny's MP4s
+// (`write_mp4_details`); on Windows, subtitle tracks; on a Mac, the index
+// moved to the front. Its subtitle samples, Linux's too.
 mod mp4_index;
 #[cfg(target_os = "linux")]
 #[path = "linux/pipeline.rs"]
@@ -72,6 +72,15 @@ use settings::{
     Audio, AudioSettings, Capabilities, Container, FrameRate, SourceInfo, SubtitleTrack,
     VideoCodec, VideoSettings,
 };
+
+pub use settings::FileTags;
+
+/// Writes the film's details into the MP4 at `path`, as the native export
+/// writes them into its own (`mp4_index.rs`): for mediabunny's, whose
+/// iTunes items say no place or camera to Apple's frameworks or Android's.
+pub fn write_mp4_details(path: &Path, tags: &FileTags) -> Result<(), String> {
+    mp4_index::finish(path, &[], (0, 0), tags)
+}
 
 /// The exports being made, by id.
 #[derive(Default)]
@@ -207,6 +216,9 @@ pub struct StartOptions {
     /// Subtitle tracks, as timed text.
     #[serde(default)]
     subtitles: Vec<SubtitleTrack>,
+    /// What the film says of itself, written into its file.
+    #[serde(default)]
+    tags: FileTags,
     /// How much of the computer it takes (priority.rs): this one's, and every
     /// other export's being made.
     #[serde(default)]
@@ -597,8 +609,14 @@ impl Worker {
             (None, Some(settings)) => Some(Audio::Mix(settings)),
             (None, None) => None,
         };
-        let writer =
-            Writer::with_subtitles(path, options.format, &video, audio, &options.subtitles)?;
+        let writer = Writer::with_subtitles(
+            path,
+            options.format,
+            &video,
+            audio,
+            &options.subtitles,
+            &options.tags,
+        )?;
         Ok(Self {
             renderer,
             writer: Some(writer),

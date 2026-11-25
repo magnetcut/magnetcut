@@ -1,6 +1,7 @@
 import type { FrameRate } from "magnetcut-wasm";
 import type { TScene } from "@/timeline/types";
 import type { MediaTime } from "@/wasm";
+import type { FileTags } from "./file-tags";
 
 export type TBackground =
 	| {
@@ -24,6 +25,8 @@ export interface TProjectMetadata {
 	duration: MediaTime;
 	createdAt: Date;
 	updatedAt: Date;
+	/** Written into every file it's exported to. */
+	tags?: FileTags;
 }
 
 export interface TProjectSettings {

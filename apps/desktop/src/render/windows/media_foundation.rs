@@ -12,7 +12,7 @@ use windows::Win32::Media::MediaFoundation::{
     MF_MT_SUBTYPE, MF_MT_TRANSFER_FUNCTION, MF_MT_VIDEO_NOMINAL_RANGE, MF_MT_VIDEO_PRIMARIES,
     MF_MT_YUV_MATRIX, MF_VERSION, MFCreateAttributes, MFCreateMediaType, MFCreateMemoryBuffer,
     MFCreateSample, MFMediaType_Audio, MFMediaType_Video, MFNominalRange, MFSTARTUP_FULL,
-    MFStartup, MFT_ENUM_FLAG_ALL, MFT_FRIENDLY_NAME_Attribute, MFT_REGISTER_TYPE_INFO, MFTEnumEx,
+    MFStartup, MFT_ENUM_FLAG, MFT_FRIENDLY_NAME_Attribute, MFT_REGISTER_TYPE_INFO, MFTEnumEx,
     MFVideoInterlace_Progressive, MFVideoPrimaries_BT709, MFVideoTransFunc_709,
     MFVideoTransferMatrix_BT709,
 };
@@ -191,8 +191,15 @@ pub fn sample(buffer: &IMFMediaBuffer, time: i64, duration: i64) -> Result<IMFSa
 }
 
 /// The names of the system's encoders of `category` (video or audio) that
-/// make `subtype` (H.264, HEVC, AAC…), hardware ones first.
-pub fn encoders(category: GUID, major: GUID, subtype: GUID) -> Result<Vec<String>, String> {
+/// make `subtype` (H.264, HEVC, AAC…), of those `flags` take: all
+/// (`MFT_ENUM_FLAG_ALL`), hardware ones first, or a GPU's and a media
+/// engine's alone (`MFT_ENUM_FLAG_HARDWARE`).
+pub fn list_encoders(
+    category: GUID,
+    major: GUID,
+    subtype: GUID,
+    flags: MFT_ENUM_FLAG,
+) -> Result<Vec<String>, String> {
     start()?;
     let output = MFT_REGISTER_TYPE_INFO {
         guidMajorType: major,
@@ -203,7 +210,7 @@ pub fn encoders(category: GUID, major: GUID, subtype: GUID) -> Result<Vec<String
     unsafe {
         MFTEnumEx(
             category,
-            MFT_ENUM_FLAG_ALL,
+            flags,
             None,
             Some(std::ptr::from_ref(&output)),
             &mut activates,
@@ -239,7 +246,7 @@ pub fn encoders(category: GUID, major: GUID, subtype: GUID) -> Result<Vec<String
 mod tests {
     use windows::Win32::Media::MediaFoundation::{
         MFAudioFormat_AAC, MFMediaType_Audio, MFMediaType_Video, MFT_CATEGORY_AUDIO_ENCODER,
-        MFT_CATEGORY_VIDEO_ENCODER, MFVideoFormat_H264, MFVideoFormat_HEVC,
+        MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG_ALL, MFVideoFormat_H264, MFVideoFormat_HEVC,
     };
 
     /// What this system has to encode with: printed, for the CI runners'.
@@ -265,7 +272,7 @@ mod tests {
                 MFAudioFormat_AAC,
             ),
         ] {
-            match super::encoders(category, major, subtype) {
+            match super::list_encoders(category, major, subtype, MFT_ENUM_FLAG_ALL) {
                 Ok(encoders) => eprintln!("{name} encoders: {encoders:?}"),
                 Err(error) => eprintln!("{name} encoders: none, {error}"),
             }

@@ -5,24 +5,38 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::ptr::{self, NonNull};
-use std::sync::mpsc;
+use std::sync::{OnceLock, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use block2::RcBlock;
 use objc2::rc::Retained;
+use objc2::runtime::AnyObject;
 use objc2_av_foundation::{
     AVAssetReader, AVAssetReaderStatus, AVAssetReaderTrackOutput, AVAssetWriter,
     AVAssetWriterInput, AVAssetWriterInputPixelBufferAdaptor, AVAssetWriterStatus, AVFileTypeMPEG4,
-    AVFileTypeQuickTimeMovie, AVMediaTypeAudio, AVMediaTypeVideo,
-    AVMetadataIdentifierQuickTimeUserDataSoftware, AVMutableMetadataItem, AVVideoAverageBitRateKey,
-    AVVideoCodecKey, AVVideoCodecTypeAppleProRes422, AVVideoCodecTypeAppleProRes422HQ,
-    AVVideoCodecTypeH264, AVVideoCodecTypeHEVC, AVVideoColorPrimaries_ITU_R_709_2,
-    AVVideoColorPrimariesKey, AVVideoColorPropertiesKey, AVVideoCompressionPropertiesKey,
-    AVVideoExpectedSourceFrameRateKey, AVVideoHeightKey, AVVideoMaxKeyFrameIntervalDurationKey,
-    AVVideoProfileLevelH264HighAutoLevel, AVVideoProfileLevelKey, AVVideoQualityKey,
-    AVVideoTransferFunction_ITU_R_709_2, AVVideoTransferFunctionKey, AVVideoWidthKey,
-    AVVideoYCbCrMatrix_ITU_R_709_2, AVVideoYCbCrMatrixKey,
+    AVFileTypeQuickTimeMovie, AVMediaTypeAudio, AVMediaTypeVideo, AVMetadataIdentifier,
+    AVMetadataIdentifierQuickTimeMetadataArtist, AVMetadataIdentifierQuickTimeMetadataComment,
+    AVMetadataIdentifierQuickTimeMetadataCreationDate,
+    AVMetadataIdentifierQuickTimeMetadataDescription, AVMetadataIdentifierQuickTimeMetadataGenre,
+    AVMetadataIdentifierQuickTimeMetadataLocationISO6709,
+    AVMetadataIdentifierQuickTimeMetadataMake, AVMetadataIdentifierQuickTimeMetadataModel,
+    AVMetadataIdentifierQuickTimeMetadataTitle, AVMetadataIdentifierQuickTimeUserDataArtist,
+    AVMetadataIdentifierQuickTimeUserDataComment,
+    AVMetadataIdentifierQuickTimeUserDataCreationDate,
+    AVMetadataIdentifierQuickTimeUserDataDescription,
+    AVMetadataIdentifierQuickTimeUserDataFullName, AVMetadataIdentifierQuickTimeUserDataGenre,
+    AVMetadataIdentifierQuickTimeUserDataLocationISO6709,
+    AVMetadataIdentifierQuickTimeUserDataMake, AVMetadataIdentifierQuickTimeUserDataModel,
+    AVMetadataIdentifierQuickTimeUserDataSoftware, AVMetadataItem, AVMutableMetadataItem,
+    AVVideoAverageBitRateKey, AVVideoCodecKey, AVVideoCodecType, AVVideoCodecTypeAppleProRes422,
+    AVVideoCodecTypeAppleProRes422HQ, AVVideoCodecTypeH264, AVVideoCodecTypeHEVC,
+    AVVideoColorPrimaries_ITU_R_709_2, AVVideoColorPrimariesKey, AVVideoColorPropertiesKey,
+    AVVideoCompressionPropertiesKey, AVVideoExpectedSourceFrameRateKey, AVVideoHeightKey,
+    AVVideoMaxKeyFrameIntervalDurationKey, AVVideoProfileLevelH264HighAutoLevel,
+    AVVideoProfileLevelKey, AVVideoQualityKey, AVVideoTransferFunction_ITU_R_709_2,
+    AVVideoTransferFunctionKey, AVVideoWidthKey, AVVideoYCbCrMatrix_ITU_R_709_2,
+    AVVideoYCbCrMatrixKey,
 };
 use objc2_avf_audio::{AVEncoderBitRateKey, AVFormatIDKey, AVNumberOfChannelsKey, AVSampleRateKey};
 use objc2_core_audio_types::{
@@ -50,8 +64,8 @@ use super::av1::Av1Encoder;
 use super::decode;
 use super::mp4_index;
 use super::settings::{
-    Audio, AudioSettings, Capabilities, Container, FrameRate, KEY_FRAME_INTERVAL, SubtitleTrack,
-    VideoCodec, VideoSettings, WRITING_APP,
+    Audio, AudioSettings, Capabilities, Container, FileTag, FileTags, FrameRate,
+    KEY_FRAME_INTERVAL, SubtitleTrack, VideoCodec, VideoSettings, WRITING_APP,
 };
 use super::subtitle::SubtitleInput;
 
@@ -64,6 +78,7 @@ pub fn constant_quality() -> bool {
 /// What the native export makes on a Mac.
 pub fn capabilities() -> Capabilities {
     Capabilities {
+        hardware_codecs: hardware_codecs(),
         formats: vec![Container::Mp4, Container::Mov],
         video_codecs: vec![
             VideoCodec::Avc,
@@ -76,6 +91,88 @@ pub fn capabilities() -> Capabilities {
         audio_copy: true,
         subtitle_tracks: true,
     }
+}
+
+/// The codecs this Mac encodes in hardware, as VideoToolbox lists its
+/// encoders: H.264 and HEVC on any Mac of late, ProRes on the media engines
+/// that have it (not the M1's); never AV1, which no Mac's hardware encodes
+/// (rav1e's, in software). Looked up once.
+fn hardware_codecs() -> Vec<VideoCodec> {
+    static FOUND: OnceLock<Vec<VideoCodec>> = OnceLock::new();
+    FOUND
+        .get_or_init(|| {
+            let types = hardware_encoder_types();
+            [
+                VideoCodec::Avc,
+                VideoCodec::Hevc,
+                VideoCodec::ProRes,
+                VideoCodec::ProResHq,
+            ]
+            .into_iter()
+            .filter(|&codec| {
+                // Its four characters ("avc1"), as a number.
+                codec_type(codec)
+                    .ok()
+                    .and_then(|name| <[u8; 4]>::try_from(name.to_string().as_bytes()).ok())
+                    .is_some_and(|fourcc| types.contains(&u32::from_be_bytes(fourcc)))
+            })
+            .collect()
+        })
+        .clone()
+}
+
+/// The codec's type as AVFoundation names it ("avc1", "hvc1", "apcn",
+/// "apch"): AV1 has none, rav1e encodes it.
+fn codec_type(codec: VideoCodec) -> Result<&'static AVVideoCodecType, String> {
+    Ok(match codec {
+        VideoCodec::Avc => av!(AVVideoCodecTypeH264),
+        VideoCodec::Hevc => av!(AVVideoCodecTypeHEVC),
+        VideoCodec::ProRes => av!(AVVideoCodecTypeAppleProRes422),
+        VideoCodec::ProResHq => av!(AVVideoCodecTypeAppleProRes422HQ),
+        VideoCodec::Av1 => return Err("AV1 is encoded by rav1e, not AVFoundation".into()),
+    })
+}
+
+/// The codec types (four characters, as a number) VideoToolbox has a
+/// hardware encoder for.
+fn hardware_encoder_types() -> Vec<u32> {
+    #[link(name = "VideoToolbox", kind = "framework")]
+    unsafe extern "C" {
+        fn VTCopyVideoEncoderList(
+            options: *const std::ffi::c_void,
+            list: *mut *mut NSArray<NSDictionary<NSString, AnyObject>>,
+        ) -> i32;
+        static kVTVideoEncoderList_CodecType: &'static NSString;
+        static kVTVideoEncoderList_IsHardwareAccelerated: &'static NSString;
+    }
+    let mut list = ptr::null_mut();
+    // SAFETY: no options; the list is ours to release (a Copy function's),
+    // a CFArray of CFDictionary, toll-free bridged to NSArray of NSDictionary.
+    let list = unsafe {
+        if VTCopyVideoEncoderList(ptr::null(), &mut list) != 0 {
+            return Vec::new();
+        }
+        Retained::from_raw(list)
+    };
+    let Some(list) = list else {
+        return Vec::new();
+    };
+    // SAFETY: VideoToolbox's constant keys, CFStrings bridged to NSStrings.
+    let (codec_key, hardware_key) = unsafe {
+        (
+            kVTVideoEncoderList_CodecType,
+            kVTVideoEncoderList_IsHardwareAccelerated,
+        )
+    };
+    let number = |encoder: &NSDictionary<NSString, AnyObject>, key: &NSString| {
+        encoder
+            .objectForKey(key)
+            .and_then(|value| value.downcast::<NSNumber>().ok())
+    };
+    list.iter()
+        .filter(|encoder| number(encoder, hardware_key).is_some_and(|value| value.as_bool()))
+        .filter_map(|encoder| number(&encoder, codec_key).map(|value| value.as_u32()))
+        .collect()
 }
 
 // A sound sample buffer's length, in seconds: short, so the sound and the
@@ -130,6 +227,62 @@ enum VideoSink {
     },
 }
 
+/// Where a detail goes in a QuickTime file: its metadata, as an iPhone
+/// writes it and Photos reads it, and its user data of old, where ffmpeg
+/// looks.
+fn quicktime_identifiers(
+    tag: FileTag,
+) -> Result<(&'static AVMetadataIdentifier, &'static AVMetadataIdentifier), String> {
+    Ok(match tag {
+        FileTag::Title => (
+            av!(AVMetadataIdentifierQuickTimeMetadataTitle),
+            av!(AVMetadataIdentifierQuickTimeUserDataFullName),
+        ),
+        FileTag::Artist => (
+            av!(AVMetadataIdentifierQuickTimeMetadataArtist),
+            av!(AVMetadataIdentifierQuickTimeUserDataArtist),
+        ),
+        FileTag::Date => (
+            av!(AVMetadataIdentifierQuickTimeMetadataCreationDate),
+            av!(AVMetadataIdentifierQuickTimeUserDataCreationDate),
+        ),
+        FileTag::Genre => (
+            av!(AVMetadataIdentifierQuickTimeMetadataGenre),
+            av!(AVMetadataIdentifierQuickTimeUserDataGenre),
+        ),
+        FileTag::Description => (
+            av!(AVMetadataIdentifierQuickTimeMetadataDescription),
+            av!(AVMetadataIdentifierQuickTimeUserDataDescription),
+        ),
+        FileTag::Comment => (
+            av!(AVMetadataIdentifierQuickTimeMetadataComment),
+            av!(AVMetadataIdentifierQuickTimeUserDataComment),
+        ),
+        FileTag::Location => (
+            av!(AVMetadataIdentifierQuickTimeMetadataLocationISO6709),
+            av!(AVMetadataIdentifierQuickTimeUserDataLocationISO6709),
+        ),
+        FileTag::Make => (
+            av!(AVMetadataIdentifierQuickTimeMetadataMake),
+            av!(AVMetadataIdentifierQuickTimeUserDataMake),
+        ),
+        FileTag::Model => (
+            av!(AVMetadataIdentifierQuickTimeMetadataModel),
+            av!(AVMetadataIdentifierQuickTimeUserDataModel),
+        ),
+    })
+}
+
+/// A metadata item of `identifier`'s, saying `text`.
+fn metadata_item(identifier: &AVMetadataIdentifier, text: &str) -> Retained<AVMetadataItem> {
+    let item = unsafe { AVMutableMetadataItem::new() };
+    unsafe {
+        item.setIdentifier(Some(identifier));
+        item.setValue(Some(any(&NSString::from_str(text))));
+    }
+    Retained::into_super(item)
+}
+
 pub struct Writer {
     writer: Retained<AVAssetWriter>,
     path: PathBuf,
@@ -138,6 +291,9 @@ pub struct Writer {
     sink: VideoSink,
     audio: Option<AudioInput>,
     subtitles: Vec<SubtitleInput>,
+    /// An MP4's details, written once it's finished (`mp4_index.rs`): a
+    /// QuickTime file's are AVFoundation's to write, as it starts.
+    tags: FileTags,
     fps: FrameRate,
     frames: i64,
 }
@@ -152,17 +308,18 @@ impl Writer {
         video: &VideoSettings,
         audio: Option<Audio>,
     ) -> Result<Self, String> {
-        Self::with_subtitles(path, container, video, audio, &[])
+        Self::with_subtitles(path, container, video, audio, &[], &FileTags::default())
     }
 
     /// Starts a file at `path`, replacing what's there, with subtitle tracks
-    /// as timed text (`subtitle.rs`).
+    /// as timed text (`subtitle.rs`), and the film's details, `tags`.
     pub fn with_subtitles(
         path: &Path,
         container: Container,
         video: &VideoSettings,
         audio: Option<Audio>,
         subtitles: &[SubtitleTrack],
+        tags: &FileTags,
     ) -> Result<Self, String> {
         if container == Container::Mp4
             && matches!(video.codec, VideoCodec::ProRes | VideoCodec::ProResHq)
@@ -279,16 +436,24 @@ impl Writer {
             .collect::<Result<Vec<_>, _>>()?;
 
         // The program that wrote the film, where ffprobe and MediaInfo look
-        // for it: QuickTime's software (©swr). MP4's encoding tool, which
-        // AVFoundation leaves out before macOS 27, goes in once it's written
-        // (`mp4_index.rs`).
+        // for it: QuickTime's software (©swr). Then the film's details
+        // (`quicktime_identifiers`). An MP4's go in once it's written
+        // (`mp4_index.rs`), with its encoding tool, which AVFoundation
+        // leaves out before macOS 27.
         if container == Container::Mov {
-            let item = unsafe { AVMutableMetadataItem::new() };
-            unsafe {
-                item.setIdentifier(Some(av!(AVMetadataIdentifierQuickTimeUserDataSoftware)));
-                item.setValue(Some(any(&NSString::from_str(WRITING_APP))));
-                writer.setMetadata(&NSArray::from_retained_slice(&[Retained::into_super(item)]));
+            let mut items = vec![metadata_item(
+                av!(AVMetadataIdentifierQuickTimeUserDataSoftware),
+                WRITING_APP,
+            )];
+            for (tag, text) in tags.iter() {
+                // The day as a date and time, which they read as a date.
+                let date_time = (tag == FileTag::Date).then(|| tags.date_time()).flatten();
+                let text = date_time.as_deref().unwrap_or(text);
+                let (modern, classic) = quicktime_identifiers(tag)?;
+                items.push(metadata_item(modern, text));
+                items.push(metadata_item(classic, text));
             }
+            unsafe { writer.setMetadata(&NSArray::from_retained_slice(&items)) };
         }
 
         if !unsafe { writer.startWriting() } {
@@ -306,6 +471,11 @@ impl Writer {
             sink,
             audio,
             subtitles,
+            tags: if container == Container::Mp4 {
+                tags.clone()
+            } else {
+                FileTags::default()
+            },
             fps: video.fps,
             frames: 0,
         })
@@ -433,9 +603,9 @@ impl Writer {
             return Err(self.failure("Couldn't finish the file"));
         }
         if self.container == Container::Mp4 {
-            // The program that wrote it, then the index at the start, so the
-            // film plays as it downloads.
-            mp4_index::finish(&self.path, &[], (0, 0))?;
+            // The program that wrote it and its details, then the index at
+            // the start, so the film plays as it downloads.
+            mp4_index::finish(&self.path, &[], (0, 0), &self.tags)?;
             mp4_index::move_index_to_front(&self.path)?;
         }
         Ok(())
@@ -515,13 +685,7 @@ fn add_input(writer: &AVAssetWriter, input: &AVAssetWriterInput) -> Result<(), S
 fn video_output_settings(
     video: &VideoSettings,
 ) -> Result<Retained<NSDictionary<NSString, objc2::runtime::AnyObject>>, String> {
-    let codec = match video.codec {
-        VideoCodec::Avc => av!(AVVideoCodecTypeH264),
-        VideoCodec::Hevc => av!(AVVideoCodecTypeHEVC),
-        VideoCodec::ProRes => av!(AVVideoCodecTypeAppleProRes422),
-        VideoCodec::ProResHq => av!(AVVideoCodecTypeAppleProRes422HQ),
-        VideoCodec::Av1 => return Err("AV1 is encoded by rav1e, not AVFoundation".into()),
-    };
+    let codec = codec_type(video.codec)?;
     // HD's colours, which the editor's pictures are in.
     let colors = dictionary(&[
         (
