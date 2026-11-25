@@ -180,9 +180,7 @@ jobs:
   # installers are.
   macos:
     if: inputs.mac && github.ref == 'refs/heads/main'
-    # macOS 27 with Xcode 27, as the Macs MagnetCut is released from: on
-    # macos-26 (Xcode 26.6) actool compiled the icon on its own but not
-    # inside Tauri's bundler.
+    # macOS 27 with Xcode 27, as the Macs MagnetCut is released from.
     runs-on: xcode-27
     environment: release
     steps:
@@ -259,6 +257,19 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-release-universal-${{ hashFiles('Cargo.lock') }}
+
+      # Cargo's Tauri CLI bundles the app, not npm's: actool's helper, started
+      # from under Bun or Node, fails with "Bad file descriptor".
+      - name: Cache the Tauri CLI
+        id: tauri-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-tauri-2.12.5
+
+      - name: Install the Tauri CLI
+        if: steps.tauri-cli.outputs.cache-hit != 'true'
+        run: cargo install tauri-cli --version 2.12.5 --locked
 
       - name: Install Bun
         uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76

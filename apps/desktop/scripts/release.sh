@@ -42,9 +42,9 @@
 #   - UPDATER_KEY, the updater's private key, and its password: in the login
 #     keychain (UPDATER_KEY_PASSWORD_ITEM) or in TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 #     (not for --unsigned; only these, cargo tauri and jq for --sign);
-#   - cargo tauri (tauri-cli 2), or bunx $TAURI_CLI when that's set (as the
-#     release workflow sets it), gh, jq, and the Rust targets
-#     aarch64-apple-darwin and x86_64-apple-darwin.
+#   - cargo tauri (tauri-cli 2), which bundles the macOS app; for the rest,
+#     bunx $TAURI_CLI does when that's set (as the release workflow sets it);
+#     gh, jq, and the Rust targets aarch64-apple-darwin and x86_64-apple-darwin.
 #
 # Each step checks its own result: an exit status of 0 is not evidence that
 # a signature or a ticket is there.
@@ -61,7 +61,9 @@ OUT=target/release-files
 BUNDLE=target/universal-apple-darwin/release/bundle/macos
 APP="$BUNDLE/$APP_NAME.app"
 
-# The Tauri CLI: the release workflow's pinned package, or cargo's.
+# The Tauri CLI: the release workflow's pinned package, or cargo's. Not the
+# package for the macOS app's bundle: actool's helper (ibtoold), started from
+# under Bun or Node, fails with "Bad file descriptor" and stays broken.
 tauri() {
     if [ -n "${TAURI_CLI:-}" ]; then
         bunx "$TAURI_CLI" "$@"
@@ -316,6 +318,8 @@ for tool in gh jq cargo xxd; do
     command -v "$tool" >/dev/null || die "$tool is not installed"
 done
 tauri --version >/dev/null 2>&1 || die "no Tauri CLI: cargo install tauri-cli --version '^2' --locked"
+cargo tauri --version >/dev/null 2>&1 \
+    || die "no cargo tauri, which bundles the macOS app: cargo install tauri-cli --version '^2' --locked"
 for target in aarch64-apple-darwin x86_64-apple-darwin; do
     rustup target list --installed | grep -qx "$target" || die "no Rust target $target: rustup target add $target"
 done
@@ -381,7 +385,7 @@ IDENTITY=$(security find-identity -v -p codesigning \
     cd apps/desktop
     unset APPLE_ID APPLE_PASSWORD APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
     export APPLE_SIGNING_IDENTITY="$IDENTITY" CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
-    tauri build --ci --target universal-apple-darwin --bundles app
+    cargo tauri build --ci --target universal-apple-darwin --bundles app
 )
 [ -d "$APP" ] || die "the build made no $APP"
 if [ -n "${SENTRY_AUTH_TOKEN:-}" ]; then
