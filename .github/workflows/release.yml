@@ -193,6 +193,28 @@ jobs:
           if [ -n "$xcode" ]; then sudo xcode-select -s "$xcode"; fi
           xcodebuild -version
 
+      # Tauri's bundler compiles MagnetCut.icon with actool, with these
+      # arguments, but hides what actool says when it fails: said here, before
+      # the build.
+      - name: Check that actool compiles the icon
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/icon-check"
+          rm -rf "$work"
+          mkdir -p "$work/out"
+          cp -R apps/desktop/icons/MagnetCut.icon "$work/Icon.icon"
+          status=0
+          actool "$work/Icon.icon" --compile "$work/out" --output-format human-readable-text \
+            --notices --warnings --output-partial-info-plist "$work/out/assetcatalog_generated_info.plist" \
+            --app-icon Icon --include-all-app-icons --accent-color AccentColor \
+            --enable-on-demand-resources NO --development-region en --target-device mac \
+            --minimum-deployment-target 26.0 --platform macosx || status=$?
+          ls -la "$work/out"
+          if [ "$status" != 0 ] || [ ! -f "$work/out/Assets.car" ]; then
+            echo "::error::actool can't compile apps/desktop/icons/MagnetCut.icon (exit $status)"
+            exit 1
+          fi
+
       - name: Update Rust
         run: |
           rustup update stable --no-self-update
