@@ -30,17 +30,19 @@ import { mediaTime, roundMediaTime, TICKS_PER_SECOND } from "@/wasm";
 // re-encodes the few frames from the cut to the next key frame, so it starts
 // where it's cut. What the editor adds on top isn't in the copy.
 
-export const FAST_MODES = ["off", "copy", "smart"] as const;
-export type FastMode = (typeof FAST_MODES)[number];
+/** How Fast mode copies the clips: as they are, or re-encoding the frames
+ * from each cut to its key frame. */
+export const COPY_MODES = ["copy", "smart"] as const;
+export type CopyMode = (typeof COPY_MODES)[number];
+/** Fast mode as an export takes it: off, or how it copies. */
+export type FastMode = "off" | CopyMode;
 
-export const FAST_MODE_NAMES: Record<FastMode, string> = {
-	off: "Off",
+export const FAST_MODE_NAMES: Record<CopyMode, string> = {
 	copy: "No re-encoding",
 	smart: "Smart Cut",
 };
 
-export const FAST_MODE_HINTS: Record<FastMode, string> = {
-	off: "Every frame is drawn and encoded again, with everything the timeline has: the slowest, and the most work for the computer.",
+export const FAST_MODE_HINTS: Record<CopyMode, string> = {
 	copy: "The clips are copied out of their files as they are: fast, light on the computer, and no quality lost. A clip can only start on a key frame, so each one starts at the key frame before its cut, up to a few seconds early.",
 	smart:
 		"Like No re-encoding, but the few frames from each cut to the next key frame are re-encoded, so every clip starts exactly where it's cut. Still fast and light; only those frames lose a little quality.",

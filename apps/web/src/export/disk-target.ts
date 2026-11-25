@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { StreamTargetChunk } from "mediabunny";
 import { isAppleDevice, isLinux } from "@/utils/platform";
 import { DiskFile, type DiskFileInfo } from "@/media/disk-file";
+import type { FileTags } from "@/project/file-tags";
 
 /**
  * The desktop app's save dialog for an export (apps/desktop/src/export.rs),
@@ -46,8 +47,11 @@ export interface ExportFile {
 	/**
 	 * The export finished: it takes the place of the file picked, which until
 	 * now was left as it was. A file in a folder is in its place once closed.
+	 * An MP4's details, `tags`, are written into it first, by the desktop
+	 * app, as it writes its own exports' (apps/desktop/src/render/
+	 * mp4_index.rs): it fails if they can't be, and the file goes.
 	 */
-	commit: () => Promise<void>;
+	commit: ({ tags }?: { tags?: FileTags }) => Promise<void>;
 }
 
 /**
@@ -71,10 +75,10 @@ function toExportFile({
 		state = keep ? "kept" : "discarded";
 		await invoke("close_export_file", { id, keep });
 	};
-	const commit = async () => {
+	const commit = async ({ tags }: { tags?: FileTags } = {}) => {
 		if (state === "committed") return;
 		if (state !== "kept") throw new Error("The export isn't finished");
-		if (isExport) await invoke("commit_export_file", { id });
+		if (isExport) await invoke("commit_export_file", { id, tags });
 		state = "committed";
 	};
 	const write = async ({

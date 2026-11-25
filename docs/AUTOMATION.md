@@ -128,9 +128,12 @@ as cheaply in tokens as the job allows. Nothing leaves the computer. What's buil
   region, as the panel does), Track: their answers in the same few lines.
 - **Exporting by intent.** `export` takes Simple mode's answers (where it's going, a file size
   to fit, size and frame rate, the sound) or the Advanced settings, and a path (in the App
-  Store edition, one the sandbox allows, or asked for). Progress comes as MCP
-  notifications, not by polling; the answer is the file's path, size, duration and codecs, and
-  any warning. It never writes over a file unless told to.
+  Store edition, one the sandbox allows, or asked for), whose extension says the container.
+  Answers it can't take (a size limit of 0, a size under the least, a frame rate not offered)
+  are refused before anything's asked. Progress comes as MCP notifications, not by polling; the
+  answer is the file's path, format, codec and duration, the project's details written into it
+  (the place with its warning), and what the panel would say of its size limit. It never writes
+  over a file unless told to.
 - **Few tools, short descriptions.** Each tool's description is in every request an agent makes,
   so there are about ten (`status`, `project`, `media`, `summary`, `describe`, `edit`, `undo`,
   `look`, `listen`, `find`, `export`), the operations of `edit` listed once in a line each. Their

@@ -12,7 +12,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
 	Tooltip,
 	TooltipContent,
@@ -23,10 +22,11 @@ import { useEditor } from "@/editor/use-editor";
 import { EXPORT_FORMAT_VALUES, type ExportFormat } from "@/export";
 import type { ExportChoices } from "@/export/choices";
 import {
-	FAST_MODES,
+	COPY_MODES,
 	FAST_MODE_HINTS,
 	FAST_MODE_NAMES,
 	listFastLosses,
+	type CopyMode,
 	type FastMode,
 } from "@/export/fast/clips";
 import {
@@ -35,52 +35,33 @@ import {
 	type FastExportInfo,
 } from "@/export/fast/exporter";
 import { useConformStore } from "@/export/fast/conform-store";
-import { AUDIO_CODEC_NAMES, FORMAT_NAMES } from "@/export/settings";
+import { FORMAT_NAMES } from "@/export/settings";
+import { describeSound, getCodecName } from "@/export/summary";
 import type { SceneTracks } from "@/timeline";
-
-const CODEC_NAMES: Record<string, string> = {
-	avc: "H.264",
-	hevc: "HEVC",
-	vp9: "VP9",
-	av1: "AV1",
-	vp8: "VP8",
-	aac: "AAC",
-	opus: "Opus",
-	mp3: "MP3",
-	ac3: "AC-3",
-	eac3: "E-AC-3",
-	flac: "FLAC",
-};
-
-function nameCodec({ codec }: { codec: string }): string {
-	return CODEC_NAMES[codec] ?? codec.toUpperCase();
-}
+import { SegmentedChoice } from "./export-parts";
 
 const FAST_MODE_WHAT =
 	"Copies the clips on the main track out of their files instead of drawing and encoding every frame again: for a slow or busy computer, or to keep the original quality. What the timeline adds on top (transitions, effects, text, other video tracks) is left out; the audio tracks are mixed in.";
 
-function isFastMode(value: string): value is FastMode {
-	return FAST_MODES.some((mode) => mode === value);
-}
-
-/** Off, No re-encoding or Smart Cut, each explained on hover and, once chosen, below. */
-export function FastModePicker({
+/** No re-encoding or Smart Cut, once Fast is chosen: what Fast does on
+ * hover, what each does below. */
+function FastModePicker({
 	value,
 	onChange,
 }: {
-	value: FastMode;
-	onChange: ({ mode }: { mode: FastMode }) => void;
+	value: CopyMode;
+	onChange: ({ mode }: { mode: CopyMode }) => void;
 }) {
 	return (
-		<div className="flex flex-col gap-1.5 px-3 pt-3">
-			<div className="flex items-center justify-between gap-2">
+		<div className="flex flex-col gap-2">
+			<div className="flex items-center justify-between gap-3">
 				<Label className="flex items-center gap-1">
-					Fast mode
+					Copy the clips
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<button
 								type="button"
-								aria-label="What Fast mode does"
+								aria-label="What Fast does"
 								className="text-muted-foreground"
 							>
 								<Info className="size-3.5" />
@@ -91,38 +72,19 @@ export function FastModePicker({
 						</TooltipContent>
 					</Tooltip>
 				</Label>
-				<ToggleGroup
-					type="single"
-					variant="outline"
-					size="sm"
-					value={value}
-					onValueChange={(next) => {
-						if (isFastMode(next)) onChange({ mode: next });
-					}}
-				>
-					{FAST_MODES.map((mode) => (
-						<Tooltip key={mode}>
-							{/* On a wrapper: the trigger's own data-state would hide
-							    which option is on. */}
-							<TooltipTrigger asChild>
-								<span className="inline-flex">
-									<ToggleGroupItem value={mode} className="px-2 text-xs">
-										{FAST_MODE_NAMES[mode]}
-									</ToggleGroupItem>
-								</span>
-							</TooltipTrigger>
-							<TooltipContent side="bottom" className="max-w-72 text-xs">
-								{FAST_MODE_HINTS[mode]}
-							</TooltipContent>
-						</Tooltip>
-					))}
-				</ToggleGroup>
+				<div className="w-56">
+					<SegmentedChoice
+						label="How Fast copies the clips"
+						value={value}
+						options={COPY_MODES.map((mode) => ({
+							value: mode,
+							label: FAST_MODE_NAMES[mode],
+						}))}
+						onChange={({ value: mode }) => onChange({ mode })}
+					/>
+				</div>
 			</div>
-			{value !== "off" && (
-				<p className="text-muted-foreground text-xs">
-					{FAST_MODE_HINTS[value]}
-				</p>
-			)}
+			<p className="text-muted-foreground text-xs">{FAST_MODE_HINTS[value]}</p>
 		</div>
 	);
 }
@@ -182,15 +144,22 @@ export function getFastSummary({
 }): string {
 	if (!info) return "Looking at the clips…";
 	if (!info.codec) return "Nothing to copy";
-	const isSmart = choices.fastMode === "smart" && !info.smartFallback;
-	const video = `${nameCodec({ codec: info.codec })} ${info.width}×${info.height} copied, ${
+	const isSmart = choices.copyMode === "smart" && !info.smartFallback;
+	const video = `${getCodecName({ codec: info.codec })} ${info.width}×${info.height} copied, ${
 		isSmart ? "re-encoded only at the cuts" : "each clip from a key frame"
 	}`;
-	const sound = !choices.hasAudio
-		? "no sound"
-		: info.copiedSound
-			? `${nameCodec({ codec: info.copiedSound })} sound copied`
-			: `${AUDIO_CODEC_NAMES[choices.audioCodec]} ${choices.audioKbps} kbit/s${choices.channels === 1 ? " mono" : ""}`;
+	const sound = describeSound({
+		sound: !choices.hasAudio
+			? { kind: "none" }
+			: info.copiedSound
+				? { kind: "copied", codec: info.copiedSound }
+				: {
+						kind: "encoded",
+						codec: choices.audioCodec,
+						kbps: choices.audioKbps,
+						channels: choices.channels,
+					},
+	});
 	return `${video} · ${sound}`;
 }
 
@@ -212,14 +181,18 @@ export function ExportFast({
 	);
 	const openConform = useConformStore((state) => state.openDialog);
 	const losses = listFastLosses({ tracks, canvasSize, output: info });
-	const { format, hasAudio, audioPassthrough } = choices;
+	const { format, hasAudio, audioPassthrough, copyMode } = choices;
 	const formats = info?.codec
 		? getFastFormats({ codec: info.codec })
 		: [...EXPORT_FORMAT_VALUES];
-	const codec = info?.codec ? nameCodec({ codec: info.codec }) : null;
+	const codec = info?.codec ? getCodecName({ codec: info.codec }) : null;
 
 	return (
-		<div className="flex flex-col gap-4 p-3">
+		<div className="flex flex-col gap-4 px-4 py-4">
+			<FastModePicker
+				value={copyMode}
+				onChange={({ mode }) => setChoices({ choices: { copyMode: mode } })}
+			/>
 			<SectionField label="Container">
 				<Select
 					value={format}
@@ -279,7 +252,7 @@ export function ExportFast({
 						</div>
 						<p className="text-muted-foreground text-xs">
 							{info?.copiedSound
-								? `The ${nameCodec({ codec: info.copiedSound })} sound is copied, its cuts within a hundredth of a second of the picture's.`
+								? `The ${getCodecName({ codec: info.copiedSound })} sound is copied, its cuts within a hundredth of a second of the picture's.`
 								: "Mixed from the clips and the audio tracks under them, and encoded with the audio settings of Advanced: their volumes are kept. Copied only when the audio tracks are empty, every clip's sound is in the same codec and unchanged, and the container takes it."}
 						</p>
 					</>

@@ -16,13 +16,15 @@ import { useConformStore } from "./conform-store";
  * mode off, none: a normal export draws every frame, and they don't matter.
  */
 export function ConformWatcher() {
-	const fastMode = useExportChoicesStore((state) => state.choices.fastMode);
+	const isFast = useExportChoicesStore(
+		(state) => state.choices.panelMode === "fast",
+	);
 	const tracks = useEditor((editor) => editor.scenes.getActiveScene().tracks);
 	const mediaAssets = useEditor((editor) => editor.media.getAssets());
 	const setOdd = useConformStore((state) => state.setOdd);
 
 	useEffect(() => {
-		if (fastMode === "off") {
+		if (!isFast) {
 			setOdd(new Map());
 			return;
 		}
@@ -48,7 +50,7 @@ export function ConformWatcher() {
 		return () => {
 			isCurrent = false;
 		};
-	}, [fastMode, tracks, mediaAssets, setOdd]);
+	}, [isFast, tracks, mediaAssets, setOdd]);
 
 	return null;
 }

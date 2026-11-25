@@ -5,7 +5,9 @@ import { listen } from "@tauri-apps/api/event";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { AgentBridge } from "@/agent/bridge";
+import { EditorCore } from "@/core";
 import { useAppDialogsStore } from "../app-dialogs-store";
+import { announceExportEnd } from "../export-notice";
 import { openProjectFromDisk, saveProjectToDisk } from "../project-files";
 import { openOpenedFiles } from "../opened-files";
 import type { ProbeOptions } from "../probe-checks";
@@ -20,7 +22,8 @@ const FIRST_CHECK_DELAY_MS = 10_000;
 /** An app left open for days still checks daily: it looks every hour. */
 const CHECK_DUE_INTERVAL_MS = 60 * 60 * 1000;
 
-/** About, Settings, updates and agents: on every page, once, in the root layout. */
+/** About, Settings, updates, agents and the notices of exports' ends: on
+ * every page, once, in the root layout. */
 export function AppDialogs() {
 	const openDialog = useAppDialogsStore((state) => state.openDialog);
 	const setOpenDialog = useAppDialogsStore((state) => state.setOpenDialog);
@@ -28,6 +31,7 @@ export function AppDialogs() {
 	useOpenedFiles();
 	useDailyUpdateCheck();
 	useProbeChecks();
+	useExportNotices();
 
 	return (
 		<>
@@ -118,6 +122,19 @@ function useOpenedFiles() {
 			void unlisten.then((stop) => stop());
 		};
 	}, [router]);
+}
+
+/** Each export's end, the panel's or an agent's, said when the window is
+ * behind others (../export-notice.ts). */
+function useExportNotices() {
+	useEffect(() => {
+		if (!isTauri()) return;
+		return EditorCore.getInstance().project.onExportEnd((end) => {
+			announceExportEnd(end).catch((error: unknown) =>
+				console.error("Couldn't say the export ended:", error),
+			);
+		});
+	}, []);
 }
 
 function useDailyUpdateCheck() {

@@ -1,4 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import type { FileTags } from "@/project/file-tags";
 import type { FrameRate } from "magnetcut-wasm";
 import type { FrameDescriptor } from "@/services/renderer/compositor/types";
 import type { ExportFormat } from "./index";
@@ -28,6 +29,11 @@ export interface NativeSourceInfo {
 export interface NativeCapabilities {
 	formats: ExportFormat[];
 	videoCodecs: ExportVideoCodec[];
+	/**
+	 * Those encoded in hardware (a media engine's or a GPU's), which are fast;
+	 * the others are encoded in software (export/hardware.ts).
+	 */
+	hardwareCodecs: ExportVideoCodec[];
 	/** H.264 and HEVC at a constant quality: on Apple silicon. */
 	constantQuality: boolean;
 	/** Whether a source's sound can be copied as it's stored. */
@@ -95,6 +101,8 @@ export interface NativeExportOptions {
 	subtitles?: Array<{
 		cues: Array<{ start: number; end: number; text: string }>;
 	}>;
+	/** The project's details, written into the file. */
+	tags?: FileTags;
 }
 
 /** A video's frame for the native side to decode into a texture. */

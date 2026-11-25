@@ -9,15 +9,18 @@ import {
 	Output,
 } from "mediabunny";
 import type { ExportFormat } from "@/export";
-import { createOutputFormat, getWritingAppTags } from "../output-format";
+import type { FileTags } from "@/project/file-tags";
+import { createOutputFormat, getOutputTags } from "../output-format";
 
 const WRITING_APP = "MagnetCut 1.2.3";
 
 /** A file of a few milliseconds of sound, written as an export writes one. */
 async function write({
 	format,
+	tags,
 }: {
 	format: ExportFormat;
+	tags?: FileTags;
 }): Promise<Uint8Array> {
 	const target = new BufferTarget();
 	const output = new Output({
@@ -29,7 +32,7 @@ async function write({
 		target,
 	});
 	output.setMetadataTags(
-		getWritingAppTags({ format, writingApp: WRITING_APP }),
+		getOutputTags({ format, writingApp: WRITING_APP, tags }),
 	);
 	const codec = format === "webm" ? "opus" : "pcm-s16";
 	const source = new EncodedAudioPacketSource(codec);
@@ -97,4 +100,49 @@ describe("the program that wrote an export", () => {
 		]);
 		expect(includes({ data, bytes: muxingApp })).toBe(true);
 	});
+});
+
+describe("the project's details in an export", () => {
+	const tags: FileTags = {
+		title: "A walk by the river",
+		artist: "Someone",
+		date: "2026-11-13",
+		genre: "Travel",
+		description: "An afternoon's walk",
+		comment: "First cut",
+		location: "+48.8584+002.2945+035.000/",
+		make: "Apple",
+		model: "iPhone 17 Pro",
+	};
+
+	for (const format of ["mp4", "mov", "mkv", "webm"] as const) {
+		test(`are read back from a ${format} file`, async () => {
+			const input = new Input({
+				source: new BufferSource(await write({ format, tags })),
+				formats: ALL_FORMATS,
+			});
+			const read = await input.getMetadataTags();
+			expect(read).toMatchObject({
+				title: tags.title,
+				artist: tags.artist,
+				genre: tags.genre,
+				comment: tags.comment,
+			});
+			expect(read.date?.toISOString().slice(0, 10)).toBe("2026-11-13");
+			// The writing app, kept.
+			expect(read.raw?.[FIELDS[format]]).toBe(WRITING_APP);
+			if (format === "mp4" || format === "mov") {
+				expect(read.raw).toMatchObject({
+					"©xyz": tags.location,
+					"©mak": tags.make,
+					"©mod": tags.model,
+				});
+			}
+			// QuickTime's day as a date and time, which AVFoundation reads as
+			// a date: a day alone, it misreads.
+			if (format === "mov") {
+				expect(read.raw?.["©day"]).toBe("2026-11-13T12:00:00Z");
+			}
+		});
+	}
 });

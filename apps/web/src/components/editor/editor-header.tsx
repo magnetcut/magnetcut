@@ -11,6 +11,7 @@ import { RenameProjectDialog } from "@/project/components/rename-project-dialog"
 import { DeleteProjectDialog } from "@/project/components/delete-project-dialog";
 import { useRouter } from "next/navigation";
 import { ExportButton } from "./export-button";
+import { ProjectDetailsButton } from "./project-details";
 import { ThemeToggle } from "../theme-toggle";
 import { toast } from "sonner";
 import { useEditor } from "@/editor/use-editor";
@@ -26,6 +27,7 @@ export function EditorHeader() {
 			<div className="flex items-center gap-1">
 				<ProjectDropdown />
 				<EditableProjectName />
+				<ProjectDetailsButton />
 			</div>
 			<nav className="flex items-center gap-2">
 				<ExportButton />
@@ -41,13 +43,26 @@ function ProjectDropdown() {
 	>(null);
 	const [isExiting, setIsExiting] = useState(false);
 	const exitWarned = useRef(false);
+	const exportWarned = useRef(false);
 	const router = useRouter();
 	const editor = useEditor();
 	const activeProject = useEditor((e) => e.project.getActive());
 
 	const handleExit = async () => {
 		if (isExiting) return;
+		// An export reads the project as it goes: leaving cancels it, once the
+		// user has been told.
+		if (!editor.project.getExportState().isExporting) {
+			exportWarned.current = false;
+		} else if (!exportWarned.current) {
+			exportWarned.current = true;
+			toast.warning("An export is running", {
+				description: "Leave again to cancel it, or wait for it to end.",
+			});
+			return;
+		}
 		setIsExiting(true);
+		await editor.project.stopExport();
 
 		try {
 			await editor.project.prepareExit();

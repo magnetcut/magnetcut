@@ -16,6 +16,7 @@ use tauri_plugin_dialog::DialogExt;
 use crate::activity::Activity;
 use crate::dialog::AnyCaseFilter;
 use crate::media::{DiskFileInfo, MediaFiles};
+use crate::render::{FileTags, write_mp4_details};
 
 /// The files picked in the save dialog, each good for one export; those being
 /// written; and those finished, which may be shown.
@@ -235,10 +236,21 @@ impl Exports {
         Ok(())
     }
 
-    fn commit(&self, id: u32) -> Result<(), String> {
+    fn commit(&self, id: u32, tags: Option<&FileTags>) -> Result<(), String> {
         let (path, target) = lock(&self.closed)
             .remove(&id)
             .ok_or("no such export, or not closed")?;
+        // An MP4's details, as the native export writes its own: an export
+        // whose details can't be written failed, and what it wrote goes.
+        let is_mp4 = target
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"));
+        if let Some(tags) = tags.filter(|_| is_mp4)
+            && let Err(error) = write_mp4_details(&path, tags)
+        {
+            let _ = fs::remove_file(&path);
+            return Err(format!("Couldn't write the film's details: {error}"));
+        }
         put_in_place(&path, &target)?;
         self.add_saved(target);
         Ok(())
@@ -352,10 +364,15 @@ pub fn close_export_file(exports: State<'_, Exports>, id: u32, keep: bool) -> Re
     exports.close(id, keep)
 }
 
-/// Puts an export that finished in the place of the file picked for it.
+/// Puts an export that finished in the place of the file picked for it,
+/// with its details, `tags`, written into it first if it's an MP4.
 #[tauri::command]
-pub fn commit_export_file(exports: State<'_, Exports>, id: u32) -> Result<(), String> {
-    exports.commit(id)
+pub fn commit_export_file(
+    exports: State<'_, Exports>,
+    id: u32,
+    tags: Option<FileTags>,
+) -> Result<(), String> {
+    exports.commit(id, tags.as_ref())
 }
 
 /// Shows a finished export in Finder, Explorer or the file manager.
@@ -594,7 +611,7 @@ mod tests {
         exports.close(id, true).unwrap();
         assert_eq!(fs::read(&film).unwrap(), b"the user's film");
         assert!(!lock(&exports.saved).contains(&film));
-        exports.commit(id).unwrap();
+        exports.commit(id, None).unwrap();
         assert_eq!(fs::read(&film).unwrap(), b"the export");
         assert!(lock(&exports.saved).contains(&film));
         assert_eq!(
@@ -625,7 +642,7 @@ mod tests {
                 1,
                 "the partial file is gone"
             );
-            assert!(exports.commit(id).is_err());
+            assert!(exports.commit(id, None).is_err());
             assert_eq!(fs::read(&film).unwrap(), b"the user's film");
             fs::remove_dir_all(&folder).unwrap();
         }
@@ -687,7 +704,7 @@ mod tests {
             "the partial files are gone"
         );
         assert!(lock(&exports.open).is_empty() && lock(&exports.picked).is_empty());
-        assert!(exports.commit(finished).is_err());
+        assert!(exports.commit(finished, None).is_err());
         fs::remove_dir_all(&folder).unwrap();
     }
 
@@ -735,7 +752,7 @@ mod tests {
         let result = opened.and_then(|id| {
             write(&exports, id, b"the export");
             exports.close(id, true)?;
-            exports.commit(id)
+            exports.commit(id, None)
         });
         fs::set_permissions(&folder, fs::Permissions::from_mode(0o755)).unwrap();
         result.unwrap();

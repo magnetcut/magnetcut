@@ -16,7 +16,8 @@ import {
 import { getWritingApp } from "@/desktop/app-info";
 import { EXPORT_FORMAT_VALUES, type ExportFormat } from "@/export";
 import type { ExportFile } from "@/export/disk-target";
-import { createOutputFormat, getWritingAppTags } from "@/export/output-format";
+import { createOutputFormat, getOutputTags } from "@/export/output-format";
+import type { FileTags } from "@/project/file-tags";
 import {
 	FORMAT_CODECS,
 	FORMAT_NAMES,
@@ -577,6 +578,7 @@ export async function exportFast({
 	format,
 	audio,
 	file,
+	tags,
 	onProgress,
 	isCancelled,
 }: {
@@ -587,6 +589,8 @@ export async function exportFast({
 	/** The sound's settings, if there's sound; copied when it can be if they say so. */
 	audio: ExportAudioSettings | null;
 	file?: ExportFile;
+	/** The project's details, written into the file. */
+	tags?: FileTags;
 	onProgress?: (progress: number) => void;
 	isCancelled: () => boolean;
 }): Promise<ExportOutput | null> {
@@ -729,7 +733,7 @@ export async function exportFast({
 			format: createOutputFormat({ format, isStreamed: !!file, writingApp }),
 			target,
 		});
-		output.setMetadataTags(getWritingAppTags({ format, writingApp }));
+		output.setMetadataTags(getOutputTags({ format, writingApp, tags }));
 		const videoSource = new EncodedVideoPacketSource(codec);
 		const sameTimescale = ordered.every(
 			(source) => source.video.timeResolution === first.video.timeResolution,

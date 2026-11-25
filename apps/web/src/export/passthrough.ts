@@ -42,6 +42,13 @@ export interface AudioPassthrough {
 	close: () => void;
 }
 
+/** What's said of a source's sound to copy: the export panel's summary, and
+ * an agent's export. */
+export type PassthroughSound = Pick<
+	AudioPassthrough,
+	"codec" | "numberOfChannels" | "sampleRate" | "bitrate"
+>;
+
 /**
  * Whether the desktop app's own export copies sound from a file in this
  * format: MP4 or QuickTime only, the files it reads sound from on every
@@ -120,4 +127,35 @@ export async function openAudioPassthrough({
 	} finally {
 		if (!passthrough) input.dispose();
 	}
+}
+
+/** The timeline's sound to copy (`openAudioPassthrough`), as it's said, its
+ * file not kept open: null where there's none. */
+export async function describeAudioPassthrough({
+	tracks,
+	mediaAssets,
+	duration,
+	format,
+}: {
+	tracks: SceneTracks;
+	mediaAssets: MediaAsset[];
+	/** The timeline's, in ticks. */
+	duration: number;
+	format: ExportFormat;
+}): Promise<PassthroughSound | null> {
+	const passthrough = await openAudioPassthrough({
+		tracks,
+		mediaAssets,
+		duration,
+		format,
+	});
+	passthrough?.close();
+	return (
+		passthrough && {
+			codec: passthrough.codec,
+			numberOfChannels: passthrough.numberOfChannels,
+			sampleRate: passthrough.sampleRate,
+			bitrate: passthrough.bitrate,
+		}
+	);
 }

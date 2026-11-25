@@ -16,7 +16,7 @@ import {
 	type ExportVideoCodec,
 	type ExportVideoQuality,
 } from "./settings";
-import { FAST_MODES, type FastMode } from "./fast/clips";
+import { COPY_MODES, type CopyMode } from "./fast/clips";
 import { FILTER_STRENGTHS, type FilterStrength } from "./filters";
 import { EXPORT_SUBTITLE_MODES, type ExportSubtitles } from "./subtitles";
 import {
@@ -32,6 +32,13 @@ import {
 
 export const QUALITY_MODES = ["level", "bitrate", "size", "constant"] as const;
 export type QualityMode = (typeof QUALITY_MODES)[number];
+
+/** The export panel's modes: Simple asks a few questions in everyday words
+ * (`export/wizard.ts`) and sets the rest from the answers; Advanced is every
+ * setting; Fast copies the clips out of their files, without the rest of the
+ * timeline (`export/fast`). */
+export const PANEL_MODES = ["simple", "advanced", "fast"] as const;
+export type PanelMode = (typeof PANEL_MODES)[number];
 
 export interface ExportChoices {
 	format: ExportFormat;
@@ -58,12 +65,9 @@ export interface ExportChoices {
 	denoise: FilterStrength;
 	sharpen: FilterStrength;
 	subtitles: ExportSubtitles;
-	/** The clips copied out of their files, without the rest of the timeline
-	 * (`export/fast`), or drawn and encoded as usual. */
-	fastMode: FastMode;
-	/** Simple asks a few questions in everyday words (`export/wizard.ts`),
-	 * and sets the rest from the answers; Advanced is every setting. */
-	panelMode: "simple" | "advanced";
+	/** How Fast mode copies the clips: kept while another mode's chosen. */
+	copyMode: CopyMode;
+	panelMode: PanelMode;
 	wizard: WizardAnswers;
 }
 
@@ -93,7 +97,7 @@ export const DEFAULT_EXPORT_CHOICES: ExportChoices = {
 	denoise: "off",
 	sharpen: "off",
 	subtitles: "picture",
-	fastMode: "off",
+	copyMode: "copy",
 	panelMode: "simple",
 	wizard: DEFAULT_WIZARD_ANSWERS,
 };
@@ -221,7 +225,25 @@ export function getChosenOptions({
 			sharpen: choices.sharpen,
 		},
 		subtitles: choices.subtitles,
-		fastMode: choices.fastMode,
+		fastMode: choices.panelMode === "fast" ? choices.copyMode : "off",
+	};
+}
+
+/** A preset's choices as the panel takes them: its export's, and the
+ * panel's own (its mode, Fast mode's, the Simple mode's answers) as they
+ * were. */
+export function getPresetChoices({
+	preset,
+	choices,
+}: {
+	preset: ExportPreset;
+	choices: ExportChoices;
+}): ExportChoices {
+	return {
+		...preset.choices,
+		panelMode: choices.panelMode,
+		copyMode: choices.copyMode,
+		wizard: choices.wizard,
 	};
 }
 
@@ -335,15 +357,36 @@ export function sanitizeChoices({ value }: { value: unknown }): ExportChoices {
 		subtitles:
 			oneOf({ value: read("subtitles"), values: EXPORT_SUBTITLE_MODES }) ??
 			defaults.subtitles,
-		fastMode:
-			oneOf({ value: read("fastMode"), values: FAST_MODES }) ??
-			defaults.fastMode,
+		...sanitizeModes({ value }),
+		wizard: sanitizeWizardAnswers({ value: read("wizard") }),
+	};
+}
+
+/** The panel's mode and Fast mode's, read back. Up to MagnetCut 0.1.6, Fast
+ * was a setting of the Simple and Advanced modes' (`fastMode`: off, or how
+ * it copied), on in either: on, it's now the Fast mode. */
+function sanitizeModes({
+	value,
+}: {
+	value: unknown;
+}): Pick<ExportChoices, "panelMode" | "copyMode"> {
+	const defaults = DEFAULT_EXPORT_CHOICES;
+	const copyMode: unknown = readField({ value, key: "copyMode" });
+	if (copyMode === undefined) {
+		const before = oneOf({
+			value: readField({ value, key: "fastMode" }),
+			values: COPY_MODES,
+		});
+		if (before) return { panelMode: "fast", copyMode: before };
+	}
+	return {
 		panelMode:
 			oneOf({
-				value: read("panelMode"),
-				values: ["simple", "advanced"] as const,
+				value: readField({ value, key: "panelMode" }),
+				values: PANEL_MODES,
 			}) ?? defaults.panelMode,
-		wizard: sanitizeWizardAnswers({ value: read("wizard") }),
+		copyMode:
+			oneOf({ value: copyMode, values: COPY_MODES }) ?? defaults.copyMode,
 	};
 }
 

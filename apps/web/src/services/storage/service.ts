@@ -1,4 +1,5 @@
 import type { TProject, TProjectMetadata } from "@/project/types";
+import { hasFileTags, normalizeFileTags } from "@/project/file-tags";
 import { getProjectDurationFromScenes } from "@/timeline/scenes";
 import type { MediaAsset, MediaProxy } from "@/media/types";
 import {
@@ -133,6 +134,10 @@ export function serializeProject({
 			duration,
 			createdAt: project.metadata.createdAt.toISOString(),
 			updatedAt: project.metadata.updatedAt.toISOString(),
+			...(project.metadata.tags &&
+				hasFileTags({ tags: project.metadata.tags }) && {
+					tags: project.metadata.tags,
+				}),
 		},
 		scenes: serializedScenes,
 		currentSceneId: project.currentSceneId,
@@ -170,6 +175,7 @@ export function deserializeProject({
 			}),
 			createdAt: new Date(serialized.metadata.createdAt),
 			updatedAt: new Date(serialized.metadata.updatedAt),
+			tags: normalizeFileTags({ raw: serialized.metadata.tags }),
 		},
 		scenes,
 		currentSceneId: serialized.currentSceneId || "",
