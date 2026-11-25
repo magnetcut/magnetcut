@@ -180,13 +180,17 @@ jobs:
   # installers are.
   macos:
     if: inputs.mac && github.ref == 'refs/heads/main'
-    runs-on: macos-26
+    # macOS 27 with Xcode 27, as the Macs MagnetCut is released from: on
+    # macos-26 (Xcode 26.6) actool compiled the icon on its own but not
+    # inside Tauri's bundler.
+    runs-on: xcode-27
     environment: release
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # The icon's layers (MagnetCut.icon) are compiled by Xcode 26's actool.
+      # The icon's layers (MagnetCut.icon) are compiled by actool, from
+      # Xcode 26 on: the newest Xcode there is.
       - name: Use Xcode 26 or later
         run: |
           xcode=$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | sort -V | tail -1 || true)
@@ -214,6 +218,28 @@ jobs:
             echo "::error::actool can't compile apps/desktop/icons/MagnetCut.icon (exit $status)"
             exit 1
           fi
+
+      # Tauri's bundler runs actool by name and keeps what it says to itself:
+      # this actool, first on the PATH, is Xcode's, with what it says kept in
+      # actool.log, which the job shows if it fails.
+      - name: Keep what actool says
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bin"
+          cat > "$RUNNER_TEMP/bin/actool" <<'SH'
+          #!/bin/bash
+          out=$(mktemp)
+          err=$(mktemp)
+          status=0
+          xcrun actool "$@" >"$out" 2>"$err" || status=$?
+          { echo "== actool $* (exit $status)"; cat "$out" "$err"; } >> "$RUNNER_TEMP/actool.log"
+          cat "$out"
+          cat "$err" >&2
+          rm -f "$out" "$err"
+          exit "$status"
+          SH
+          chmod +x "$RUNNER_TEMP/bin/actool"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Update Rust
         run: |
@@ -285,6 +311,10 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: apps/desktop/scripts/release.sh --mac
+
+      - name: What actool said
+        if: failure()
+        run: cat "$RUNNER_TEMP/actool.log" 2>/dev/null || echo "actool didn't run"
 
       - name: Keep the macOS files
         uses: actions/upload-artifact@v4
