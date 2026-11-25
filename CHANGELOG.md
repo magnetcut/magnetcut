@@ -6,6 +6,41 @@ All notable changes to this project are documented here. The format is based on
 
 ## Unreleased
 
+## [0.1.7] - 2026-11-25
+
+### Added
+- Export says whether the video is encoded in hardware or in software, which is much slower, and
+  Hardware-accelerated only, on by default, offers only the codecs encoded in hardware: the
+  smallest file is HEVC on a Mac, not AV1, which takes hours at 4K.
+- Details, beside the project's name: its title, who made it, the date, genre, description,
+  comment, camera and place, written into every file it's exported to. Each offers what the clips
+  say of themselves (an iPhone's: the day, the place and the camera); the place goes in only when
+  you choose it.
+- A notification, and the Dock icon bouncing, when an export ends while MagnetCut isn't in front.
+- Export's Priority: Normal, Low or Background, which can be changed while an export runs (macOS
+  and Windows).
+- Settings → Agents connects Claude Code, Codex or OpenCode in one click. Settings is a page at a
+  time now.
+- Videos open with MagnetCut (Open With on macOS, the file manager on Linux), and project files
+  open with a double click.
+
+### Changed
+- The export panel: one switch for Simple, Advanced and Fast; the summary and the file's size at
+  the foot; the progress on the Export button. Closing the panel no longer cancels an export.
+- A size limit is a limit, not a target: a film that would come out bigger is made smaller to fit
+  it, and the panel says when it can't. The email size is 20 MB.
+- Export progress goes by a tenth of a percent under 10%, with the time left; agents' exports
+  report it too.
+
+### Fixed
+- AV1 at a bitrate keeps to it: a 4K video asked for 9 Mbit/s came out at 44.
+- An agent's export to a .mkv or .webm file was an MP4 inside.
+- Project thumbnails are no longer black.
+- Off switches can be seen outside the editor, in the light theme and the dark.
+- Deleting a project needs DELETE typed, as the dialog says.
+- On Linux, the open and save dialogs show files with extensions in capitals (CLIP.MP4).
+- On macOS 27, a file dropped from the Finder is used where it is.
+
 ## [0.1.6] - 2026-11-18
 
 ### Added
@@ -295,6 +330,7 @@ account, ads or telemetry.
   editor's place, as in a browser. It's now imported, wherever it's dropped, and nothing
   dropped on the window can replace the app.
 
+[0.1.7]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.7
 [0.1.6]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.6
 [0.1.5]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.5
 [0.1.4]: https://github.com/magnetcut/magnetcut/releases/tag/v0.1.4
