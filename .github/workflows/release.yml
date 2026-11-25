@@ -1,15 +1,41 @@
 name: Release builds
 
-# The Windows and Linux installers of a release. Sentry's optional CI token
-# uploads symbols, never signs installers. apps/desktop/scripts/release.sh fetches
-# them for its commit, signs them as updates, adds the macOS app and puts it
-# all on a draft release (docs/RELEASING.md). It starts this run itself.
+# A release, on a *draft* GitHub release for a person to read and publish
+# (docs/RELEASING.md): the Windows and Linux installers; the macOS app,
+# universal, Developer ID signed, notarized and stapled, in a disk image; each
+# signed as an update, and latest.json. Started by hand on the release commit:
+#
+#   gh workflow run release.yml --repo magnetcut/magnetcut --ref main
+#
+# apps/desktop/scripts/release.sh, run on a Mac with the keys instead, starts
+# it with mac=false: the installers alone, which it fetches, signs and uploads
+# with its own macOS app.
+#
+# The keys are the release environment's secrets (Settings → Environments →
+# release), so a pull request's workflows never see them:
+#   MACOS_CERT_P12_BASE64, MACOS_CERT_PASSWORD   the Developer ID Application
+#                                                certificate, exported as .p12
+#   APPLE_API_KEY_B64, APPLE_API_KEY_ID,         an App Store Connect API key,
+#   APPLE_API_ISSUER                             for notarytool
+#   UPDATER_KEY, UPDATER_KEY_PASSWORD            the updater's private key (the
+#                                                file's text) and its password
+# and its variable APPLE_TEAM_ID. Sentry's optional token uploads symbols and
+# never signs anything.
 
 on:
   workflow_dispatch:
+    inputs:
+      mac:
+        description: The macOS app, the signatures and the draft release too (off for release.sh)
+        type: boolean
+        default: true
 
 permissions:
   contents: read
+
+concurrency:
+  group: release-${{ github.sha }}
+  cancel-in-progress: false
 
 env:
   # The tools' own usage reporting, off.
@@ -148,3 +174,173 @@ jobs:
           path: ${{ matrix.files }}
           if-no-files-found: error
           retention-days: 7
+
+  # The macOS files, as release.sh --mac makes them: built while the
+  # installers are.
+  macos:
+    if: inputs.mac
+    runs-on: macos-26
+    environment: release
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # The icon's layers (MagnetCut.icon) are compiled by Xcode 26's actool.
+      - name: Use Xcode 26 or later
+        run: |
+          xcode=$(ls -d /Applications/Xcode_2[6-9]*.app 2>/dev/null | sort -V | tail -1 || true)
+          if [ -n "$xcode" ]; then sudo xcode-select -s "$xcode"; fi
+          xcodebuild -version
+
+      - name: Update Rust
+        run: |
+          rustup update stable --no-self-update
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: v0.13.1
+
+      - name: Cache Rust build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-universal-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        with:
+          bun-version: 1.4.4
+
+      - name: Cache Bun modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-1.4.4-${{ hashFiles('bun.lock') }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Import the signing identity into a throwaway keychain
+        env:
+          CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          [ -n "$CERT_P12_BASE64" ] || { echo "::error::MACOS_CERT_P12_BASE64 is not set"; exit 1; }
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          KCPW="$(openssl rand -base64 24)"
+          printf '%s' "$CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KCPW" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KCPW" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed s/\"//g)
+          security default-keychain -s "$KEYCHAIN"
+          rm "$RUNNER_TEMP/cert.p12"
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+      - name: Write the notary key
+        env:
+          APPLE_API_KEY_B64: ${{ secrets.APPLE_API_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          [ -n "$APPLE_API_KEY_B64" ] || { echo "::error::APPLE_API_KEY_B64 is not set"; exit 1; }
+          umask 077
+          printf '%s' "$APPLE_API_KEY_B64" | base64 --decode > "$RUNNER_TEMP/notary-key.p8"
+
+      - name: Build, sign, notarize and staple
+        env:
+          TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/notary-key.p8
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: apps/desktop/scripts/release.sh --mac
+
+      - name: Keep the macOS files
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal
+          path: target/release-files/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Keep native debug symbols
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: symbols-macos-universal-${{ github.sha }}
+          path: |
+            target/aarch64-apple-darwin/release/magnetcut.dSYM
+            target/x86_64-apple-darwin/release/magnetcut.dSYM
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Remove the keys
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/notary-key.p8"
+          security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
+
+  # Every update signed with the updater's key (release.sh --sign), latest.json,
+  # and the draft release (--upload).
+  draft:
+    if: inputs.mac
+    needs: [installers, macos]
+    runs-on: macos-26
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      # The whole history: --upload checks the commit is on a pushed branch.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        with:
+          bun-version: 1.4.4
+
+      - name: Fetch the macOS files
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-universal
+          path: target/release-files
+
+      - name: Fetch the installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-x86_64"
+          path: ${{ runner.temp }}/installers
+
+      - name: Write the updater key
+        env:
+          KEY_TEXT: ${{ secrets.UPDATER_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "$KEY_TEXT" ] || { echo "::error::UPDATER_KEY is not set"; exit 1; }
+          umask 077
+          printf '%s' "$KEY_TEXT" > "$RUNNER_TEMP/updater.key"
+
+      - name: Sign the updates; latest.json
+        env:
+          UPDATER_KEY: ${{ runner.temp }}/updater.key
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.UPDATER_KEY_PASSWORD }}
+        run: apps/desktop/scripts/release.sh --sign "$RUNNER_TEMP/installers"
+
+      - name: Remove the updater key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/updater.key"
+
+      - name: Put it on a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: apps/desktop/scripts/release.sh --upload

@@ -25,20 +25,35 @@ updater at all: the App Store updates its own apps.
 
 ## Once: keys and credentials
 
-In `apps/desktop/release.env` (copy `apps/desktop/release.env.example`):
+The release workflow (`.github/workflows/release.yml`) signs with the secrets of the repository's
+`release` environment (Settings → Environments), which only its own jobs read, never a pull
+request's workflows:
 
-- **Developer ID Application certificate** for your team, in the login keychain, and `TEAM_ID`.
-- **Notarization**: a notarytool keychain profile, `NOTARY_PROFILE`:
-  `xcrun notarytool store-credentials <name> --apple-id <you> --team-id <team> --password <app-specific password>`.
-- **The updater key**, made once with `cargo tauri signer generate -w <file>`; `UPDATER_KEY` is
-  that file, and its password goes in the login keychain, named by `UPDATER_KEY_PASSWORD_ITEM`.
-  Its public half, `<file>.pub`, is `plugins.updater.pubkey` in `apps/desktop/tauri.conf.json`.
-  **Keep the key somewhere backed up, out of the repository.** If it's lost, installed copies can
-  never be updated again: they'd have to be reinstalled by hand from a build with a new public
-  key. Nothing else holds it: CI builds the Windows and Linux installers without any key, and
-  the script signs them on your Mac.
+- `MACOS_CERT_P12_BASE64` and `MACOS_CERT_PASSWORD`: the team's **Developer ID Application**
+  certificate with its private key, exported from Keychain Access as .p12, in base64, and that
+  export's password; and the environment's variable `APPLE_TEAM_ID`.
+- `APPLE_API_KEY_B64`, `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`: an **App Store Connect API
+  key** (Users and Access → Integrations), which notarytool notarizes with: the `.p8` in base64,
+  its key id and the issuer id.
+- `UPDATER_KEY` and `UPDATER_KEY_PASSWORD`: **the updater key**, made once with `cargo tauri
+  signer generate -w <file>`, as the file's text, and its password. Its public half,
+  `<file>.pub`, is `plugins.updater.pubkey` in `apps/desktop/tauri.conf.json`. **Keep the file
+  somewhere backed up, out of the repository**: GitHub never gives a secret back. If it's lost,
+  installed copies can never be updated again: they'd have to be reinstalled by hand from a
+  build with a new public key.
+- `SENTRY_AUTH_TOKEN`, a repository secret, optional: the symbols and source maps for crash
+  reports.
 
-And the tools: `cargo install tauri-cli --version '^2' --locked`, `rustup target add
+Whoever can run a workflow can sign with them: required reviewers on the environment make each
+release wait for an approval.
+
+To release from a Mac instead, `apps/desktop/release.env` (copy
+`apps/desktop/release.env.example`): `TEAM_ID`, with the Developer ID certificate in the login
+keychain; `NOTARY_PROFILE`, a notarytool keychain profile (`xcrun notarytool store-credentials
+<name> --apple-id <you> --team-id <team> --password <app-specific password>`), or the API key
+as `APPLE_API_KEY_PATH`, `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`; `UPDATER_KEY`, the key's
+file, with its password in the login keychain, named by `UPDATER_KEY_PASSWORD_ITEM`. And the
+tools: `cargo install tauri-cli --version '^2' --locked`, `rustup target add
 aarch64-apple-darwin x86_64-apple-darwin`, `gh` (logged in) and `jq`.
 
 ## Making a release
@@ -50,21 +65,27 @@ aarch64-apple-darwin x86_64-apple-darwin`, `gh` (logged in) and `jq`.
    Unreleased above it and the `[x.y.z]:` link at the bottom. That section is the release notes,
    on GitHub and in the update dialog.
 3. Commit and push.
-4. `apps/desktop/scripts/release.sh`, into `target/release-files/`. It refuses a dirty working
-   tree, then:
-   - starts `.github/workflows/release.yml` on the pushed commit, which builds the Windows and
-     Linux installers (about 15 minutes), unless a run for the commit is already there;
-   - meanwhile builds the macOS app (universal), notarizes it and then the disk image (a few
-     minutes each), staples both and checks the image as a download;
-   - waits for the run, downloads the installers and checks they're this version;
-   - signs each update, checking the signature against the public key in `tauri.conf.json`,
-     and writes `latest.json`.
-5. `apps/desktop/scripts/release.sh --upload` creates the draft release `vx.y.z` with the
-   files, or replaces a draft's files. A published release is never replaced: a new build is a
-   new version.
-6. Read the draft on GitHub, then publish it. Publishing creates the tag.
+4. `gh workflow run release.yml --repo magnetcut/magnetcut --ref main`. The run (about 30
+   minutes):
+   - builds the Windows and Linux installers and, meanwhile, the macOS app
+     (`apps/desktop/scripts/release.sh --mac`): universal, signed, notarized, then the disk
+     image, both stapled, and the image checked as a download;
+   - then signs each update (`release.sh --sign`), checking the signature against the public
+     key in `tauri.conf.json`, writes `latest.json`, and creates the draft release `vx.y.z` with
+     the files (`release.sh --upload`), or replaces a draft's files. A published release is
+     never replaced: a new build is a new version.
+5. Read the draft on GitHub, then publish it. Publishing creates the tag.
 
-When the updater's key is on another Mac: `release.sh --unsigned` does step 4 but for the
+### From a Mac
+
+`apps/desktop/scripts/release.sh` does step 4 on a Mac with the keys, into
+`target/release-files/`. It refuses a dirty working tree, then starts the workflow on the pushed
+commit with `mac=false`, for the installers alone, unless a run for the commit is already
+there; builds and notarizes the macOS app meanwhile; waits for the run and downloads the
+installers; signs each update and writes `latest.json`. Then `release.sh --upload` makes the
+draft.
+
+When the updater's key is on another Mac: `release.sh --unsigned` does that but for the
 signatures and `latest.json`. Copy `target/release-files/` to the Mac with the key, at the same
 commit, run `release.sh --sign` there (in its Terminal: over SSH the login keychain is locked),
 copy the folder back and go on with `--upload`.

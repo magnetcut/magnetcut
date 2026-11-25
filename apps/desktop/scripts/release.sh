@@ -25,6 +25,10 @@
 #   apps/desktop/scripts/release.sh --sign       on the Mac with the key, with
 #                                              target/release-files copied there: signs
 #                                              the updates and writes latest.json
+#   apps/desktop/scripts/release.sh --mac        the macOS files alone, not signed as
+#                                              updates: the release workflow's macOS job
+#   apps/desktop/scripts/release.sh --sign <dir>  --sign, with the Windows and Linux
+#                                              installers taken from <dir>: its last job
 #   apps/desktop/scripts/release.sh --upload  put those on a *draft* GitHub release
 #                                              v<version>, for a person to read and
 #                                              publish. Publishing it is what makes
@@ -38,7 +42,8 @@
 #   - UPDATER_KEY, the updater's private key, and its password: in the login
 #     keychain (UPDATER_KEY_PASSWORD_ITEM) or in TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 #     (not for --unsigned; only these, cargo tauri and jq for --sign);
-#   - cargo tauri (tauri-cli 2), gh, jq, and the Rust targets
+#   - cargo tauri (tauri-cli 2), or bunx $TAURI_CLI when that's set (as the
+#     release workflow sets it), gh, jq, and the Rust targets
 #     aarch64-apple-darwin and x86_64-apple-darwin.
 #
 # Each step checks its own result: an exit status of 0 is not evidence that
@@ -55,6 +60,15 @@ WORKFLOW=release.yml
 OUT=target/release-files
 BUNDLE=target/universal-apple-darwin/release/bundle/macos
 APP="$BUNDLE/$APP_NAME.app"
+
+# The Tauri CLI: the release workflow's pinned package, or cargo's.
+tauri() {
+    if [ -n "${TAURI_CLI:-}" ]; then
+        bunx "$TAURI_CLI" "$@"
+    else
+        cargo tauri "$@"
+    fi
+}
 
 say() { printf "\n\033[1;34m==>\033[0m %s\n" "$*"; }
 die() { printf "\n\033[1;31mERROR:\033[0m %s\n" "$*" >&2; exit 1; }
@@ -138,7 +152,7 @@ key_id() {
 sign_update() {
     rm -f "$1.sig"
     TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$PASSWORD" \
-        cargo tauri signer sign -f "$UPDATER_KEY" "$1" >/dev/null
+        tauri signer sign -f "$UPDATER_KEY" "$1" >/dev/null
     [ -s "$1.sig" ] || die "no signature for $1"
     [ "$(key_id "$(cat "$1.sig")")" = "$TRUSTED_KEY_ID" ] \
         || die "$1 is signed with another key than the one in tauri.conf.json: installed copies would refuse it"
@@ -241,19 +255,36 @@ sign_all() {
     } > "$OUT/files"
 }
 
-# What --unsigned left, signed here: the same commit, so that the notes and
+# The Windows and Linux installers, found by name in the folder $1, into
+# $OUT; and the stable name for the Windows one.
+take_installers() {
+    local name found
+    for name in "${INSTALLERS[@]}"; do
+        found=$(find "$1" -type f -name "$name" | head -1)
+        [ -n "$found" ] || die "$1 has no $name; it has: $(find "$1" -type f -exec basename {} \; | tr '\n' ' ')"
+        mv "$found" "$OUT/$name"
+    done
+    cp "$OUT/$WINDOWS_NSIS" "$OUT/$WINDOWS_STABLE"
+}
+
+# What --unsigned or --mac left, signed here: the same commit, so that the notes and
 # the trusted key are the ones it was built with.
 sign_elsewhere() {
     local name head
     [ -f "$OUT/unsigned" ] || die "$OUT has no build waiting for signatures: run apps/desktop/scripts/release.sh --unsigned first"
     head=$(git rev-parse HEAD)
     [ "$(cat "$OUT/unsigned")" = "$head" ] || die "$OUT was made from $(cat "$OUT/unsigned"), not HEAD ($head)"
+    if [ -n "${1:-}" ]; then
+        [ -d "$1" ] || die "no folder $1"
+        take_installers "$1"
+    fi
     for name in "$(basename "$DMG")" "$APP_NAME.dmg" "$WINDOWS_STABLE" "$(basename "$MAC_UPDATE")" "${INSTALLERS[@]}"; do
         [ -f "$OUT/$name" ] || die "$OUT/$name is missing"
     done
-    for tool in jq cargo xxd; do
+    for tool in jq xxd; do
         command -v "$tool" >/dev/null || die "$tool is not installed"
     done
+    tauri --version >/dev/null 2>&1 || die "no Tauri CLI: cargo install tauri-cli --version '^2' --locked"
     NOTES="$(release_notes)"
     [ -n "$NOTES" ] || die "CHANGELOG.md has no section '## [$VERSION]'"
     load_key
@@ -266,12 +297,14 @@ sign_elsewhere() {
 }
 
 UNSIGNED=no
+MAC_ONLY=no
 case "${1:-}" in
     --upload) upload; exit 0 ;;
-    --sign) sign_elsewhere; exit 0 ;;
+    --sign) sign_elsewhere "${2:-}"; exit 0 ;;
     --unsigned) UNSIGNED=yes ;;
+    --mac) UNSIGNED=yes; MAC_ONLY=yes ;;
     "") ;;
-    *) die "unknown option: $1 (--unsigned, --sign or --upload)" ;;
+    *) die "unknown option: $1 (--unsigned, --mac, --sign or --upload)" ;;
 esac
 
 # ---- Preconditions -----------------------------------------------------------
@@ -281,7 +314,7 @@ have_api_key || [ -n "${NOTARY_PROFILE:-}" ] || die "no notarization credentials
 for tool in gh jq cargo xxd; do
     command -v "$tool" >/dev/null || die "$tool is not installed"
 done
-cargo tauri --version >/dev/null 2>&1 || die "no Tauri CLI: cargo install tauri-cli --version '^2' --locked"
+tauri --version >/dev/null 2>&1 || die "no Tauri CLI: cargo install tauri-cli --version '^2' --locked"
 for target in aarch64-apple-darwin x86_64-apple-darwin; do
     rustup target list --installed | grep -qx "$target" || die "no Rust target $target: rustup target add $target"
 done
@@ -305,6 +338,7 @@ fi
 
 # ---- 1. The Windows and Linux installers start building ----------------------
 
+if [ "$MAC_ONLY" = no ]; then
 say "1/6  Windows and Linux: the $WORKFLOW run for $HEAD"
 # The newest run for this commit that hasn't failed: one in progress will do.
 find_run() {
@@ -318,7 +352,8 @@ if [ -z "$RUN" ]; then
     git fetch -q origin
     [ -n "$BRANCH" ] && [ "$(git rev-parse -q --verify "origin/$BRANCH" || true)" = "$HEAD" ] \
         || die "push $HEAD first, on a branch: CI builds the installers from it"
-    gh workflow run "$WORKFLOW" --repo "$REPO" --ref "$BRANCH"
+    # The installers alone: the macOS app and the signatures are made here.
+    gh workflow run "$WORKFLOW" --repo "$REPO" --ref "$BRANCH" -f mac=false
     # The run appears a few seconds after it's asked for.
     for _ in $(seq 1 24); do
         sleep 5
@@ -328,6 +363,7 @@ if [ -z "$RUN" ]; then
     [ -n "$RUN" ] || die "the $WORKFLOW run didn't start"
 fi
 echo "   run $RUN: https://github.com/$REPO/actions/runs/$RUN"
+fi
 
 # ---- 2. The macOS app --------------------------------------------------------
 
@@ -340,9 +376,12 @@ IDENTITY=$(security find-identity -v -p codesigning \
 [ -n "$IDENTITY" ] || die "no Developer ID Application certificate of team $TEAM_ID in the keychain"
 # Tauri notarizes on its own when it sees Apple credentials; here the app and
 # then the image are notarized below, so it gets none.
-(cd apps/desktop && env -u APPLE_ID -u APPLE_PASSWORD -u APPLE_API_KEY -u APPLE_API_ISSUER \
-    -u APPLE_API_KEY_PATH APPLE_SIGNING_IDENTITY="$IDENTITY" CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed \
-    cargo tauri build --ci --target universal-apple-darwin --bundles app)
+(
+    cd apps/desktop
+    unset APPLE_ID APPLE_PASSWORD APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PATH
+    export APPLE_SIGNING_IDENTITY="$IDENTITY" CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
+    tauri build --ci --target universal-apple-darwin --bundles app
+)
 [ -d "$APP" ] || die "the build made no $APP"
 if [ -n "${SENTRY_AUTH_TOKEN:-}" ]; then
     # Match each architecture in the universal executable to its own symbols.
@@ -411,24 +450,28 @@ cp "$DMG" "$OUT/$APP_NAME.dmg"
 
 # ---- 3. The Windows and Linux installers, built ------------------------------
 
-say "5/6  Windows and Linux: waiting for run $RUN"
-gh run watch "$RUN" --repo "$REPO" --exit-status --interval 30 >/dev/null \
-    || die "run $RUN failed: gh run view $RUN --repo $REPO --log-failed"
-CI="$OUT/ci"
-gh run download "$RUN" --repo "$REPO" --dir "$CI"
-for name in "${INSTALLERS[@]}"; do
-    found=$(find "$CI" -type f -name "$name" | head -1)
-    [ -n "$found" ] || die "run $RUN has no $name; it has: $(find "$CI" -type f -exec basename {} \; | tr '\n' ' ')"
-    mv "$found" "$OUT/$name"
-done
-rm -rf "$CI"
-cp "$OUT/$WINDOWS_NSIS" "$OUT/$WINDOWS_STABLE"
+if [ "$MAC_ONLY" = no ]; then
+    say "5/6  Windows and Linux: waiting for run $RUN"
+    gh run watch "$RUN" --repo "$REPO" --exit-status --interval 30 >/dev/null \
+        || die "run $RUN failed: gh run view $RUN --repo $REPO --log-failed"
+    CI="$OUT/ci"
+    gh run download "$RUN" --repo "$REPO" --dir "$CI" --pattern "*-x86_64"
+    take_installers "$CI"
+    rm -rf "$CI"
+fi
 
 # ---- 4. The updates and the feed ---------------------------------------------
 
 # The macOS update is the stapled app itself, packed as the updater expects.
 COPYFILE_DISABLE=1 tar -C "$BUNDLE" -czf "$MAC_UPDATE" "$APP_NAME.app"
 
+if [ "$MAC_ONLY" = yes ]; then
+    echo "$HEAD" > "$OUT/unsigned"
+    printf "\n\033[1;32mThe macOS files, built, not signed as updates\033[0m\n"
+    ls -lh "$OUT" | sed 's/^/   /'
+    echo "   Next: apps/desktop/scripts/release.sh --sign <the folder with the Windows and Linux installers>"
+    exit 0
+fi
 if [ "$UNSIGNED" = yes ]; then
     echo "$HEAD" > "$OUT/unsigned"
     printf "\n\033[1;32mBuilt, not signed\033[0m\n"

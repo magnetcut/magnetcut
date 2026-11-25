@@ -37,9 +37,9 @@ Not for iOS or Android.
   Only publishing a release ships it. Each copy updates from the kind of installer it came from
   (NSIS, MSI, deb, rpm; the deb and rpm ask for the administrator password). Settings
   has the daily-check switch, on by default; Settings, About and the macOS menu have Check Now.
-  It's the one request made without a feature being used. The key stays on the maintainer's
-  Mac: CI builds the Windows and Linux installers with no secrets, and
-  `apps/desktop/scripts/release.sh` signs them (docs/RELEASING.md).
+  It's the one request made without a feature being used. The release workflow builds,
+  notarizes and signs it all with its environment's secrets, as MyDiskIsFull's does; a Mac with
+  the keys can too, with `apps/desktop/scripts/release.sh` (docs/RELEASING.md).
 - **App Store edition.** `apps/desktop/scripts/app-store.sh` builds a sandboxed Mac App Store
   app (user-selected files and Downloads read-write, Music read-write for recordings, the
   microphone, network client for model and font downloads and voices), its own bundle id, no
