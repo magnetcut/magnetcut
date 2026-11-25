@@ -8,7 +8,10 @@ import { openOpenedFiles, projectNameFor } from "../opened-files";
 let opened: DiskFileInfo[] = [];
 let projects: Array<{ path: string; text: string }> = [];
 const globals = globalThis as Record<string, unknown>;
+// Whether `window` is this file's, to take away again after.
+let ownsWindow = false;
 beforeAll(() => {
+	ownsWindow = globals.window === undefined;
 	globals.window ??= globalThis;
 	globals.isTauri = true;
 	globals.__TAURI_INTERNALS__ = {
@@ -25,10 +28,21 @@ beforeAll(() => {
 	};
 });
 afterAll(() => {
+	if (ownsWindow) delete globals.window;
 	delete globals.isTauri;
 	delete globals.__TAURI_INTERNALS__;
-	delete globals.location;
+	Reflect.deleteProperty(globalThis, "location");
 });
+
+/** On the page at `pathname`: defined, not assigned, as another test file
+ * may have left a location that can't be written. */
+function atPage({ pathname }: { pathname: string }): void {
+	Object.defineProperty(globalThis, "location", {
+		value: { pathname },
+		configurable: true,
+		writable: true,
+	});
+}
 
 const trip: DiskFileInfo = {
 	path: "/Movies/Trip.mov",
@@ -68,7 +82,7 @@ function makeEditor({ open }: { open: string | null }) {
 
 describe("files opened with MagnetCut", () => {
 	test("go into the project open in the editor", async () => {
-		globals.location = { pathname: "/editor" };
+		atPage({ pathname: "/editor" });
 		opened = [trip];
 		const { editor, made, imported, importFiles } = makeEditor({ open: "a" });
 		const visited: string[] = [];
@@ -86,7 +100,7 @@ describe("files opened with MagnetCut", () => {
 
 	test("with none open, are a new project of their own", async () => {
 		// As MagnetCut starts: the projects list.
-		globals.location = { pathname: "/" };
+		atPage({ pathname: "/" });
 		opened = [trip, { ...trip, path: "/Movies/More.mp4", name: "More.mp4" }];
 		const { editor, made, imported, importFiles } = makeEditor({ open: null });
 		const visited: string[] = [];
@@ -105,7 +119,7 @@ describe("files opened with MagnetCut", () => {
 	});
 
 	test("on the projects list, aren't given to the project open before", async () => {
-		globals.location = { pathname: "/projects" };
+		atPage({ pathname: "/projects" });
 		opened = [trip];
 		const { editor, made, imported, importFiles } = makeEditor({ open: "a" });
 
@@ -116,7 +130,7 @@ describe("files opened with MagnetCut", () => {
 	});
 
 	test("a project file opens as a project of its own, after the media", async () => {
-		globals.location = { pathname: "/editor" };
+		atPage({ pathname: "/editor" });
 		opened = [trip];
 		projects = [{ path: "/Movies/Cut.magnetcut", text: "{ cut }" }];
 		const { editor, imported, importFiles } = makeEditor({ open: "a" });
@@ -139,7 +153,7 @@ describe("files opened with MagnetCut", () => {
 	});
 
 	test("none: nothing happens", async () => {
-		globals.location = { pathname: "/editor" };
+		atPage({ pathname: "/editor" });
 		opened = [];
 		const { editor, made, imported, importFiles } = makeEditor({ open: "a" });
 

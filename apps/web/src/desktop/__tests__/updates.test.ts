@@ -15,7 +15,10 @@ function fakeInvoke({ command }: { command: string }) {
 }
 
 const globals = globalThis as Record<string, unknown>;
+// Whether `window` is this file's, to take away again after.
+let ownsWindow = false;
 beforeAll(() => {
+	ownsWindow = globals.window === undefined;
 	globals.window ??= globalThis;
 	globals.isTauri = true;
 	globals.__TAURI_INTERNALS__ = {
@@ -24,6 +27,7 @@ beforeAll(() => {
 	};
 });
 afterAll(() => {
+	if (ownsWindow) delete globals.window;
 	delete globals.isTauri;
 	delete globals.__TAURI_INTERNALS__;
 });

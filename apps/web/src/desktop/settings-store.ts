@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 
 interface SettingsState {
 	/** The daily check for a new version (Settings). */
@@ -23,6 +23,11 @@ export const useSettingsStore = create<SettingsState>()(
 			setLastUpdateCheck: ({ time }) => set({ lastUpdateCheck: time }),
 			setSkippedVersion: ({ version }) => set({ skippedVersion: version }),
 		}),
-		{ name: "magnetcut-settings" },
+		{
+			name: "magnetcut-settings",
+			// The page's own, as zustand's default (window.localStorage) is;
+			// where there's none, as in the tests, nothing's kept.
+			storage: createJSONStorage(() => localStorage),
+		},
 	),
 );
